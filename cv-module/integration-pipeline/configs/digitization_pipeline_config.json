@@ -1,0 +1,39 @@
+{
+    "max_frames": 600,
+    "cut_video": false,
+    "visualize": true,
+    "realtime": true,
+    "court_calibrator": {
+        "model_path": "models/best-models/court_detection.pt",
+        "real_coords": [
+            [1.6, 5.44],
+            [4.8, 5.44],
+            [4.8, 7.04],
+            [1.6, 7.04]
+        ],
+        "confidence_threshold": 0.5
+    },
+    "player_tracker": {
+        "model_path": "models/shared-yolo-models/yolov8m.pt",
+        "player_class_id": 0,
+        "player_class_name": "player"
+    },
+    "tracking_visualizer": {
+        "mini_court_overlay": {
+            "width": 200,
+            "height": 300,
+            "circle_radius": 5,
+            "circle_color": [0, 36, 204],
+            "text_color": [36, 36, 36],
+            "font_scale": 0.6,
+            "text_thickness": 2
+        },
+        "bboxes": {
+            "color": [0, 36, 204],
+            "thickness": 2,
+            "text_color": [255, 255, 255],
+            "font_scale": 0.6,
+            "text_thickness": 2
+        }
+    }
+}

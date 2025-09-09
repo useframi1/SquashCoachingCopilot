@@ -1,0 +1,8 @@
+{
+    "video_path": "testing/tests/test_1.mp4",
+    "court_dimensions": {
+        "width": 6.4,
+        "height": 9.75
+    },
+    "court_top_view_path": "assets/court_top_view.png"
+}

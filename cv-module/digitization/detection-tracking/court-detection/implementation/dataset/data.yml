@@ -1,0 +1,7 @@
+train: /Users/youssef/Documents/Thesis/Thesis-1/court-detection/yolo_dataset/train/images
+val: /Users/youssef/Documents/Thesis/Thesis-1/court-detection/yolo_dataset/test/images
+
+nc: 1
+kpt_shape: [4, 3] # 4 keypoints, each with (x, y, v)
+names: ["squash_court_floor"]
+kp_names: ["top-left", "top-right", "bottom-right", "bottom-left"]
