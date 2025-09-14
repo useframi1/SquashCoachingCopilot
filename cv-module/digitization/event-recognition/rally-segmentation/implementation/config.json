@@ -1,0 +1,20 @@
+{
+    "player_tracker": {
+        "model_path": "models/yolov8m.pt",
+        "player_class_id": 0,
+        "player_class_name": "player"
+    },
+    "court_calibrator": {
+        "model_path": "models/court_detection.pt",
+        "real_coords": [
+            [1.6, 5.44],
+            [4.8, 5.44],
+            [4.8, 7.04],
+            [1.6, 7.04]
+        ],
+        "confidence_threshold": 0.5
+    },
+    "processing": {
+        "average_position_interval": 30
+    }
+}
