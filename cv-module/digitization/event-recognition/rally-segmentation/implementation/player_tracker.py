@@ -68,14 +68,31 @@ class PlayerTracker:
             # Simple ResNet18 feature extractor or similar lightweight model
             from torchvision.models import resnet18, ResNet18_Weights
 
-            self.reid_model = resnet18(weights=ResNet18_Weights.DEFAULT).to(self.device)
-            self.reid_model.fc = torch.nn.Linear(512, 128)  # Reduce feature dimension
+            # Ensure device is properly set
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            print(f"Initializing ReID model on device: {self.device}")
+
+            # Load the model
+            self.reid_model = resnet18(weights=ResNet18_Weights.DEFAULT)
+
+            # Replace the final layer BEFORE moving to device
+            self.reid_model.fc = torch.nn.Linear(512, 128)
+
+            # Move the entire model to device
+            self.reid_model = self.reid_model.to(self.device)
             self.reid_model.eval()
+
+            # Verify all parameters are on the correct device
+            model_device = next(self.reid_model.parameters()).device
+            print(f"Model parameters are on device: {model_device}")
+
             self.use_reid = True
-        except:
-            print(
-                "Warning: Could not initialize re-ID model. Falling back to simpler tracking."
-            )
+
+        except Exception as e:
+            print(f"Warning: Could not initialize re-ID model: {e}")
+            import traceback
+
+            traceback.print_exc()
             self.use_reid = False
 
     def _init_kalman_filter(self):
@@ -107,8 +124,8 @@ class PlayerTracker:
             x2, y2 = x1 + w, y1 + h
 
             # Ensure valid crop area
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+            x1, y1 = max(0, int(x1)), max(0, int(y1))
+            x2, y2 = min(frame.shape[1], int(x2)), min(frame.shape[0], int(y2))
 
             if x2 <= x1 or y2 <= y1:
                 return None  # Invalid bbox
@@ -120,18 +137,46 @@ class PlayerTracker:
 
             # Resize and normalize
             person_img = cv2.resize(person_img, (224, 224))
+
+            # Convert BGR to RGB (OpenCV uses BGR, PyTorch models expect RGB)
+            person_img = cv2.cvtColor(person_img, cv2.COLOR_BGR2RGB)
+
+            # Convert to tensor and normalize to [0, 1]
             person_tensor = (
                 torch.from_numpy(person_img).permute(2, 0, 1).float() / 255.0
             )
+
+            # Apply ImageNet normalization
+            normalize = (
+                torch.nn.functional.normalize
+                if hasattr(torch.nn.functional, "normalize")
+                else lambda x: x
+            )
+            # Standard ImageNet normalization
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+
+            # Normalize
+            person_tensor = (person_tensor - mean) / std
+
+            # Add batch dimension and move to the same device as the model
             person_tensor = person_tensor.unsqueeze(0).to(self.device)
+
+            # Debug: Print tensor and model devices
+            print(f"Tensor device: {person_tensor.device}")
+            print(f"Model device: next(self.reid_model.parameters()).device")
 
             # Extract features
             with torch.no_grad():
                 features = self.reid_model(person_tensor)
 
             return features.squeeze().cpu().numpy()
+
         except Exception as e:
             print(f"Feature extraction error: {e}")
+            import traceback
+
+            traceback.print_exc()
             return None
 
     def feature_distance(self, feat1, feat2):

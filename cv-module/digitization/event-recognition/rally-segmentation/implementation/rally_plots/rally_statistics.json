@@ -1,31 +1,31 @@
 {
   "total_frames": 65,
   "valid_distance_measurements": 65,
-  "avg_distance_overall": 2.8805948486762967,
-  "std_distance_overall": 1.4555777582592073,
-  "min_distance": 0.9896201503375461,
-  "max_distance": 7.402087863476318,
+  "avg_distance_overall": 2.886073631677615,
+  "std_distance_overall": 1.468283701621722,
+  "min_distance": 1.0348728433684427,
+  "max_distance": 7.443099313937879,
   "state_statistics": {
     "rally_end": {
       "count": 6,
-      "avg_distance": 4.06576988878667,
-      "std_distance": 1.0852366708926104,
-      "min_distance": 3.121998559664829,
-      "max_distance": 6.130287689231089
+      "avg_distance": 4.176253532891706,
+      "std_distance": 1.0558559529002816,
+      "min_distance": 3.1189923033074023,
+      "max_distance": 6.132179451331144
     },
     "rally_start": {
-      "count": 11,
-      "avg_distance": 3.401921485815132,
-      "std_distance": 0.6317783786162896,
-      "min_distance": 2.19798776931683,
-      "max_distance": 4.6781304221164595
+      "count": 10,
+      "avg_distance": 3.3278685619592885,
+      "std_distance": 0.615148235672999,
+      "min_distance": 2.1919058064062154,
+      "max_distance": 4.678945917382938
     },
     "rally_active": {
-      "count": 48,
-      "avg_distance": 2.612977280984851,
-      "std_distance": 1.5234538584242516,
-      "min_distance": 0.9896201503375461,
-      "max_distance": 7.402087863476318
+      "count": 49,
+      "avg_distance": 2.637930188614325,
+      "std_distance": 1.5299809699584612,
+      "min_distance": 1.0348728433684427,
+      "max_distance": 7.443099313937879
     }
   }
 }

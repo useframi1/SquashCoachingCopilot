@@ -19,7 +19,7 @@
         "max_position_history": 100
     },
     "rally_segmentation": {
-        "low_intensity_threshold": 0.025,
+        "start_intensity_threshold": 0.01,
         "active_intensity_threshold": 0.035,
         "end_intensity_threshold": 0.025,
         "service_line": 5.44,

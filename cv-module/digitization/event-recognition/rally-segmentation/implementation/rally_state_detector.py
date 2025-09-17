@@ -9,8 +9,8 @@ class RallyStateDetector:
         self.rally_config = config.get("rally_segmentation", {})
 
         # Load thresholds from config
-        self.low_intensity_threshold = self.rally_config.get(
-            "low_intensity_threshold", 0.025
+        self.start_intensity_threshold = self.rally_config.get(
+            "start_intensity_threshold", 0.025
         )
         self.active_intensity_threshold = self.rally_config.get(
             "active_intensity_threshold", 0.035
@@ -70,7 +70,7 @@ class RallyStateDetector:
             return False
 
         # Low intensity required
-        if combined_intensity > self.low_intensity_threshold:
+        if combined_intensity > self.start_intensity_threshold:
             return False
 
         # All positional conditions must be met
