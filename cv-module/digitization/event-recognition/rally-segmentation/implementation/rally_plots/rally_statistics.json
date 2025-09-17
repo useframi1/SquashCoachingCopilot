@@ -1,0 +1,31 @@
+{
+  "total_frames": 65,
+  "valid_distance_measurements": 65,
+  "avg_distance_overall": 2.8805948486762967,
+  "std_distance_overall": 1.4555777582592073,
+  "min_distance": 0.9896201503375461,
+  "max_distance": 7.402087863476318,
+  "state_statistics": {
+    "rally_end": {
+      "count": 6,
+      "avg_distance": 4.06576988878667,
+      "std_distance": 1.0852366708926104,
+      "min_distance": 3.121998559664829,
+      "max_distance": 6.130287689231089
+    },
+    "rally_start": {
+      "count": 11,
+      "avg_distance": 3.401921485815132,
+      "std_distance": 0.6317783786162896,
+      "min_distance": 2.19798776931683,
+      "max_distance": 4.6781304221164595
+    },
+    "rally_active": {
+      "count": 48,
+      "avg_distance": 2.612977280984851,
+      "std_distance": 1.5234538584242516,
+      "min_distance": 0.9896201503375461,
+      "max_distance": 7.402087863476318
+    }
+  }
+}

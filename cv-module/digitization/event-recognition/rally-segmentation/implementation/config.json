@@ -15,6 +15,39 @@
         "confidence_threshold": 0.5
     },
     "processing": {
-        "average_position_interval": 30
+        "average_position_interval": 50,
+        "max_position_history": 100
+    },
+    "rally_segmentation": {
+        "low_intensity_threshold": 0.025,
+        "active_intensity_threshold": 0.035,
+        "end_intensity_threshold": 0.025,
+        "service_line": 5.44,
+        "service_box_back": 7.04,
+        "court_center_x": 3.2,
+        "service_boxes": {
+            "left": {
+                "x_min": 0,
+                "x_max": 1.6
+            },
+            "right": {
+                "x_min": 4.8,
+                "x_max": 6.4
+            }
+        }
+    },
+    "display": {
+        "show_bounding_boxes": true,
+        "show_player_labels": true,
+        "show_statistics": true,
+        "show_rally_state": true
+    },
+    "plotting": {
+        "save_plots": true,
+        "show_plots": true,
+        "output_directory": "rally_plots",
+        "format": "png",
+        "dpi": 300,
+        "figure_size": [12, 8]
     }
 }
