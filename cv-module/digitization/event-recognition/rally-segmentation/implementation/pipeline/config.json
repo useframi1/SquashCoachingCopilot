@@ -1,0 +1,55 @@
+{
+    "player_tracker": {
+        "model_path": "pipeline/models/yolov8m.pt",
+        "player_class_id": 0,
+        "player_class_name": "player"
+    },
+    "court_calibrator": {
+        "model_path": "pipeline/models/court_detection.pt",
+        "real_coords": [
+            [1.6, 5.44],
+            [4.8, 5.44],
+            [4.8, 7.04],
+            [1.6, 7.04]
+        ],
+        "confidence_threshold": 0.5
+    },
+    "processing": {
+        "average_position_interval": 50,
+        "max_position_history": 100
+    },
+    "rally_segmentation": {
+        "start_intensity_threshold": 0.025,
+        "active_intensity_threshold": 0.035,
+        "end_intensity_threshold": 0.025,
+        "service_line": 5.44,
+        "service_box_back": 7.04,
+        "court_center_x": 3.2,
+        "rally_active_avg_distance_threshold": 3.5,
+        "rally_end_avg_distance_threshold": 5.5,
+        "service_boxes": {
+            "left": {
+                "x_min": 0,
+                "x_max": 1.6
+            },
+            "right": {
+                "x_min": 4.8,
+                "x_max": 6.4
+            }
+        }
+    },
+    "display": {
+        "show_bounding_boxes": true,
+        "show_player_labels": true,
+        "show_statistics": true,
+        "show_rally_state": true
+    },
+    "plotting": {
+        "save_plots": true,
+        "show_plots": true,
+        "output_directory": "rally_plots",
+        "format": "png",
+        "dpi": 300,
+        "figure_size": [12, 8]
+    }
+}
