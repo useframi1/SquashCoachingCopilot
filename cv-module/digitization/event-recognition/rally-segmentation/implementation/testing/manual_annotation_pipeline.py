@@ -123,16 +123,26 @@ class ManualAnnotationPipeline:
             "player2_intensity": None,
             "combined_intensity": None,
             "player_count": len(player_coords),
+            "player1_x": None,
+            "player1_y": None,
+            "player2_x": None,
+            "player2_y": None,
         }
+
+        # Store current player positions
+        player_ids = list(player_real_coords.keys())[:2]
+        for i, player_id in enumerate(player_ids, 1):
+            if len(player_real_coords[player_id]) > 0:
+                pos = player_real_coords[player_id][-1]  # Latest position
+                metrics[f"player{i}_x"] = pos[0]
+                metrics[f"player{i}_y"] = pos[1]
 
         # Calculate distance between players if both detected
         if len(player_real_coords) >= 2:
-            player_ids = list(player_real_coords.keys())[:2]
             if (
                 len(player_real_coords[player_ids[0]]) > 0
                 and len(player_real_coords[player_ids[1]]) > 0
             ):
-
                 pos1 = player_real_coords[player_ids[0]][-1]  # Latest position
                 pos2 = player_real_coords[player_ids[1]][-1]
 
@@ -208,6 +218,20 @@ class ManualAnnotationPipeline:
             if m["combined_intensity"] is not None
         ]
 
+        # Extract player positions for averaging
+        player1_x_positions = [
+            m["player1_x"] for m in window_metrics if m["player1_x"] is not None
+        ]
+        player1_y_positions = [
+            m["player1_y"] for m in window_metrics if m["player1_y"] is not None
+        ]
+        player2_x_positions = [
+            m["player2_x"] for m in window_metrics if m["player2_x"] is not None
+        ]
+        player2_y_positions = [
+            m["player2_y"] for m in window_metrics if m["player2_y"] is not None
+        ]
+
         stats = {
             "video_name": self.video_name,
             "frame_number": self.current_frame,
@@ -232,6 +256,32 @@ class ManualAnnotationPipeline:
             ),
             "median_combined_intensity": (
                 np.median(combined_intensities) if combined_intensities else None
+            ),
+            # Add median player positions (more robust than averages)
+            "median_player1_x": (
+                np.median(player1_x_positions) if player1_x_positions else None
+            ),
+            "median_player1_y": (
+                np.median(player1_y_positions) if player1_y_positions else None
+            ),
+            "median_player2_x": (
+                np.median(player2_x_positions) if player2_x_positions else None
+            ),
+            "median_player2_y": (
+                np.median(player2_y_positions) if player2_y_positions else None
+            ),
+            # Also keep averages for comparison if needed
+            "avg_player1_x": (
+                np.mean(player1_x_positions) if player1_x_positions else None
+            ),
+            "avg_player1_y": (
+                np.mean(player1_y_positions) if player1_y_positions else None
+            ),
+            "avg_player2_x": (
+                np.mean(player2_x_positions) if player2_x_positions else None
+            ),
+            "avg_player2_y": (
+                np.mean(player2_y_positions) if player2_y_positions else None
             ),
         }
 
@@ -260,6 +310,20 @@ class ManualAnnotationPipeline:
                 print(
                     f"  Combined Intensity - Mean: {stats['mean_combined_intensity']:.6f}, Median: {stats['median_combined_intensity']:.6f}"
                 )
+            if (
+                stats["median_player1_x"] is not None
+                and stats["median_player1_y"] is not None
+            ):
+                print(
+                    f"  Player 1 Median Position: ({stats['median_player1_x']:.2f}, {stats['median_player1_y']:.2f})"
+                )
+            if (
+                stats["median_player2_x"] is not None
+                and stats["median_player2_y"] is not None
+            ):
+                print(
+                    f"  Player 2 Median Position: ({stats['median_player2_x']:.2f}, {stats['median_player2_y']:.2f})"
+                )
         else:
             print(
                 f"Could not calculate statistics (need at least {self.window_size} frames)"
@@ -271,7 +335,9 @@ class ManualAnnotationPipeline:
             stats = self.calculate_window_statistics(self.current_rally_state)
             if stats:
                 self.annotations.append(stats)
-                print(f"Auto-saved metrics at frame {self.current_frame} (state: {self.current_rally_state})")
+                print(
+                    f"Auto-saved metrics at frame {self.current_frame} (state: {self.current_rally_state})"
+                )
                 return True
         return False
 
