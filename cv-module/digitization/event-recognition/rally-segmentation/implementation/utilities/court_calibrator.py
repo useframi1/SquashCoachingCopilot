@@ -2,10 +2,12 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 
+from .general import load_config
+
 
 class CourtCalibrator:
-    def __init__(self, config):
-        self.config = config
+    def __init__(self):
+        self.config = load_config()["court_calibrator"]
         self.model = YOLO(self.config["model_path"])
         self.homography = None
 

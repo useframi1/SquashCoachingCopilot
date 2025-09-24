@@ -5,17 +5,18 @@ import torch
 from collections import deque
 from filterpy.kalman import KalmanFilter
 
+from .general import load_config
+
 
 class PlayerTracker:
     def __init__(
         self,
         homography,
-        config,
         max_history=100,
         reid_threshold=0.6,
     ):
         # From original PlayerTracker
-        self.config = config
+        self.config = load_config()["player_tracker"]
         self.homography = homography
         self.player_real_positions = {}
         self.model = YOLO(self.config["model_path"])
