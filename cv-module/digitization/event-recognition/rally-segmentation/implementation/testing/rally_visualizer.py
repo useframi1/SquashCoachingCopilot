@@ -37,7 +37,6 @@ class RallyVisualizer:
         self.player_colors = {1: (0, 255, 0), 2: (0, 0, 255)}
 
         # History for visualization
-        self.distance_history = deque(maxlen=300)
         self.state_history = deque(maxlen=300)
         self.frame_history = deque(maxlen=300)
 
@@ -45,15 +44,12 @@ class RallyVisualizer:
         self.current_state = "start"
         self.frames_in_state = 0
 
-    def _predict_state(self) -> str:
+    def _predict_state(self, metrics: Dict[str, any]) -> str:
         """Predict current state based on aggregated distance."""
         if not self.metrics_aggregator.has_full_window():
             return self.current_state
 
-        mean_distance = self.metrics_aggregator.get_mean_distance()
-        state = self.model._classify_frame_distance_only(
-            mean_distance, self.current_state
-        )
+        state = self.model._classify_frame_state(metrics, self.current_state)
 
         if state == self.current_state:
             self.frames_in_state += 1
@@ -136,7 +132,11 @@ class RallyVisualizer:
         return frame
 
     def _draw_metrics_panel(
-        self, frame: np.ndarray, frame_num: int, state: str, mean_distance: float
+        self,
+        frame: np.ndarray,
+        frame_num: int,
+        state: str,
+        state_metrics: Dict[str, any],
     ) -> np.ndarray:
         """Draw metrics panel on the right side."""
         height, width = frame.shape[:2]
@@ -162,7 +162,10 @@ class RallyVisualizer:
             f"State: {state.upper()}",
             f"Duration: {self.frames_in_state} frames",
             "",
-            f"Mean Distance: {mean_distance:.2f}m",
+            f"--- Metrics ---",
+            f"Player 1 Position: {state_metrics.get('player1_x', 'N/A'):.1f}, {state_metrics.get('player1_y', 'N/A'):.1f}",
+            f"Player 2 Position: {state_metrics.get('player2_x', 'N/A'):.1f}, {state_metrics.get('player2_y', 'N/A'):.1f}",
+            f"Player Distance: {state_metrics.get('player_distance', 'N/A'):.1f} m",
             "",
             "--- Thresholds ---",
         ]
@@ -191,67 +194,6 @@ class RallyVisualizer:
                 thickness,
                 cv2.LINE_AA,
             )
-
-        return frame
-
-    def _draw_distance_timeline(self, frame: np.ndarray) -> np.ndarray:
-        """Draw distance timeline at the bottom."""
-        if len(self.distance_history) < 2:
-            return frame
-
-        height, width = frame.shape[:2]
-        plot_height = 150
-        plot_y_start = height - plot_height
-
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, plot_y_start), (width, height), (0, 0, 0), -1)
-        frame = cv2.addWeighted(frame, 0.7, overlay, 0.3, 0)
-
-        distances = list(self.distance_history)
-        states = list(self.state_history)
-
-        max_distance = max(distances) if distances else 8.0
-        min_distance = 0.0
-
-        for i in range(5):
-            y = plot_y_start + int((plot_height * i) / 4)
-            cv2.line(frame, (0, y), (width, y), (50, 50, 50), 1)
-
-        def dist_to_y(d):
-            normalized = (d - min_distance) / (max_distance - min_distance + 1e-6)
-            return plot_y_start + plot_height - int(normalized * plot_height)
-
-        active_min, active_max = tuple(self.model.config["distance_active_range"])
-        start_min, start_max = tuple(self.model.config["distance_start_range"])
-
-        y_active = dist_to_y(active_max)
-        cv2.line(frame, (0, y_active), (width, y_active), (0, 255, 0), 2, cv2.LINE_AA)
-
-        y_start = dist_to_y(start_max)
-        cv2.line(frame, (0, y_start), (width, y_start), (255, 200, 0), 2, cv2.LINE_AA)
-
-        points = []
-        for i, distance in enumerate(distances):
-            x = int((i / len(distances)) * width)
-            y = dist_to_y(distance)
-            points.append((x, y))
-
-        for i in range(len(points) - 1):
-            state = states[i] if i < len(states) else "start"
-            color = self.state_colors.get(state, (128, 128, 128))
-            cv2.line(frame, points[i], points[i + 1], color, 2, cv2.LINE_AA)
-
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(
-            frame,
-            f"Distance Timeline ({self.window_size}-frame avg)",
-            (10, plot_y_start + 25),
-            font,
-            0.5,
-            (255, 255, 255),
-            1,
-            cv2.LINE_AA,
-        )
 
         return frame
 
@@ -397,23 +339,17 @@ class RallyVisualizer:
                     if not ret:
                         break
 
-                    self.metrics_aggregator.update_metrics(frame, frame_num)
+                    metrics = self.metrics_aggregator.update_metrics(frame, frame_num)
 
                     positions = self.metrics_aggregator.get_player_positions()
                     player_positions = self.metrics_aggregator.last_player_bboxes
 
                     player_real_positions = positions.get("real", {})
-                    mean_distance = self.metrics_aggregator.get_mean_distance()
 
-                    if self.metrics_aggregator.has_full_window():
-                        state = self._predict_state()
+                    state = self._predict_state(metrics)
 
-                        self.distance_history.append(mean_distance)
-                        self.state_history.append(state)
-                        self.frame_history.append(frame_num)
-
-                    else:
-                        state = "start"
+                    self.state_history.append(state)
+                    self.frame_history.append(frame_num)
 
                     vis_frame = frame.copy()
                     vis_frame = self._draw_player_tracking(vis_frame, player_positions)
@@ -421,11 +357,8 @@ class RallyVisualizer:
 
                     if self.show_metrics:
                         vis_frame = self._draw_metrics_panel(
-                            vis_frame, frame_num, state, mean_distance
+                            vis_frame, frame_num, state, metrics
                         )
-
-                    if self.show_timeline:
-                        vis_frame = self._draw_distance_timeline(vis_frame)
 
                     if self.show_court_view:
                         vis_frame = self._draw_court_view(

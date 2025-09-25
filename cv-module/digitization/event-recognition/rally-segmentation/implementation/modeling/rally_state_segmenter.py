@@ -46,7 +46,7 @@ class RallyStateSegmenter:
 
         return df
 
-    def _classify_frame_distance_only(
+    def _classify_frame_state(
         self, distance: float, current_state: Optional[str] = None
     ) -> str:
         """
@@ -209,7 +209,7 @@ class RallyStateSegmenter:
         current_state = None
 
         for distance in df[distance_col]:
-            pred = self._classify_frame_distance_only(distance, current_state)
+            pred = self._classify_frame_state(distance, current_state)
             predictions.append(pred)
             current_state = pred
 
