@@ -20,8 +20,6 @@ class RallyVisualizer:
         self.config = load_config()
         self.window_size = self.config["annotations"]["window_size"]
         self.show_metrics = self.config["testing"]["show_metrics"]
-        self.show_timeline = self.config["testing"]["show_timeline"]
-        self.show_court_view = self.config["testing"]["show_court"]
 
         # Initialize metrics aggregator
         self.metrics_aggregator = MetricsAggregator(window_size=self.window_size)
@@ -163,9 +161,9 @@ class RallyVisualizer:
             f"Duration: {self.frames_in_state} frames",
             "",
             f"--- Metrics ---",
-            f"Player 1 Position: {state_metrics.get('player1_x', 'N/A'):.1f}, {state_metrics.get('player1_y', 'N/A'):.1f}",
-            f"Player 2 Position: {state_metrics.get('player2_x', 'N/A'):.1f}, {state_metrics.get('player2_y', 'N/A'):.1f}",
-            f"Player Distance: {state_metrics.get('player_distance', 'N/A'):.1f} m",
+            f"Player 1 Position: {state_metrics.get('median_player1_x', 'N/A')}, {state_metrics.get('median_player1_y', 'N/A')}",
+            f"Player 2 Position: {state_metrics.get('median_player2_x', 'N/A')}, {state_metrics.get('median_player2_y', 'N/A')}",
+            f"Mean Distance: {state_metrics.get('mean_distance', 'N/A')} m",
             "",
             "--- Thresholds ---",
         ]
@@ -194,86 +192,6 @@ class RallyVisualizer:
                 thickness,
                 cv2.LINE_AA,
             )
-
-        return frame
-
-    def _draw_court_view(
-        self, frame: np.ndarray, player_real_positions: Dict
-    ) -> np.ndarray:
-        """Draw top-down court view in corner."""
-        real_coords = self.metrics_aggregator.calibrator.config.get("real_coords", [])
-        if len(real_coords) < 4:
-            return frame
-
-        xs = [coord[0] for coord in real_coords]
-        ys = [coord[1] for coord in real_coords]
-        court_min_x, court_max_x = min(xs), max(xs)
-        court_min_y, court_max_y = min(ys), max(ys)
-        court_width = court_max_x - court_min_x
-        court_length = court_max_y - court_min_y
-
-        view_width = 250
-        view_height = int(view_width * (court_length / court_width))
-
-        margin = 20
-        view_x = frame.shape[1] - view_width - margin
-        view_y = 100
-
-        overlay = frame.copy()
-        cv2.rectangle(
-            overlay,
-            (view_x, view_y),
-            (view_x + view_width, view_y + view_height),
-            (40, 40, 40),
-            -1,
-        )
-        cv2.rectangle(
-            overlay,
-            (view_x, view_y),
-            (view_x + view_width, view_y + view_height),
-            (255, 255, 255),
-            2,
-        )
-
-        center_x = view_x + view_width // 2
-        cv2.line(
-            overlay,
-            (center_x, view_y),
-            (center_x, view_y + view_height),
-            (255, 255, 255),
-            1,
-        )
-
-        frame = cv2.addWeighted(frame, 0.7, overlay, 0.3, 0)
-
-        for player_id in [1, 2]:
-            if (
-                player_id in player_real_positions
-                and len(player_real_positions[player_id]) > 0
-            ):
-                real_pos = player_real_positions[player_id][-1]
-                if real_pos:
-                    normalized_x = (real_pos[0] - court_min_x) / court_width
-                    normalized_y = (real_pos[1] - court_min_y) / court_length
-
-                    px = int(view_x + normalized_x * view_width)
-                    py = int(view_y + normalized_y * view_height)
-
-                    color = self.player_colors.get(player_id, (255, 255, 255))
-                    cv2.circle(frame, (px, py), 8, color, -1)
-                    cv2.circle(frame, (px, py), 8, (255, 255, 255), 2)
-
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(
-            frame,
-            "Court View",
-            (view_x, view_y - 5),
-            font,
-            0.5,
-            (255, 255, 255),
-            1,
-            cv2.LINE_AA,
-        )
 
         return frame
 
@@ -339,12 +257,11 @@ class RallyVisualizer:
                     if not ret:
                         break
 
-                    metrics = self.metrics_aggregator.update_metrics(frame, frame_num)
+                    self.metrics_aggregator.update_metrics(frame, frame_num)
 
-                    positions = self.metrics_aggregator.get_player_positions()
+                    metrics = self.metrics_aggregator.get_aggregated_metrics()
+
                     player_positions = self.metrics_aggregator.last_player_bboxes
-
-                    player_real_positions = positions.get("real", {})
 
                     state = self._predict_state(metrics)
 
@@ -355,14 +272,9 @@ class RallyVisualizer:
                     vis_frame = self._draw_player_tracking(vis_frame, player_positions)
                     vis_frame = self._draw_state_banner(vis_frame, state)
 
-                    if self.show_metrics:
+                    if self.show_metrics and metrics:
                         vis_frame = self._draw_metrics_panel(
                             vis_frame, frame_num, state, metrics
-                        )
-
-                    if self.show_court_view:
-                        vis_frame = self._draw_court_view(
-                            vis_frame, player_real_positions
                         )
 
                     cv2.imshow("Rally State Visualization", vis_frame)

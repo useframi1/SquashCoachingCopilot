@@ -1,10 +1,11 @@
 """
 Rally State Segmentation Model
 A rule-based model for segmenting squash rallies into start, active, and end states.
+Enhanced with position-based logic for start state detection.
 """
 
 import pandas as pd
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from utilities.general import load_config
 
@@ -12,7 +13,7 @@ from utilities.general import load_config
 class RallyStateSegmenter:
     """
     A rule-based model for segmenting squash rallies into start, active, and end states.
-    Uses distance-based thresholds with temporal constraints.
+    Uses distance-based thresholds with temporal constraints and position-based logic.
     """
 
     def __init__(self):
@@ -38,7 +39,7 @@ class RallyStateSegmenter:
         df = df.copy()
 
         # Apply rolling mean to distance
-        df["distance_smoothed"] = (
+        df["mean_distance"] = (
             df["mean_distance"]
             .rolling(window=self.config["rolling_window"], center=True, min_periods=1)
             .mean()
@@ -46,19 +47,119 @@ class RallyStateSegmenter:
 
         return df
 
+    def _is_behind_service_line(self, player_y: float) -> bool:
+        """
+        Check if a player is behind the service line.
+
+        Args:
+            player_y: Player's y-coordinate
+
+        Returns:
+            True if player is behind service line
+        """
+        # Assuming service line is at a specific y-coordinate
+        # You'll need to adjust this based on your court coordinate system
+        service_line_y = self.config["service_line_y"]
+        return player_y > service_line_y
+
+    def _is_in_service_box(self, player_x: float, player_y: float, side: str) -> bool:
+        """
+        Check if a player is in their service box.
+
+        Args:
+            player_x: Player's x-coordinate
+            player_y: Player's y-coordinate
+            side: 'left' or 'right' side of the court
+
+        Returns:
+            True if player is in service box
+        """
+        # Service box boundaries - adjust based on your coordinate system
+        service_box_config = self.config["service_boxes"]
+
+        if side not in service_box_config:
+            return False
+
+        box = service_box_config[side]
+        return (
+            box["x_min"] <= player_x <= box["x_max"]
+            and box["y_min"] <= player_y <= box["y_max"]
+        )
+
+    def _are_on_opposite_sides(self, p1_x: float, p2_x: float) -> bool:
+        """
+        Check if players are on opposite sides of the court.
+
+        Args:
+            p1_x: Player 1's x-coordinate
+            p2_x: Player 2's x-coordinate
+
+        Returns:
+            True if players are on opposite sides
+        """
+        court_center_x = self.config["court_center_x"]
+        return (p1_x < court_center_x) != (p2_x < court_center_x)
+
+    def _check_start_position_constraints(self, metrics: Dict[str, any]) -> bool:
+        """
+        Check if player positions satisfy start state constraints.
+
+        For squash start state:
+        1. Both players are on opposite sides of the court
+        2. Both players are behind the service line
+        3. At least one player is in a service box
+
+        Args:
+            metrics: Dictionary containing player position metrics
+
+        Returns:
+            True if position constraints are satisfied
+        """
+        # Extract player positions
+        p1_x = metrics.get("median_player1_x")
+        p1_y = metrics.get("median_player1_y")
+        p2_x = metrics.get("median_player2_x")
+        p2_y = metrics.get("median_player2_y")
+
+        # Check if we have valid position data
+        if any(pos is None for pos in [p1_x, p1_y, p2_x, p2_y]):
+            return False
+
+        # 1. Check if players are on opposite sides
+        if not self._are_on_opposite_sides(p1_x, p2_x):
+            return False
+
+        # 2. Check if both players are behind service line
+        if not (
+            self._is_behind_service_line(p1_y) and self._is_behind_service_line(p2_y)
+        ):
+            return False
+
+        # 3. Check if at least one player is in a service box
+        # Determine which side each player is on
+        # court_center_x = self.config["court_center_x"]
+        # p1_side = "left" if p1_x < court_center_x else "right"
+        # p2_side = "left" if p2_x < court_center_x else "right"
+
+        # p1_in_box = self._is_in_service_box(p1_x, p1_y, p1_side)
+        # p2_in_box = self._is_in_service_box(p2_x, p2_y, p2_side)
+
+        # return p1_in_box or p2_in_box
+        return True  # Relaxed for simplicity; implement as needed
+
     def _classify_frame_state(
-        self, distance: float, current_state: Optional[str] = None
+        self, metrics: Dict[str, any], current_state: Optional[str] = None
     ) -> str:
         """
-        Classify a single frame based on distance ranges with hysteresis.
+        Classify a single frame based on distance ranges and position constraints with hysteresis.
 
         Logic:
         - Active: low distance (players close, rally happening)
-        - Start: medium-low distance (serving position)
+        - Start: medium-low distance + position constraints (serving position)
         - End: high distance (rally over, players separated)
 
         Args:
-            distance: Mean distance value for the frame
+            metrics: Dictionary of all metrics
             current_state: Current state (for hysteresis logic)
 
         Returns:
@@ -68,6 +169,8 @@ class RallyStateSegmenter:
         active_min, active_max = tuple(self.config["distance_active_range"])
         start_min, start_max = tuple(self.config["distance_start_range"])
         end_min, end_max = tuple(self.config["distance_end_range"])
+
+        distance = metrics["mean_distance"]
 
         # Apply hysteresis to prevent flickering
         if current_state == "active":
@@ -79,7 +182,9 @@ class RallyStateSegmenter:
                 < distance
                 < start_max + self.config["hysteresis_margin"]
             ):
-                return "start"
+                # For start state, also check position constraints
+                if self._check_start_position_constraints(metrics):
+                    return "start"
         elif current_state == "end":
             if distance > end_min - self.config["hysteresis_margin"]:
                 return "end"
@@ -88,7 +193,13 @@ class RallyStateSegmenter:
         if active_min <= distance < active_max:
             return "active"
         elif start_min <= distance < start_max:
-            return "start"
+            # For start state, check both distance AND position constraints
+            if self._check_start_position_constraints(metrics):
+                return "start"
+            else:
+                # If distance suggests start but positions don't match,
+                # it might be transitioning to/from active
+                return "active" if current_state != "end" else current_state or "active"
         elif distance >= end_min:
             return "end"
         else:
@@ -188,7 +299,7 @@ class RallyStateSegmenter:
         Predict rally states for the entire dataset.
 
         Args:
-            df: DataFrame with 'mean_distance' column
+            df: DataFrame with 'mean_distance' and player position columns
             apply_smoothing: Whether to apply feature smoothing
             apply_transitions: Whether to enforce transition rules
 
@@ -200,16 +311,13 @@ class RallyStateSegmenter:
         # Step 1: Smooth features if requested
         if apply_smoothing:
             df = self._smooth_features(df)
-            distance_col = "distance_smoothed"
-        else:
-            distance_col = "mean_distance"
 
         # Step 2: Make initial predictions
         predictions = []
         current_state = None
 
-        for distance in df[distance_col]:
-            pred = self._classify_frame_state(distance, current_state)
+        for _, row in df.iterrows():
+            pred = self._classify_frame_state(row.to_dict(), current_state)
             predictions.append(pred)
             current_state = pred
 

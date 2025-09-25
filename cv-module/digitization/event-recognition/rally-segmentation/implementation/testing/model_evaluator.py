@@ -381,8 +381,6 @@ def main():
     print(f"Total frames: {len(df)}")
     print(f"\nState distribution:")
     print(df["state"].value_counts())
-    print(f"\nDistance statistics by state:")
-    print(df.groupby("state")["mean_distance"].describe())
 
     model = RallyStateSegmenter()
 

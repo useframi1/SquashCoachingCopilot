@@ -219,40 +219,6 @@ class MetricsAggregator:
 
         return stats
 
-    def get_mean_distance(self) -> float:
-        """
-        Get mean distance over the current window.
-
-        Returns:
-            Mean distance in meters, or 0.0 if insufficient data
-        """
-        if len(self.metrics_history) < self.window_size:
-            return 0.0
-
-        window_metrics = list(self.metrics_history)[-self.window_size :]
-        distances = [
-            m["player_distance"]
-            for m in window_metrics
-            if m["player_distance"] is not None
-        ]
-
-        return np.mean(distances) if distances else 0.0
-
-    def get_player_positions(self) -> Dict[int, Dict[str, any]]:
-        """
-        Get current player positions from tracker.
-
-        Returns:
-            Dictionary with player positions (pixel and real-world coordinates)
-        """
-        if self.tracker is None:
-            return {}
-
-        return {
-            "pixel": self.tracker.player_positions,
-            "real": self.tracker.player_real_positions,
-        }
-
     def has_full_window(self) -> bool:
         """
         Check if we have enough frames for a full window.
