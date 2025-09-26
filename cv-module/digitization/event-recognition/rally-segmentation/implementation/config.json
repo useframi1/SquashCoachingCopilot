@@ -15,9 +15,6 @@
         "confidence_threshold": 0.5
     },
     "rally_segmenter": {
-        "distance_active_range": [0.0, 2.0],
-        "distance_start_range": [2.0, 3.0],
-        "distance_end_range": [3.0, 10.0],
         "min_start_duration": 1,
         "min_active_duration": 1,
         "min_end_duration": 1,
@@ -28,28 +25,46 @@
         "service_boxes": {
             "left": {
                 "x_min": 0.0,
-                "x_max": 1.6,
+                "x_max": 1.7,
                 "y_min": 5.44,
                 "y_max": 7.04
             },
             "right": {
-                "x_min": 4.8,
+                "x_min": 4.7,
                 "x_max": 6.4,
-                "y_min": 5.44,
+                "y_min": 5.4,
                 "y_max": 7.04
             }
+        },
+        "distance_lookback_frames": 2,
+        "start_state_criteria": {
+            "distance_min": 2.5,
+            "distance_max": 3.5,
+            "max_abs_mean_change": 0.1,
+            "max_std_change": 0.05
+        },
+        "active_state_criteria": {
+            "distance_min": 0.0,
+            "distance_max": 3.2,
+            "min_std_change": 0.15,
+            "min_abs_mean_change": 0.1
+        },
+        "end_state_criteria": {
+            "distance_min": 3.2,
+            "min_mean_change": 0.05,
+            "min_abs_mean_change": 0.08
         }
     },
     "annotations": {
         "output_path": "data/annotations",
         "window_size": 50,
-        "video_path": "videos/video-4.mp4"
+        "video_path": "videos/video-5.mp4"
     },
     "analysis": {
         "plots_path": "analysis/rally_segmentation_eda.png"
     },
     "testing": {
-        "video_path": "videos/video-4.mp4",
+        "video_path": "videos/video-5.mp4",
         "show_metrics": true,
         "visualizer_output_directory": "testing/visualizer_output",
         "start_frame": 0,

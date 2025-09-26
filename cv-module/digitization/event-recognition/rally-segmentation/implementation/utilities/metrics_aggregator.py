@@ -37,7 +37,8 @@ class MetricsAggregator:
         self.court_calibrated = False
 
         # Metrics storage
-        self.metrics_history = deque(maxlen=window_size * 2)
+        self.metrics_history = []
+        self.current_stats = None
 
         self.last_player_bboxes = {}
 
@@ -176,10 +177,10 @@ class MetricsAggregator:
             Dictionary with aggregated statistics, or None if insufficient data
         """
         if len(self.metrics_history) < self.window_size:
-            return None
+            return self.current_stats
 
         # Get the last window_size frames for analysis
-        window_metrics = list(self.metrics_history)[-self.window_size :]
+        window_metrics = self.metrics_history
 
         # Extract metrics for calculation
         distances = [
@@ -217,6 +218,10 @@ class MetricsAggregator:
         if additional_data:
             stats.update(additional_data)
 
+        # Clear history after aggregation
+        self.metrics_history.clear()
+
+        self.current_stats = stats
         return stats
 
     def has_full_window(self) -> bool:
@@ -226,7 +231,7 @@ class MetricsAggregator:
         Returns:
             True if window is full
         """
-        return len(self.metrics_history) >= self.window_size
+        return len(self.metrics_history) == self.window_size
 
     def reset(self) -> None:
         """Reset all metrics history."""

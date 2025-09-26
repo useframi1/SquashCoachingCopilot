@@ -19,7 +19,7 @@ class PlayerTracker:
         self.config = load_config()["player_tracker"]
         self.homography = homography
         self.player_real_positions = {}
-        self.model = YOLO(self.config["model_path"])
+        self.model = YOLO(self.config["model_path"], verbose=False)
         self.player_class_id = self.config["player_class_id"]
 
         # From SquashPlayerTracker
@@ -536,9 +536,15 @@ class PlayerTracker:
 
     def get_detections(self, frame):
         """Get player detections using YOLO"""
-        results = self.model(frame)[0]
-        detections = []
+        import os
+        import sys
+        from contextlib import redirect_stdout
 
+        with open(os.devnull, "w") as devnull:
+            with redirect_stdout(devnull):
+                results = self.model(frame, verbose=False)[0]
+
+        detections = []
         for box in results.boxes.data.cpu().numpy():
             x1, y1, x2, y2, conf, cls = box
             if int(cls) == self.player_class_id:
@@ -546,7 +552,6 @@ class PlayerTracker:
                 detections.append(
                     ([x, y, w, h], conf, self.config["player_class_name"])
                 )
-
         return detections
 
     def process_frame(self, frame):

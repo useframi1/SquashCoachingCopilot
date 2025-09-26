@@ -14,7 +14,7 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
-from modeling.rally_state_segmenter import RallyStateSegmenter
+from modeling.rule_based_model import RallyStateSegmenter
 from utilities.general import load_config, load_and_combine_data
 
 
@@ -245,9 +245,18 @@ class ModelEvaluator:
             )
 
         # Show range boundaries
-        active_min, active_max = tuple(self.model.config["distance_active_range"])
-        start_min, start_max = tuple(self.model.config["distance_start_range"])
-        end_min, end_max = tuple(self.model.config["distance_end_range"])
+        active_min, active_max = (
+            self.model.config["active_state_criteria"]["distance_min"],
+            self.model.config["active_state_criteria"]["distance_max"],
+        )
+        start_min, start_max = (
+            self.model.config["start_state_criteria"]["distance_min"],
+            self.model.config["start_state_criteria"]["distance_max"],
+        )
+        end_min, end_max = (
+            self.model.config["end_state_criteria"]["distance_min"],
+            100.0,
+        )
 
         ax1.axhspan(
             active_min, active_max, alpha=0.2, color="green", label="Active Range"
@@ -386,17 +395,19 @@ def main():
 
     # Make predictions
     print("\n3. RUNNING PREDICTIONS...")
-    df_pred = model.predict(df, apply_smoothing=True, apply_transitions=True)
+    df_pred = model.predict(df, apply_smoothing=True)
+
+    df_pred.to_csv("testing/predictions.csv", index=False)
 
     # Evaluate
     print("\n4. EVALUATION RESULTS")
-    evaluator = ModelEvaluator(model, evaluation_tolerance=5)
+    evaluator = ModelEvaluator(model, evaluation_tolerance=3)
     metrics = evaluator.evaluate(df_pred, use_tolerance=True)
     evaluator.print_metrics(metrics, verbose=True)
 
     # Visualize
     print("\n5. GENERATING VISUALIZATIONS...")
-    evaluator.plot_predictions(df_pred, start_frame=0, end_frame=500)
+    evaluator.plot_predictions(df_pred, start_frame=0, end_frame=1008)
 
     return model, df_pred, metrics
 
