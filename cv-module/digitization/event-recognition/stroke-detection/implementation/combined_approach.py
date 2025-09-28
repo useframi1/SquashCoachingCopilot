@@ -297,8 +297,8 @@ def run_integrated_pipeline(video_path, output_path):
 
 if __name__ == "__main__":
     # File paths
-    video_path = "cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/video-1.mp4"
-    output_path = "cv-module/digitization/event-recognition/stroke-detection/implementation/annotated_jsons/video_1_annotated.json"
+    video_path = "cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/video-4.mp4"
+    output_path = "cv-module/digitization/event-recognition/stroke-detection/implementation/annotated_jsons/video_4_annotated.json"
 
     # Run the integrated pipeline
     run_integrated_pipeline(video_path, output_path)
