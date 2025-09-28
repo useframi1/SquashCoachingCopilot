@@ -23,15 +23,15 @@ from pathlib import Path
 from datetime import datetime
 
 from utilities.metrics_aggregator import MetricsAggregator
-from utilities.general import load_config
+from config import CONFIG
 
 
 class AnnotationPipeline:
     def __init__(self):
-        self.config = load_config()["annotations"]
+        # self.config = load_config()["annotations"]
 
-        self.video_path = self.config["video_path"]
-        self.window_size = self.config["window_size"]
+        self.video_path = CONFIG["annotations"]["video_path"]
+        self.window_size = CONFIG["window_size"]
         self.video_name = Path(self.video_path).stem
 
         # Initialize video capture
@@ -172,7 +172,7 @@ class AnnotationPipeline:
             return
 
         # Create output directory
-        output_dir = Path(self.config["output_path"])
+        output_dir = Path(CONFIG["annotations"]["data_path"])
         output_dir.mkdir(exist_ok=True)
 
         # Generate filename with timestamp

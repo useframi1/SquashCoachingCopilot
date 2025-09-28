@@ -13,22 +13,14 @@ Features:
 - Automated rally segmentation pipeline
 """
 
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-from sklearn.pipeline import Pipeline
 from scipy import stats
-from scipy.signal import find_peaks, savgol_filter
 import warnings
 
-from utilities.general import load_config, load_and_combine_data
+from utilities.general import load_and_combine_data
+from config import CONFIG
 
 warnings.filterwarnings("ignore")
 
@@ -41,8 +33,7 @@ class AnalysisPipeline:
         Args:
             annotation_files: List of paths to annotation CSV files
         """
-        self.config = load_config()
-        self.data = load_and_combine_data(self.config["annotations"]["output_path"])
+        self.data = load_and_combine_data(CONFIG["annotations"]["data_path"])
         self.features = None
         self.models = {}
         self.thresholds = {}
@@ -131,7 +122,7 @@ class AnalysisPipeline:
         plt.tight_layout()
         if save_plots:
             plt.savefig(
-                self.config["analysis"]["plots_path"], dpi=300, bbox_inches="tight"
+                CONFIG["analysis"]["eda_plot_path"], dpi=300, bbox_inches="tight"
             )
         plt.show()
 

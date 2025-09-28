@@ -13,11 +13,11 @@ from sklearn.ensemble import RandomForestClassifier
 import os
 import glob
 
-from feature_engineer import FeatureEngineer
+from utilities.feature_engineer import FeatureEngineer
 from config import CONFIG
 
 
-class ModelTrainer:
+class MLBasedModel:
     """Handles training of rally state prediction models."""
 
     def __init__(self):
@@ -217,5 +217,5 @@ class ModelTrainer:
 
 
 if __name__ == "__main__":
-    trainer = ModelTrainer()
+    trainer = MLBasedModel()
     trainer.run_training_pipeline()

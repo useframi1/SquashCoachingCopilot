@@ -12,9 +12,9 @@ class FeatureEngineer:
     """Handles feature engineering for rally state prediction."""
 
     def __init__(self):
-        self.lookback_frames = CONFIG["lookback_frames"]
-        self.court_center_x = CONFIG["court_center_x"]
-        self.service_line_y = CONFIG["service_line_y"]
+        self.lookback_frames = CONFIG["feature_engineering"]["lookback_frames"]
+        self.court_center_x = CONFIG["feature_engineering"]["court_center_x"]
+        self.service_line_y = CONFIG["feature_engineering"]["service_line_y"]
 
     def engineer_features(
         self, df: pd.DataFrame, group_col: Optional[str] = None

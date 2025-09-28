@@ -6,6 +6,7 @@ from collections import deque
 from filterpy.kalman import KalmanFilter
 
 from .general import load_config
+from config import CONFIG
 
 
 class PlayerTracker:
@@ -19,8 +20,8 @@ class PlayerTracker:
         self.config = load_config()["player_tracker"]
         self.homography = homography
         self.player_real_positions = {}
-        self.model = YOLO(self.config["model_path"], verbose=False)
-        self.player_class_id = self.config["player_class_id"]
+        self.model = YOLO(CONFIG["player_tracker"]["model_path"], verbose=False)
+        self.player_class_id = CONFIG["player_tracker"]["player_class_id"]
 
         # From SquashPlayerTracker
         self.max_history = max_history
@@ -550,7 +551,7 @@ class PlayerTracker:
             if int(cls) == self.player_class_id:
                 x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
                 detections.append(
-                    ([x, y, w, h], conf, self.config["player_class_name"])
+                    ([x, y, w, h], conf, CONFIG["player_tracker"]["player_class_name"])
                 )
         return detections
 

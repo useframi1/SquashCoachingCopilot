@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 from utilities.general import load_config
 
 
-class RallyStateSegmenter:
+class RuleBasedModel:
     """
     A rule-based model for segmenting squash rallies into start, active, and end states.
     Uses distance, position, and distance delta features with temporal constraints.

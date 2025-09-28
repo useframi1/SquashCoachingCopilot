@@ -2,18 +2,17 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 
-from .general import load_config
+from config import CONFIG
 
 
 class CourtCalibrator:
     def __init__(self):
-        self.config = load_config()["court_calibrator"]
-        self.model = YOLO(self.config["model_path"])
+        self.model = YOLO(CONFIG["court_calibrator"]["model_path"], verbose=False)
         self.homography = None
 
     def _get_real_coords(self):
         return np.array(
-            self.config["real_coords"],
+            CONFIG["court_calibrator"]["real_coords"],
             dtype=np.float32,
         )
 
@@ -28,7 +27,7 @@ class CourtCalibrator:
 
         for person_keypoints in keypoints_array:
             for idx, (x, y, conf) in enumerate(person_keypoints):
-                if conf > self.config["confidence_threshold"]:
+                if conf > CONFIG["court_calibrator"]["confidence_threshold"]:
                     keypoints_dict[idx] = (x, y)
 
         if len(keypoints_dict) != 4:
