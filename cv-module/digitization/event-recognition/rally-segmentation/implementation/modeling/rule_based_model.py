@@ -21,7 +21,7 @@ class RallyStateSegmenter:
         """
         Initialize the segmenter with configuration.
         """
-        self.config = load_config()["rally_segmenter"]
+        self.config = load_config()["rally_segmenter"]["rule_based"]
         self.current_state = "end"
         self.state_duration = 0
         self.state_history = []

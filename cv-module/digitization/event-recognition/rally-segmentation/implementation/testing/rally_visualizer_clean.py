@@ -1,41 +1,39 @@
+"""
+Clean Rally Visualizer Pipeline
+Real-time rally state visualization using unified prediction interface.
+"""
+
 import cv2
 import numpy as np
-import pandas as pd
 from pathlib import Path
 from typing import Dict
 from collections import deque
 
 from utilities.metrics_aggregator import MetricsAggregator
-from modeling.rally_state_predictor import RallyStatePredictor  # Import your ML model
+from modeling.unified_predictor import UnifiedPredictor
 from utilities.general import load_config
 
 
 class RallyVisualizer:
     """
-    Real-time rally state visualizer integrated with player tracking and court calibration.
-    Uses trained ML model for state prediction with centralized feature engineering.
+    Clean rally state visualizer using unified prediction interface.
+    Model-agnostic visualization pipeline.
     """
 
     def __init__(self):
-        """Initialize the integrated visualizer with ML model."""
+        """Initialize the rally visualizer."""
         self.config = load_config()
         self.window_size = self.config["annotations"]["window_size"]
         self.show_metrics = self.config["testing"]["show_metrics"]
-        self.model_path = self.config["rally_segmenter"]["ml_based"]["model_path"]
 
-        # Initialize metrics aggregator
+        # Initialize metrics aggregator for live feature extraction
         self.metrics_aggregator = MetricsAggregator(window_size=self.window_size)
         self.current_metrics = None
 
-        # Load trained ML model
-        print(f"Loading ML model from {self.model_path}...")
-        try:
-            self.ml_model = RallyStatePredictor.load_model(self.model_path)
-            print("ML model loaded successfully!")
-        except Exception as e:
-            print(f"Error loading ML model: {e}")
-            print("Please ensure the model file exists and was trained properly.")
-            raise
+        # Initialize unified predictor (model-agnostic)
+        print("Initializing unified predictor...")
+        self.predictor = UnifiedPredictor()
+        print(f"Loaded: {self.predictor.get_model_info()}")
 
         # State colors (BGR)
         self.state_colors = {
@@ -51,18 +49,24 @@ class RallyVisualizer:
         self.state_history = deque(maxlen=300)
         self.frame_history = deque(maxlen=300)
 
-
     def _predict_state(self, metrics: Dict[str, any]) -> str:
-        """Predict current state using trained ML model with built-in feature engineering and end state constraints."""
+        """
+        Predict state using unified predictor (model-agnostic).
+
+        Args:
+            metrics: Base metrics from MetricsAggregator
+
+        Returns:
+            Predicted state: "start", "active", or "end"
+        """
         try:
-            # The ML model now handles feature engineering and end state constraints internally
-            # Just pass the base metrics directly
-            predicted_state = self.ml_model.predict(metrics)
+            # Use unified predictor for consistent results
+            predicted_state = self.predictor.predict(metrics)
             return predicted_state
 
         except Exception as e:
-            print(f"Error in ML prediction: {e}")
-            # Fallback to simple distance-based logic
+            print(f"Error in prediction: {e}")
+            # Simple fallback based on distance
             distance = metrics.get("mean_distance", 0)
             if distance < 2.5:
                 return "active"
@@ -81,7 +85,11 @@ class RallyVisualizer:
         cv2.rectangle(overlay, (0, 0), (width, banner_height), color, -1)
         frame = cv2.addWeighted(frame, 0.6, overlay, 0.4, 0)
 
-        state_text = f"STATE: {state.upper()} (ML)"
+        # Get model info for display
+        model_info = self.predictor.get_model_info()
+        model_display = model_info["model_type"].replace("_", " ").title()
+
+        state_text = f"STATE: {state.upper()} ({model_display})"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 2.0
         thickness = 3
@@ -169,28 +177,32 @@ class RallyVisualizer:
                 return f"{float(value):.1f}"
             return default
 
-        # Get ML model state info
-        model_state = self.ml_model.current_state
-        model_duration = self.ml_model.state_duration
+        # Get model info
+        model_info = self.predictor.get_model_info()
 
         metrics = [
             f"Frame: {frame_num}",
             f"Window: {metrics_history_len}/{self.window_size}",
             "",
-            f"State: {state.upper()} (ML Model)",
-            f"ML State: {model_state.upper()}",
-            f"Duration: {model_duration} frames",
+            f"State: {state.upper()}",
+            f"Model: {model_info['model_type'].replace('_', ' ').title()}",
             "",
             f"--- Metrics ---",
             f"Player 1: ({safe_format(state_metrics.get('median_player1_x'))}, {safe_format(state_metrics.get('median_player1_y'))})",
             f"Player 2: ({safe_format(state_metrics.get('median_player2_x'))}, {safe_format(state_metrics.get('median_player2_y'))})",
             f"Distance: {safe_format(state_metrics.get('mean_distance'))} m",
-            "",
-            f"--- ML Info ---",
-            f"Previous Metrics: {len(self.ml_model.previous_metrics)}",
-            f"Features: {len(self.ml_model.feature_names) if self.ml_model.feature_names else 0}",
-            f"End Buffer: {len(self.ml_model.end_prediction_buffer)}/{self.ml_model.end_confirmation_frames}",
         ]
+
+        # Add ML-specific info if applicable
+        if model_info["model_type"] == "ml_based":
+            metrics.extend(
+                [
+                    "",
+                    f"--- ML Info ---",
+                    f"Features: {model_info.get('num_features', 'N/A')}",
+                    f"ML Type: {model_info.get('ml_model_type', 'N/A')}",
+                ]
+            )
 
         for i, text in enumerate(metrics):
             y = y_offset + i * line_height
@@ -209,7 +221,7 @@ class RallyVisualizer:
         return frame
 
     def process_video(self):
-        """Process video with integrated tracking and ML state prediction."""
+        """Process video with unified state prediction."""
         cap = cv2.VideoCapture(self.config["testing"]["video_path"])
         if not cap.isOpened():
             raise ValueError(
@@ -228,7 +240,7 @@ class RallyVisualizer:
             end_frame = total_frames
 
         print(f"\n{'='*60}")
-        print(f"ML-BASED RALLY STATE VISUALIZATION")
+        print(f"RALLY STATE VISUALIZATION")
         print(f"{'='*60}")
         print(f"\nVideo Info:")
         print(f"  File: {Path(self.config['testing']['video_path']).name}")
@@ -237,20 +249,24 @@ class RallyVisualizer:
         print(f"  Total Frames: {total_frames}")
         print(f"  Processing: {start_frame} to {end_frame}")
         print(f"  Window Size: {self.window_size} frames")
-        print(
-            f"  Model: {self.ml_model.model_type} with {len(self.ml_model.feature_names)} features"
-        )
 
-        # Reset ML model state for new video processing
-        self.ml_model.reset_inference_state()
+        model_info = self.predictor.get_model_info()
+        print(f"  Model: {model_info['model_type'].replace('_', ' ').title()}")
+        if model_info["model_type"] == "ml_based":
+            print(f"    Type: {model_info.get('ml_model_type', 'Unknown')}")
+            print(f"    Features: {model_info.get('num_features', 'Unknown')}")
+
+        # Reset predictor state for new video
+        self.predictor.reset_state()
 
         writer = None
         output_path = None
         if self.config["testing"]["visualizer_output_directory"]:
+            model_suffix = model_info["model_type"]
             output_path = (
                 self.config["testing"]["visualizer_output_directory"]
                 + "/"
-                + f"{Path(self.config['testing']['video_path']).stem}_ml_output.mp4"
+                + f"{Path(self.config['testing']['video_path']).stem}_{model_suffix}_output.mp4"
             )
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(
@@ -280,13 +296,13 @@ class RallyVisualizer:
                     # Update metrics aggregator
                     self.metrics_aggregator.update_metrics(frame, frame_num)
 
-                    # Process with ML model when we have a full window
+                    # Process with unified predictor when we have a full window
                     if self.metrics_aggregator.has_full_window():
                         self.current_metrics = (
                             self.metrics_aggregator.get_aggregated_metrics()
                         )
 
-                        # Predict state using ML model (with built-in feature engineering)
+                        # Predict state using unified predictor (model-agnostic)
                         predicted_state = self._predict_state(self.current_metrics)
                         current_state = predicted_state
 
@@ -307,7 +323,7 @@ class RallyVisualizer:
                             self.current_metrics,
                         )
 
-                    cv2.imshow("ML Rally State Visualization", vis_frame)
+                    cv2.imshow("Rally State Visualization", vis_frame)
 
                     if writer:
                         writer.write(vis_frame)
@@ -356,14 +372,18 @@ class RallyVisualizer:
         if not ret:
             raise ValueError("Could not read first frame")
 
+        # Initialize MetricsAggregator with court calibration and tracking
         self.metrics_aggregator.calibrate_court(first_frame)
         self.metrics_aggregator.initialize_tracker(first_frame)
 
-        print("Starting video processing with ML model...")
+        print("Starting video processing...")
         self.process_video()
 
 
 if __name__ == "__main__":
-    # You can specify a different model path if needed
-    visualizer = RallyVisualizer()
-    visualizer.run()
+    try:
+        visualizer = RallyVisualizer()
+        visualizer.run()
+    except Exception as e:
+        print(f"Error: {e}")
+        raise

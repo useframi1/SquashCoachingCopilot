@@ -1,12 +1,12 @@
 """
-Rally State Segmentation - Testing and Evaluation Module
-Provides utilities for evaluating model performance and visualizing results.
+Clean Model Evaluator Pipeline
+Model-agnostic evaluation using the unified prediction interface.
 """
 
-import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from typing import Dict, List, Tuple, Optional
 from sklearn.metrics import (
     accuracy_score,
@@ -14,44 +14,32 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
-from modeling.rule_based_model import RallyStateSegmenter
-from modeling.rally_state_predictor import RallyStatePredictor
+from modeling.unified_predictor import UnifiedPredictor
 from utilities.general import load_config, load_and_combine_data
 
 
 class ModelEvaluator:
     """
-    Evaluator for rally state segmentation models.
-    Provides various metrics and visualization tools.
+    Clean, model-agnostic evaluator for rally state prediction.
+    Uses unified predictor interface for consistency.
     """
 
-    def __init__(self, model, evaluation_tolerance: int = 5):
+    def __init__(self, evaluation_tolerance: int = 5):
         """
         Initialize the evaluator.
 
         Args:
-            model: Trained model (RallyStateSegmenter or RallyStatePredictor)
             evaluation_tolerance: Frame tolerance for lenient evaluation
         """
-        self.model = model
         self.evaluation_tolerance = evaluation_tolerance
         self.config = load_config()
 
-        # Determine model type
-        self.is_ml_model = isinstance(model, RallyStatePredictor)
-        self.is_rule_based_model = isinstance(model, RallyStateSegmenter)
+        # Initialize unified predictor
+        self.predictor = UnifiedPredictor()
+        print(f"Initialized evaluator with: {self.predictor.get_model_info()}")
 
     def _create_tolerant_labels(self, labels: np.ndarray, tolerance: int) -> List[set]:
-        """
-        Create a version of labels where each position can match nearby labels.
-
-        Args:
-            labels: Array of state labels
-            tolerance: Number of frames tolerance on each side
-
-        Returns:
-            List of sets where each set contains valid labels for that position
-        """
+        """Create tolerant labels for evaluation with timing tolerance."""
         n = len(labels)
         tolerant_labels = []
 
@@ -66,31 +54,13 @@ class ModelEvaluator:
     def _calculate_tolerant_accuracy(
         self, y_true: np.ndarray, y_pred: np.ndarray, tolerance: int
     ) -> float:
-        """
-        Calculate accuracy with tolerance for timing errors.
-
-        Args:
-            y_true: Ground truth labels
-            y_pred: Predicted labels
-            tolerance: Number of frames tolerance
-
-        Returns:
-            Accuracy score with tolerance applied
-        """
+        """Calculate accuracy with tolerance for timing errors."""
         tolerant_true = self._create_tolerant_labels(y_true, tolerance)
         correct = sum(1 for i, pred in enumerate(y_pred) if pred in tolerant_true[i])
         return correct / len(y_true)
 
     def _find_state_transitions(self, states: np.ndarray) -> List[Tuple[int, str, str]]:
-        """
-        Find all state transitions in a sequence.
-
-        Args:
-            states: Array of state labels
-
-        Returns:
-            List of tuples (frame_index, from_state, to_state)
-        """
+        """Find all state transitions in a sequence."""
         transitions = []
         for i in range(1, len(states)):
             if states[i] != states[i - 1]:
@@ -100,17 +70,7 @@ class ModelEvaluator:
     def _calculate_transition_accuracy(
         self, y_true: np.ndarray, y_pred: np.ndarray, tolerance: int
     ) -> Dict[str, float]:
-        """
-        Calculate how well the model detects state transitions.
-
-        Args:
-            y_true: Ground truth labels
-            y_pred: Predicted labels
-            tolerance: Frame tolerance for matching transitions
-
-        Returns:
-            Dictionary with transition detection metrics
-        """
+        """Calculate transition detection metrics."""
         true_transitions = self._find_state_transitions(y_true)
         pred_transitions = self._find_state_transitions(y_pred)
 
@@ -155,6 +115,27 @@ class ModelEvaluator:
             "num_pred_transitions": len(pred_transitions),
             "num_matched_transitions": matched_transitions,
         }
+
+    def make_predictions(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Make predictions on DataFrame using unified predictor.
+
+        Args:
+            df: DataFrame with base metrics (from MetricsAggregator)
+
+        Returns:
+            DataFrame with predictions added
+        """
+        df_pred = df.copy()
+
+        # Reset predictor state for new evaluation
+        self.predictor.reset_state()
+
+        # Use unified predictor for consistent results
+        predictions = self.predictor.predict(df_pred)
+        df_pred["predicted_state"] = predictions
+
+        return df_pred
 
     def evaluate(
         self, df: pd.DataFrame, use_tolerance: bool = True
@@ -216,15 +197,7 @@ class ModelEvaluator:
         end_frame: Optional[int] = None,
         figsize: Tuple[int, int] = (15, 8),
     ):
-        """
-        Visualize predictions against ground truth.
-
-        Args:
-            df: DataFrame with predictions
-            start_frame: Starting frame number
-            end_frame: Ending frame number (None for all)
-            figsize: Figure size tuple
-        """
+        """Visualize predictions against ground truth."""
         if end_frame is None:
             end_frame = len(df)
 
@@ -232,61 +205,24 @@ class ModelEvaluator:
 
         fig, axes = plt.subplots(3, 1, figsize=figsize, sharex=True)
 
-        # Plot 1: Distance with threshold ranges
+        # Plot 1: Distance over time
         ax1 = axes[0]
         ax1.plot(
             df_plot["frame_number"],
             df_plot["mean_distance"],
-            label="Raw Distance",
-            alpha=0.5,
-            linewidth=1,
+            label="Mean Distance",
+            alpha=0.7,
+            linewidth=2,
         )
-        if "distance_smoothed" in df_plot.columns:
-            ax1.plot(
-                df_plot["frame_number"],
-                df_plot["distance_smoothed"],
-                label="Smoothed Distance",
-                linewidth=2,
-            )
-
-        # Show range boundaries (only for rule-based models)
-        if self.is_rule_based_model:
-            active_min, active_max = (
-                self.model.config["active_state_criteria"]["distance_min"],
-                self.model.config["active_state_criteria"]["distance_max"],
-            )
-            start_min, start_max = (
-                self.model.config["start_state_criteria"]["distance_min"],
-                self.model.config["start_state_criteria"]["distance_max"],
-            )
-            end_min, end_max = (
-                self.model.config["end_state_criteria"]["distance_min"],
-                100.0,
-            )
-
-            ax1.axhspan(
-                active_min, active_max, alpha=0.2, color="green", label="Active Range"
-            )
-            ax1.axhspan(
-                start_min, start_max, alpha=0.2, color="blue", label="Start Range"
-            )
-            ax1.axhspan(
-                end_min,
-                min(end_max, df_plot["mean_distance"].max() * 1.1),
-                alpha=0.2,
-                color="red",
-                label="End Range",
-            )
 
         ax1.set_ylabel("Mean Distance")
         ax1.legend(loc="upper right")
         ax1.grid(True, alpha=0.3)
 
-        model_type = "ML Model" if self.is_ml_model else "Rule-Based Model"
-        title = f"Distance Over Time ({model_type})"
-        if self.is_rule_based_model:
-            title += " with State Ranges"
-        ax1.set_title(title)
+        model_info = self.predictor.get_model_info()
+        ax1.set_title(
+            f"Distance Over Time ({model_info['model_type'].replace('_', ' ').title()})"
+        )
 
         # Plot 2: Ground truth states
         ax2 = axes[1]
@@ -334,39 +270,13 @@ class ModelEvaluator:
 
         return fig
 
-    def make_predictions(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Make predictions using either rule-based or ML model.
-
-        Args:
-            df: DataFrame with base metrics
-
-        Returns:
-            DataFrame with predictions added
-        """
-        df_pred = df.copy()
-
-        if self.is_rule_based_model:
-            # Use existing predict method for rule-based model
-            df_pred = self.model.predict(df_pred, apply_smoothing=True)
-        elif self.is_ml_model:
-            # Use the same batch processing as training for consistency
-            # This ensures the same feature engineering pipeline as train_test_split_eval
-            predictions = self.model.predict(df_pred)
-            df_pred["predicted_state"] = predictions
-        else:
-            raise ValueError("Unknown model type")
-
-        return df_pred
-
     def print_metrics(self, metrics: Dict[str, float], verbose: bool = True):
-        """
-        Print evaluation metrics in a formatted way.
+        """Print evaluation metrics in a formatted way."""
+        model_info = self.predictor.get_model_info()
+        print(
+            f"\n=== EVALUATION RESULTS ({model_info['model_type'].replace('_', ' ').title()}) ==="
+        )
 
-        Args:
-            metrics: Dictionary of metrics from evaluate()
-            verbose: Whether to print detailed metrics
-        """
         print(f"\nStrict Accuracy (frame-by-frame): {metrics['strict_accuracy']:.3f}")
 
         if "tolerant_accuracy" in metrics:
@@ -409,67 +319,57 @@ class ModelEvaluator:
             for i, state in enumerate(["Start", "Active", "End"]):
                 print(f"{state:>10} {cm[i][0]:<10} {cm[i][1]:<10} {cm[i][2]:<10}")
 
+    def run(self, video_filter: Optional[str] = None):
+        """
+        Run complete model evaluation pipeline.
 
-def main(use_ml_model: bool = True):
-    """
-    Main execution function for testing and evaluation.
+        Args:
+            video_filter: Optional video name to filter (e.g., "video-2")
 
-    Args:
-        use_ml_model: If True, use ML model; if False, use rule-based model
-    """
-    config = load_config()
+        Returns:
+            Tuple of (df_pred, metrics)
+        """
+        # Load data
+        df = load_and_combine_data(self.config["annotations"]["output_path"])
 
-    # Load data
-    df = load_and_combine_data(config["annotations"]["output_path"])
-    df = df[df["video_name"] == "video-2"]
+        if video_filter:
+            df = df[df["video_name"] == video_filter]
+            print(f"Filtered to video: {video_filter}")
 
-    print("=" * 60)
-    print("RALLY STATE SEGMENTATION - TESTING & EVALUATION")
-    print("=" * 60)
+        print("=" * 60)
+        print("RALLY STATE SEGMENTATION - MODEL EVALUATION")
+        print("=" * 60)
 
-    # Data overview
-    print("\n1. DATA OVERVIEW")
-    print(f"Total frames: {len(df)}")
-    print(f"\nState distribution:")
-    print(df["state"].value_counts())
+        # Data overview
+        print("\n1. DATA OVERVIEW")
+        print(f"Total frames: {len(df)}")
+        print(f"\nState distribution:")
+        print(df["state"].value_counts())
+        print(f"\nVideos in dataset: {df['video_name'].nunique()}")
+        print(f"Video names: {sorted(df['video_name'].unique())}")
 
-    # Initialize model
-    if use_ml_model:
-        print("\n2. LOADING ML MODEL...")
-        model_path = config["rally_segmenter"]["ml_based"]["model_path"]
-        model = RallyStatePredictor.load_model(model_path)
-        print(f"ML model loaded from {model_path}")
-    else:
-        print("\n2. INITIALIZING RULE-BASED MODEL...")
-        model = RallyStateSegmenter()
+        # Make predictions
+        print("\n2. RUNNING PREDICTIONS...")
+        df_pred = self.make_predictions(df)
 
-    # Make predictions
-    print("\n3. RUNNING PREDICTIONS...")
-    evaluator = ModelEvaluator(model, evaluation_tolerance=3)
-    df_pred = evaluator.make_predictions(df)
+        # Save predictions
+        output_file = f"testing/predictions_{self.predictor.model_type}.csv"
+        df_pred.to_csv(output_file, index=False)
+        print(f"Predictions saved to: {output_file}")
 
-    # Save predictions
-    output_file = (
-        "testing/predictions_ml.csv" if use_ml_model else "testing/predictions_rule.csv"
-    )
-    df_pred.to_csv(output_file, index=False)
-    print(f"Predictions saved to {output_file}")
+        # Evaluate
+        print("\n3. EVALUATION RESULTS")
+        metrics = self.evaluate(df_pred, use_tolerance=True)
+        self.print_metrics(metrics, verbose=True)
 
-    # Evaluate
-    print("\n4. EVALUATION RESULTS")
-    metrics = evaluator.evaluate(df_pred, use_tolerance=True)
-    evaluator.print_metrics(metrics, verbose=True)
+        # Visualize
+        print("\n4. GENERATING VISUALIZATIONS...")
+        self.plot_predictions(df_pred, start_frame=0, end_frame=min(500, len(df_pred)))
 
-    # Visualize
-    print("\n5. GENERATING VISUALIZATIONS...")
-    evaluator.plot_predictions(df_pred, start_frame=0, end_frame=500)
-
-    return model, df_pred, metrics
+        return df_pred, metrics
 
 
 if __name__ == "__main__":
-    # Choose which model to evaluate
-    # Set to True for ML model, False for rule-based model
-    use_ml_model = True
-
-    model, df_pred, metrics = main(use_ml_model=use_ml_model)
+    # Example usage
+    evaluator = ModelEvaluator(evaluation_tolerance=5)
+    df_pred, metrics = evaluator.run(video_filter="video-2")
