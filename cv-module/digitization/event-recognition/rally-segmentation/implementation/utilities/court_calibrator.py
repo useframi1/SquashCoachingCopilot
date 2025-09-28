@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
+import torch
 
 from config import CONFIG
 
@@ -8,6 +9,8 @@ from config import CONFIG
 class CourtCalibrator:
     def __init__(self):
         self.model = YOLO(CONFIG["court_calibrator"]["model_path"], verbose=False)
+        # Force CPU to avoid GPU hangs
+        self.model.to("cuda" if torch.cuda.is_available() else "cpu")
         self.homography = None
 
     def _get_real_coords(self):
@@ -17,7 +20,13 @@ class CourtCalibrator:
         )
 
     def detect_keypoints(self, frame):
-        results = self.model(frame)[0]
+        import os
+        from contextlib import redirect_stdout
+
+        with open(os.devnull, "w") as devnull:
+            with redirect_stdout(devnull):
+                results = self.model(frame, verbose=False)[0]
+
         keypoints_dict = {}
 
         if results.keypoints is None or not hasattr(results.keypoints, "data"):

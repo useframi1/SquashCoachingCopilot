@@ -162,7 +162,11 @@ class ModelEvaluator:
 
         # Plot 1: Distance over time
         axes[0].plot(
-            df_plot.index, df_plot["mean_distance"], "b-", alpha=0.7, linewidth=2
+            df_plot["frame_number"],
+            df_plot["mean_distance"],
+            "b-",
+            alpha=0.7,
+            linewidth=2,
         )
         axes[0].set_ylabel("Mean Distance")
         axes[0].set_title("Distance Over Time")
@@ -171,7 +175,7 @@ class ModelEvaluator:
         # Plot 2: Ground truth states
         y_true_numeric = [state_map[state] for state in df_plot["state"]]
         axes[1].fill_between(
-            df_plot.index,
+            df_plot["frame_number"],
             0,
             y_true_numeric,
             alpha=0.7,
@@ -187,7 +191,7 @@ class ModelEvaluator:
         # Plot 3: Predicted states
         y_pred_numeric = [state_map[state] for state in df_plot["predicted_state"]]
         axes[2].fill_between(
-            df_plot.index,
+            df_plot["frame_number"],
             0,
             y_pred_numeric,
             alpha=0.7,
@@ -198,7 +202,7 @@ class ModelEvaluator:
         axes[2].set_ylabel("State")
         axes[2].set_yticks([0, 1, 2])
         axes[2].set_yticklabels(["Start", "Active", "End"])
-        axes[2].set_xlabel("Sample Index")
+        axes[2].set_xlabel("Frame Number")
         axes[2].set_title("Predicted States")
         axes[2].grid(True, alpha=0.3)
 
@@ -247,7 +251,7 @@ class ModelEvaluator:
 
         # Plot results
         print("\nGenerating visualization...")
-        self.plot_predictions(results, end_idx=min(1000, len(df)))
+        self.plot_predictions(results, end_idx=min(200, len(df)))
 
         return results
 

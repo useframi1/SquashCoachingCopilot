@@ -44,7 +44,7 @@ class VideoInferencePipeline:
             raise ValueError(f"Could not open video: {self.video_path}")
 
         # Get video properties
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -65,10 +65,16 @@ class VideoInferencePipeline:
             )
 
         # Initialize court calibration and tracking
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         ret, first_frame = cap.read()
         if not ret:
             raise ValueError("Could not read first frame")
+
+        # Validate frame before calibration
+        if first_frame is None or first_frame.size == 0:
+            raise ValueError("First frame is empty or invalid")
+
+        # Reset to beginning after reading first frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
         self.metrics_aggregator.calibrate_court(first_frame)
         self.metrics_aggregator.initialize_tracker(first_frame)

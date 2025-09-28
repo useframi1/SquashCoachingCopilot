@@ -1,5 +1,5 @@
 """
-Model Trainer - Trains ML models for rally state prediction
+Model Trainer - Trains ML models for rally state prediction with state transition logic
 """
 
 import pandas as pd
@@ -14,11 +14,12 @@ import os
 import glob
 
 from utilities.feature_engineer import FeatureEngineer
+from modeling.base_model import BaseModel
 from config import CONFIG
 
 
-class MLBasedModel:
-    """Handles training of rally state prediction models."""
+class MLBasedModel(BaseModel):
+    """Handles training of rally state prediction models with state transition logic."""
 
     def __init__(self):
         self.feature_engineer = FeatureEngineer()
@@ -26,31 +27,47 @@ class MLBasedModel:
         self.label_encoder = LabelEncoder()
         self.feature_names = None
         self.is_trained = False
+        self.model_type = CONFIG["modeling"][CONFIG["active_model"]]["model_type"]
+
+        # State transition rules
+        self.valid_transitions = {
+            "start": ["start", "active"],
+            "active": ["active", "end"],
+            "end": ["end", "start"],
+        }
 
         # Initialize model based on config
-        if CONFIG["model_type"] == "xgboost":
+        if self.model_type == "xgboost":
             self.model = XGBClassifier(
                 n_estimators=200,
                 max_depth=6,
                 learning_rate=0.1,
-                random_state=CONFIG["random_seed"],
+                random_state=CONFIG["modeling"]["random_seed"],
             )
-        elif CONFIG["model_type"] == "random_forest":
+        elif self.model_type == "random_forest":
             self.model = RandomForestClassifier(
-                n_estimators=200, max_depth=15, random_state=CONFIG["random_seed"]
+                n_estimators=200,
+                max_depth=15,
+                random_state=CONFIG["modeling"]["random_seed"],
             )
         else:
-            raise ValueError(f"Unknown model type: {CONFIG['model_type']}")
+            raise ValueError(f"Unknown model type: {self.model_type}")
+
+    def is_valid_transition(self, current_state: str, next_state: str) -> bool:
+        """Check if transition from current_state to next_state is valid."""
+        return next_state in self.valid_transitions.get(current_state, [])
 
     def load_data(self) -> pd.DataFrame:
         """Load and combine CSV files with base metrics."""
         print("Loading annotation data...")
 
         # Find all CSV files in data path
-        csv_files = glob.glob(os.path.join(CONFIG["data_path"], "*.csv"))
+        csv_files = glob.glob(os.path.join(CONFIG["annotations"]["data_path"], "*.csv"))
 
         if not csv_files:
-            raise FileNotFoundError(f"No CSV files found in {CONFIG['data_path']}")
+            raise FileNotFoundError(
+                f"No CSV files found in {CONFIG["annotations"]['data_path']}"
+            )
 
         # Load and combine all CSV files
         dataframes = []
@@ -106,8 +123,8 @@ class MLBasedModel:
         # Split videos into train/test
         train_videos, test_videos = train_test_split(
             unique_videos,
-            test_size=CONFIG["test_size"],
-            random_state=CONFIG["random_seed"],
+            test_size=CONFIG["modeling"]["test_size"],
+            random_state=CONFIG["modeling"]["random_seed"],
         )
 
         print(f"Train videos: {list(train_videos)}")
@@ -124,7 +141,7 @@ class MLBasedModel:
 
     def train(self, X_train, y_train):
         """Train the model."""
-        print(f"Training {CONFIG['model_type']} model...")
+        print(f"Training {self.model_type} model...")
 
         self.model.fit(X_train, y_train)
         self.is_trained = True
@@ -170,14 +187,17 @@ class MLBasedModel:
             "model": self.model,
             "label_encoder": self.label_encoder,
             "feature_names": self.feature_names,
-            "model_type": CONFIG["model_type"],
+            "model_type": self.model_type,
         }
-
+        model_path = CONFIG["modeling"][CONFIG["active_model"]]["model_path"]
         # Create model directory if it doesn't exist
-        os.makedirs(os.path.dirname(CONFIG["model_path"]), exist_ok=True)
+        os.makedirs(
+            os.path.dirname(model_path),
+            exist_ok=True,
+        )
 
-        joblib.dump(model_data, CONFIG["model_path"])
-        print(f"Model saved to {CONFIG['model_path']}")
+        joblib.dump(model_data, model_path)
+        print(f"Model saved to {model_path}")
 
     def run_training_pipeline(self):
         """Run the complete training pipeline."""
@@ -214,6 +234,71 @@ class MLBasedModel:
         print("=" * 60)
 
         return accuracy
+
+    def load_trained_model(self):
+        """Load a pre-trained model for inference."""
+        if not os.path.exists(CONFIG["modeling"]["ml_based"]["model_path"]):
+            raise FileNotFoundError(
+                f"No trained model found at {CONFIG['modeling']['ml_based']['model_path']}"
+            )
+
+        model_data = joblib.load(CONFIG["modeling"]["ml_based"]["model_path"])
+        self.model = model_data["model"]
+        self.label_encoder = model_data["label_encoder"]
+        self.feature_names = model_data["feature_names"]
+        self.model_type = model_data["model_type"]
+        self.is_trained = True
+
+    def reset_state(self):
+        """Reset any internal state of the model."""
+        self.feature_engineer = FeatureEngineer()
+
+    def correct_predictions(self, predictions):
+        corrected_predictions = predictions.copy()
+        previous_state = corrected_predictions[0]  # Keep first prediction
+
+        for i in range(1, len(predictions)):
+            current_prediction = predictions[i]
+
+            # Check if transition is valid
+            if self.is_valid_transition(previous_state, current_prediction):
+                # Valid transition - keep the prediction
+                previous_state = current_prediction
+            else:
+                # Invalid transition - correct the prediction
+                corrected_predictions[i] = previous_state
+
+        return corrected_predictions
+
+    def predict(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Predict rally states for the given data.
+
+        Args:
+            df: DataFrame with required columns (mean_distance, median_player1_x,
+                median_player1_y, median_player2_x, median_player2_y)
+
+        Returns:
+            DataFrame with 'predicted_state' column added
+        """
+        if not self.is_trained:
+            self.load_trained_model()
+
+        df = df.copy()
+
+        # Engineer features for the entire batch
+        df_features = self.feature_engineer.engineer_features(df)
+
+        # Prepare feature matrix
+        X = df_features[self.feature_names].values
+
+        # Make predictions
+        y_pred = self.model.predict(X)
+        predictions = self.label_encoder.inverse_transform(y_pred)
+
+        df["predicted_state"] = predictions
+
+        return df
 
 
 if __name__ == "__main__":

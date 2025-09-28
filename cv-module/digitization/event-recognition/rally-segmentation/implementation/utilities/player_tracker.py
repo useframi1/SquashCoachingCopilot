@@ -27,6 +27,7 @@ class PlayerTracker:
         self.max_history = max_history
         self.reid_threshold = reid_threshold
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
 
         # Court information
         self.court_pixel_coords = None
@@ -538,7 +539,6 @@ class PlayerTracker:
     def get_detections(self, frame):
         """Get player detections using YOLO"""
         import os
-        import sys
         from contextlib import redirect_stdout
 
         with open(os.devnull, "w") as devnull:
