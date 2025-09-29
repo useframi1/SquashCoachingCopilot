@@ -1,0 +1,11 @@
+train: /home/g03-s2025/Downloads/Full_Court/train/images
+val: /home/g03-s2025/Downloads/Full_Court/test/images
+
+nc: 2
+names: ["t-boxes", "wall"]
+
+# CRITICAL: kpt_shape format is [num_keypoints, num_dims]
+# num_dims = 3 because each keypoint has x, y, visibility
+kpt_shape: [4, 3]
+# Optional: define flip indices if your keypoints have left-right symmetry
+# flip_idx: [1, 0, 3, 2]  # Uncomment if keypoints 0<->1 and 2<->3 should flip
