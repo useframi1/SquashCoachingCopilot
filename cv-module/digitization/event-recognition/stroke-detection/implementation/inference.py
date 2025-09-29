@@ -1,166 +1,309 @@
-import numpy as np
 import cv2
+import numpy as np
 from ultralytics import YOLO
-import torch
-from lstm_model import LSTMModel
-import pickle  # For loading the scaler
+from collections import deque
+import pickle
 
-RELEVANT_IDX = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-RELEVANT_NAMES = [
-    "left_shoulder",
-    "right_shoulder",
-    "left_elbow",
-    "right_elbow",
-    "left_wrist",
-    "right_wrist",
-    "left_hip",
-    "right_hip",
-    "left_knee",
-    "right_knee",
-    "left_ankle",
-    "right_ankle",
-]
-
-# Load models
-keypoint_model = YOLO("yolov8n-pose.pt")  # YOLOv8 nano pose model
-model = LSTMModel(24, 4, 3)
-model.load_state_dict(torch.load("lstm_model.pt"))
-model.eval()
-
-# Load the fitted MinMaxScaler
-with open("scaler.pkl", "rb") as f:
-    scaler = pickle.load(f)
-
-# Parameters
-sequence_length = 16  # Your LSTM input sequence length
-num_features = 24  # Number of keypoints features
-stroke_classes = ["forehand", "backhand", "neither"]
+# Import your preprocessing functions
+# from your_preprocessing_module import normalize_keypoints_df, add_angle_features, etc.
 
 
-def process_video(video_path):
+class StrokePredictor:
+    def __init__(self, model_path, yolo_model_path="yolo11n-pose.pt", window_size=16):
+        """
+        Initialize the stroke predictor
+
+        Args:
+            model_path: Path to your trained model (XGBoost .pkl or LSTM .h5)
+            yolo_model_path: Path to YOLO pose model
+            window_size: Number of frames for prediction window
+        """
+        self.window_size = window_size
+        self.yolo_model = YOLO(yolo_model_path)
+
+        # Load your trained model
+        if model_path.endswith(".pkl"):
+            with open(model_path, "rb") as f:
+                self.model = pickle.load(f)
+            self.model_type = "xgboost"
+        else:  # .h5 for Keras/LSTM
+            from tensorflow import keras
+
+            self.model = keras.models.load_model(model_path)
+            self.model_type = "lstm"
+
+        # COCO keypoint indices
+        self.RELEVANT_IDX = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        self.RELEVANT_NAMES = [
+            "left_shoulder",
+            "right_shoulder",
+            "left_elbow",
+            "right_elbow",
+            "left_wrist",
+            "right_wrist",
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+            "left_ankle",
+            "right_ankle",
+        ]
+
+        # Label mapping
+        self.label_map = {0: "forehand", 1: "backhand", 2: "neither"}
+
+        # Buffers for each tracked player
+        self.player_buffers = {}
+        self.last_predictions = {}
+
+    def extract_keypoints(self, person_keypoints):
+        """Extract keypoints into a dictionary"""
+        keypoints = {}
+        for j, idx in enumerate(self.RELEVANT_IDX):
+            kp = person_keypoints[idx].cpu().numpy().tolist()
+            keypoints[f"x_{self.RELEVANT_NAMES[j]}"] = kp[0]
+            keypoints[f"y_{self.RELEVANT_NAMES[j]}"] = kp[1]
+        return keypoints
+
+    def normalize_keypoints(self, keypoints_dict):
+        """Normalize keypoints relative to hip center and torso length"""
+        # Calculate hip center
+        hip_center_x = (
+            keypoints_dict["x_left_hip"] + keypoints_dict["x_right_hip"]
+        ) / 2
+        hip_center_y = (
+            keypoints_dict["y_left_hip"] + keypoints_dict["y_right_hip"]
+        ) / 2
+
+        # Calculate shoulder center
+        shoulder_center_x = (
+            keypoints_dict["x_left_shoulder"] + keypoints_dict["x_right_shoulder"]
+        ) / 2
+        shoulder_center_y = (
+            keypoints_dict["y_left_shoulder"] + keypoints_dict["y_right_shoulder"]
+        ) / 2
+
+        # Calculate torso length
+        torso_length = np.sqrt(
+            (shoulder_center_x - hip_center_x) ** 2
+            + (shoulder_center_y - hip_center_y) ** 2
+        )
+
+        if torso_length < 1e-6:
+            torso_length = 1.0
+
+        # Normalize all keypoints
+        normalized = {}
+        for name in self.RELEVANT_NAMES:
+            normalized[f"x_{name}"] = (
+                keypoints_dict[f"x_{name}"] - hip_center_x
+            ) / torso_length
+            normalized[f"y_{name}"] = (
+                keypoints_dict[f"y_{name}"] - hip_center_y
+            ) / torso_length
+
+        return normalized
+
+    def predict_stroke(self, player_id, keypoints_sequence):
+        """
+        Predict stroke type from a sequence of keypoints
+
+        Args:
+            player_id: ID of the player
+            keypoints_sequence: List of normalized keypoint dictionaries
+
+        Returns:
+            prediction: Stroke type (forehand/backhand/neither)
+            confidence: Prediction confidence
+        """
+        if len(keypoints_sequence) < self.window_size:
+            return None, None
+
+        # Take the last window_size frames
+        sequence = keypoints_sequence[-self.window_size :]
+
+        # Convert to feature array
+        coord_cols = [
+            f"{axis}_{name}" for name in self.RELEVANT_NAMES for axis in ["x", "y"]
+        ]
+
+        # Create feature matrix
+        features = np.array([[frame[col] for col in coord_cols] for frame in sequence])
+
+        if self.model_type == "xgboost":
+            # Flatten for XGBoost
+            features = features.flatten().reshape(1, -1)
+            prediction = self.model.predict(features)[0]
+            probabilities = self.model.predict_proba(features)[0]
+            confidence = probabilities[prediction]
+        else:  # LSTM
+            # Reshape for LSTM (1, window_size, num_features)
+            features = features.reshape(1, self.window_size, -1)
+            probabilities = self.model.predict(features, verbose=0)[0]
+            prediction = np.argmax(probabilities)
+            confidence = probabilities[prediction]
+
+        stroke_type = self.label_map[prediction]
+
+        # Only report if not "neither" and confidence > 0.7
+        if stroke_type != "neither" and confidence > 0.5:
+            return stroke_type, confidence
+
+        return None, None
+
+    def process_frame(self, frame, frame_idx):
+        """Process a single frame and return predictions"""
+        results = self.yolo_model.track(
+            source=frame, persist=True, conf=0.6, verbose=False
+        )
+        result = results[0]
+
+        keypoints_data = result.keypoints
+        ids = (
+            result.boxes.id
+            if result.boxes is not None and hasattr(result.boxes, "id")
+            else None
+        )
+
+        predictions = []
+
+        if keypoints_data is not None and ids is not None:
+            for i, person_keypoints in enumerate(keypoints_data.data):
+                if len(person_keypoints) <= max(self.RELEVANT_IDX):
+                    continue
+
+                current_id = int(ids[i].item())
+
+                # Extract and normalize keypoints
+                keypoints = self.extract_keypoints(person_keypoints)
+                normalized_keypoints = self.normalize_keypoints(keypoints)
+
+                # Initialize buffer for new player
+                if current_id not in self.player_buffers:
+                    self.player_buffers[current_id] = deque(maxlen=self.window_size)
+                    self.last_predictions[current_id] = None
+
+                # Add to buffer
+                self.player_buffers[current_id].append(normalized_keypoints)
+
+                # Try to predict
+                if len(self.player_buffers[current_id]) == self.window_size:
+                    stroke, confidence = self.predict_stroke(
+                        current_id, list(self.player_buffers[current_id])
+                    )
+
+                    # Only report if prediction changed or is new
+                    if (
+                        stroke is not None
+                        and stroke != self.last_predictions[current_id]
+                    ):
+                        predictions.append(
+                            {
+                                "player_id": current_id,
+                                "stroke": stroke,
+                                "confidence": confidence,
+                                "frame": frame_idx,
+                            }
+                        )
+                        self.last_predictions[current_id] = stroke
+
+        return predictions, result.plot()
+
+
+def run_inference(video_path, model_path, output_path=None):
+    """
+    Run inference on a video
+
+    Args:
+        video_path: Path to input video
+        model_path: Path to trained model
+        output_path: Optional path to save output video
+    """
+    predictor = StrokePredictor(model_path)
+
     cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Initialize buffers for both players
-    player1_buffer = []
-    player2_buffer = []
+    # Video writer for output
+    writer = None
+    if output_path:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    # Results storage
-    results = []
+    frame_idx = 0
+
+    print("Starting inference...")
+    print("Press 'q' to quit")
+    print("-" * 60)
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
-        results = keypoint_model.track(
-            source=frame, persist=True, conf=0.6, verbose=False
+        frame_idx += 1
+
+        # Process frame
+        predictions, annotated_frame = predictor.process_frame(frame, frame_idx)
+
+        # Print predictions
+        for pred in predictions:
+            print(
+                f"Frame {pred['frame']:5d} | Player {pred['player_id']} did {pred['stroke'].upper()} (confidence: {pred['confidence']:.2f})"
+            )
+
+        # Add frame number overlay
+        cv2.putText(
+            annotated_frame,
+            f"Frame: {frame_idx}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 255, 0),
+            2,
         )
-        result = results[0]
-        frame_people = []
 
-        keypoints_data = result.keypoints
+        # Add text overlay for predictions
+        y_offset = 70
+        for player_id, last_stroke in predictor.last_predictions.items():
+            if last_stroke and last_stroke != "neither":
+                text = f"Player {player_id}: {last_stroke.upper()}"
+                cv2.putText(
+                    annotated_frame,
+                    text,
+                    (10, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2,
+                )
+                y_offset += 30
 
-        if keypoints_data is not None:
-            for i, person_keypoints in enumerate(keypoints_data.data):
-                if len(person_keypoints) <= max(RELEVANT_IDX):
-                    continue  # Skip if not enough keypoints
+        # Write frame
+        if writer:
+            writer.write(annotated_frame)
 
-                person_data = []
+        # Display
+        cv2.imshow("Stroke Detection", annotated_frame)
 
-                for j, idx in enumerate(RELEVANT_IDX):
-                    kp = person_keypoints[idx].cpu().numpy().tolist()
-                    person_data.append(kp[0])
-                    person_data.append(kp[1])
-
-                frame_people.append(person_data)
-
-        # Add to buffers
-        if len(frame_people) < 2:
-            continue
-        player1_buffer.append(frame_people[0])
-        player2_buffer.append(frame_people[1])
-
-        # Keep buffers at sequence_length
-        if len(player1_buffer) > sequence_length:
-            player1_buffer.pop(0)
-        if len(player2_buffer) > sequence_length:
-            player2_buffer.pop(0)
-
-        # Only make predictions when we have enough frames
-        if len(player1_buffer) == sequence_length:
-            # Prepare input for LSTM model for player 1
-            player1_seq = np.array(player1_buffer)
-
-            # Apply the scaler to each frame in the sequence
-            # Reshape to 2D for scaling (samples*sequence_length, features)
-            player1_seq_2d = player1_seq.reshape(-1, num_features)
-            player1_seq_scaled = scaler.transform(player1_seq_2d)
-
-            # Reshape back to 3D for LSTM (1, sequence_length, features)
-            player1_input = player1_seq_scaled.reshape(1, sequence_length, num_features)
-            player1_input = torch.tensor(player1_input, dtype=torch.float32)
-
-            # Get prediction for player 1
-            with torch.no_grad():
-                player1_output = model(player1_input)
-                player1_pred = torch.argmax(player1_output, dim=1).item()
-
-            # Prepare input for LSTM model for player 2
-            player2_seq = np.array(player2_buffer)
-
-            # Apply the scaler to each frame in the sequence
-            player2_seq_2d = player2_seq.reshape(-1, num_features)
-            player2_seq_scaled = scaler.transform(player2_seq_2d)
-
-            # Reshape back to 3D for LSTM
-            player2_input = player2_seq_scaled.reshape(1, sequence_length, num_features)
-            player2_input = torch.tensor(player2_input, dtype=torch.float32)
-
-            # Get prediction for player 2
-            with torch.no_grad():
-                player2_output = model(player2_input)
-                player2_pred = torch.argmax(player2_output, dim=1).item()
-
-            # Store results
-            frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES)
-            results.append(
-                {
-                    "frame": int(frame_number),
-                    "player1": stroke_classes[player1_pred],
-                    "player2": stroke_classes[player2_pred],
-                }
-            )
-
-            # Visualize results on frame (optional)
-            cv2.putText(
-                frame,
-                f"Player 1: {stroke_classes[player1_pred]}",
-                (50, 50),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2,
-            )
-            cv2.putText(
-                frame,
-                f"Player 2: {stroke_classes[player2_pred]}",
-                (50, 100),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2,
-            )
-
-            # Display frame
-            cv2.imshow("Stroke Detection", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
 
     cap.release()
+    if writer:
+        writer.release()
     cv2.destroyAllWindows()
 
-    return results
+    print("-" * 60)
+    print("Inference complete!")
 
 
-# Call the function with your video
-stroke_detections = process_video("test.mp4")
+if __name__ == "__main__":
+    # Example usage
+    video_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/video-2.mp4"
+    model_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/lstm_model.h5"  # or .h5 for LSTM
+    output_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/output_video.mp4"  # Optional
+
+    run_inference(video_path, model_path, output_path)
