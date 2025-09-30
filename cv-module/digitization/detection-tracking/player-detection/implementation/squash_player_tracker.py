@@ -179,7 +179,7 @@ class SquashPlayerTracker:
 
         for i, det in enumerate(detections[:2]):
             bbox = det[0:4]
-            center = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+            center = ((bbox[0] + bbox[2]) / 2, bbox[3])
 
             for player_id in [1, 2]:
                 if self.player_features[player_id] is None:
@@ -200,7 +200,7 @@ class SquashPlayerTracker:
                     pos_score = distance / frame_width
 
                 # Combined score (weighted)
-                score = reid_score * 0.7 + pos_score * 0.3
+                score = reid_score * 0.5 + pos_score * 0.5
                 matching_scores[(i, player_id)] = score
 
         return matching_scores
@@ -228,8 +228,8 @@ class SquashPlayerTracker:
                 # Update player features with exponential moving average
                 if det_features[det_idx] is not None:
                     self.player_features[player_id] = (
-                        0.7 * self.player_features[player_id]
-                        + 0.3 * det_features[det_idx]
+                        0.5 * self.player_features[player_id]
+                        + 0.5 * det_features[det_idx]
                     )
 
         # Handle remaining unassigned detections
