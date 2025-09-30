@@ -4,6 +4,7 @@ import torch
 from collections import deque
 from ultralytics import YOLO
 from torchvision.models import resnet50, ResNet50_Weights
+from config import CONFIG
 
 
 class SquashPlayerTracker:
@@ -12,7 +13,7 @@ class SquashPlayerTracker:
     Returns the bottom-center position of each player's bounding box.
     """
 
-    def __init__(self, max_history=30, reid_threshold=0.6):
+    def __init__(self):
         """
         Initialize the player tracker.
 
@@ -20,14 +21,14 @@ class SquashPlayerTracker:
             max_history: Maximum number of historical positions to maintain
             reid_threshold: Threshold for re-identification matching (lower = stricter)
         """
-        self.max_history = max_history
-        self.reid_threshold = reid_threshold
+        self.max_history = CONFIG["tracker"]["max_history"]
+        self.reid_threshold = CONFIG["tracker"]["reid_threshold"]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Player state
         self.player_positions = {
-            1: deque(maxlen=max_history),
-            2: deque(maxlen=max_history),
+            1: deque(maxlen=self.max_history),
+            2: deque(maxlen=self.max_history),
         }
         self.player_features = {1: None, 2: None}
         self.players_initialized = False
@@ -38,12 +39,13 @@ class SquashPlayerTracker:
     def _initialize_models(self):
         """Load YOLO detector and ResNet50 re-identification model."""
         print(f"Loading models on device: {self.device}")
-        self.detector = YOLO("yolov8m.pt")
+        self.detector = YOLO(CONFIG["models"]["yolo_model"], verbose=False)
 
         # Load ResNet50 and modify on CPU first, then move to device
         self.reid_model = resnet50(weights=ResNet50_Weights.DEFAULT)
         in_features = self.reid_model.fc.in_features
-        self.reid_model.fc = torch.nn.Linear(in_features, 512)
+        feature_size = CONFIG["models"]["reid_feature_size"]
+        self.reid_model.fc = torch.nn.Linear(in_features, feature_size)
 
         # Move entire model to device and set to eval mode
         self.reid_model = self.reid_model.to(self.device)
@@ -52,18 +54,26 @@ class SquashPlayerTracker:
 
     def track_frame(self, frame):
         """
-        Process a single frame and return player positions.
+        Process a single frame and return player tracking information.
 
         Args:
             frame: BGR image (numpy array)
 
         Returns:
             dict: {
-                1: (x, y) or None,  # Player 1 bottom-center position
-                2: (x, y) or None   # Player 2 bottom-center position
+                1: {
+                    "position": (x, y) or None,  # Player 1 bottom-center position
+                    "bbox": [x1, y1, x2, y2] or None,  # Player 1 bounding box
+                    "confidence": float or None  # Detection confidence
+                },
+                2: {
+                    "position": (x, y) or None,  # Player 2 bottom-center position
+                    "bbox": [x1, y1, x2, y2] or None,  # Player 2 bounding box
+                    "confidence": float or None  # Detection confidence
+                }
             }
         """
-        frame_height, frame_width = frame.shape[:2]
+        frame_width = frame.shape[1]
 
         # Detect people in frame
         detections = self._detect_people(frame)
@@ -71,21 +81,32 @@ class SquashPlayerTracker:
         # Assign detections to player IDs
         assignments = self._assign_detections(detections, frame, frame_width)
 
-        # Extract positions
-        positions = {1: None, 2: None}
+        # Initialize results
+        results = {
+            1: {"position": None, "bbox": None, "confidence": None},
+            2: {"position": None, "bbox": None, "confidence": None},
+        }
 
         for det_idx, player_id in assignments.items():
             bbox = detections[det_idx][0:4]
+            confidence = detections[det_idx][4]
 
             # Calculate bottom-center position
             center_x = (bbox[0] + bbox[2]) / 2
             bottom_y = bbox[3]
-            positions[player_id] = (center_x, bottom_y)
+            position = (center_x, bottom_y)
+
+            # Store all tracking information
+            results[player_id] = {
+                "position": position,
+                "bbox": bbox.tolist(),
+                "confidence": float(confidence),
+            }
 
             # Update position history
-            self.player_positions[player_id].append(positions[player_id])
+            self.player_positions[player_id].append(position)
 
-        return positions
+        return results
 
     def _detect_people(self, frame):
         """
@@ -94,7 +115,7 @@ class SquashPlayerTracker:
         Returns:
             list: Top 2 person detections sorted by confidence
         """
-        results = self.detector(frame)[0]
+        results = self.detector(frame, verbose=False)[0]
         detections = results.boxes.xyxy.cpu().numpy()
         confidences = results.boxes.conf.cpu().numpy()
         classes = results.boxes.cls.cpu().numpy()
@@ -200,9 +221,10 @@ class SquashPlayerTracker:
                     pos_score = distance / frame_width
 
                 # Combined score (weighted)
-                score = reid_score * 0.5 + pos_score * 0.5
+                reid_weight = CONFIG["tracker"]["reid_weight"]
+                pos_weight = CONFIG["tracker"]["position_weight"]
+                score = reid_score * reid_weight + pos_score * pos_weight
                 matching_scores[(i, player_id)] = score
-
         return matching_scores
 
     def _greedy_assignment(self, matching_scores, det_features):
@@ -263,7 +285,8 @@ class SquashPlayerTracker:
             return None
 
         # Prepare image for ResNet50
-        person_img = cv2.resize(person_img, (224, 224))
+        input_size = tuple(CONFIG["models"]["reid_input_size"])
+        person_img = cv2.resize(person_img, input_size)
         person_tensor = torch.from_numpy(person_img).permute(2, 0, 1).float() / 255.0
         person_tensor = person_tensor.unsqueeze(0).to(self.device)
 
@@ -305,7 +328,7 @@ if __name__ == "__main__":
     tracker = SquashPlayerTracker()
 
     # Open video
-    cap = cv2.VideoCapture("video-3.mp4")
+    cap = cv2.VideoCapture(CONFIG["paths"]["test_video"])
 
     frame_count = 0
     while cap.isOpened():
@@ -314,24 +337,17 @@ if __name__ == "__main__":
             break
 
         # Track players in frame
-        positions = tracker.track_frame(frame)
-
-        # Use positions
-        print(f"Frame {frame_count}:")
-        print(f"  Player 1: {positions[1]}")
-        print(f"  Player 2: {positions[2]}")
+        results = tracker.track_frame(frame)
 
         frame_count += 1
 
         # Optional: visualize (for debugging)
-        if positions[1]:
-            cv2.circle(
-                frame, (int(positions[1][0]), int(positions[1][1])), 5, (0, 255, 0), -1
-            )
-        if positions[2]:
-            cv2.circle(
-                frame, (int(positions[2][0]), int(positions[2][1])), 5, (0, 0, 255), -1
-            )
+        if results[1]["position"]:
+            pos = results[1]["position"]
+            cv2.circle(frame, (int(pos[0]), int(pos[1])), 5, (0, 255, 0), -1)
+        if results[2]["position"]:
+            pos = results[2]["position"]
+            cv2.circle(frame, (int(pos[0]), int(pos[1])), 5, (0, 0, 255), -1)
 
         cv2.imshow("Tracking", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
