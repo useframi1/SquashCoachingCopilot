@@ -12,9 +12,9 @@ CONFIG = {
     },
     "tracker": {
         "max_history": 30,
-        "reid_threshold": 0.25,
-        "reid_weight": 0.4,
-        "position_weight": 0.6,
+        "reid_threshold": 0.07,
+        "reid_weight": 0.1,
+        "position_weight": 0.90,
     },
     "evaluation": {
         "iou_threshold": 0.5,
