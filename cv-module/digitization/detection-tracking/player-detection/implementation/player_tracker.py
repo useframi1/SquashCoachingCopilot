@@ -7,7 +7,7 @@ from torchvision.models import resnet50, ResNet50_Weights
 from config import CONFIG
 
 
-class SquashPlayerTracker:
+class PlayerTracker:
     """
     A clean, modular tracker for identifying and tracking two squash players.
     Returns the bottom-center position of each player's bounding box.
@@ -325,7 +325,7 @@ class SquashPlayerTracker:
 
 if __name__ == "__main__":
     # Initialize tracker
-    tracker = SquashPlayerTracker()
+    tracker = PlayerTracker()
 
     # Open video
     cap = cv2.VideoCapture(CONFIG["paths"]["test_video"])
