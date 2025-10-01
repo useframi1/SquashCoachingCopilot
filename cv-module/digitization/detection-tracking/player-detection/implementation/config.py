@@ -1,8 +1,8 @@
 CONFIG = {
     "paths": {
-        "test_video": "testing/video-3.mp4",
+        "test_video": "testing/clip2.mp4",
         "coco_annotations": "data/_annotations.coco.json",
-        "output_video": "testing/tracking_output_2.mp4",
+        "output_video": "testing/tracking_output.mp4",
         "output_results": "testing/tracking_results.txt",
     },
     "models": {
@@ -12,7 +12,7 @@ CONFIG = {
     },
     "tracker": {
         "max_history": 30,
-        "reid_threshold": 0.3,
+        "reid_threshold": 0.25,
         "reid_weight": 0.4,
         "position_weight": 0.6,
     },
