@@ -3,3 +3,4 @@ __pychache__/
 *.pyc
 *.mp4
 .vscode/
+venv/
