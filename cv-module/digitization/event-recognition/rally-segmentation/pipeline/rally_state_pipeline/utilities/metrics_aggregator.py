@@ -139,8 +139,6 @@ class MetricsAggregator:
 
         # Build statistics dictionary
         stats = {
-            "frame_number": window_metrics[-1]["frame_number"],
-            "window_size": len(window_metrics),
             "mean_distance": np.mean(distances) if distances else None,
             "median_player1_x": np.median(player1_x) if player1_x else None,
             "median_player1_y": np.median(player1_y) if player1_y else None,

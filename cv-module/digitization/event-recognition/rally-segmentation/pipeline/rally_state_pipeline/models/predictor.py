@@ -20,9 +20,9 @@ class StatePredictor:
         active_model_type = self.config["active_model"]
 
         if active_model_type == "ml_based":
-            self.model = MLBasedModel()
+            self.model = MLBasedModel(self.config)
         elif active_model_type == "rule_based":
-            self.model = RuleBasedModel()
+            self.model = RuleBasedModel(self.config)
         else:
             raise ValueError(f"Unknown model type: {active_model_type}")
 

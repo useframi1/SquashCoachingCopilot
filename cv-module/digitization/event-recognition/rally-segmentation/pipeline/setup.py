@@ -4,10 +4,10 @@ from setuptools import setup, find_packages
 
 setup(
     name="rally_state_pipeline",
-    version="0.1.0",
+    version="0.1.7",
     description="A package for detecting rally states in squash videos",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="Youssef Elhagg",
+    author_email="yousseframi@aucegypt.edu",
     packages=find_packages(),
     include_package_data=True,
     package_data={

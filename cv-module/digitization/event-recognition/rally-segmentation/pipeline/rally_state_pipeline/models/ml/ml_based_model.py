@@ -9,6 +9,7 @@ import os
 from collections import deque
 
 from rally_state_pipeline.utilities.feature_engineer import FeatureEngineer
+from rally_state_pipeline.utilities.general import get_package_dir
 from rally_state_pipeline.models.base_model import BaseModel
 
 
@@ -28,7 +29,9 @@ class MLBasedModel(BaseModel):
 
     def load_trained_model(self):
         """Load a pre-trained model for inference."""
-        model_path = self.config["models"]["ml_based"]["model_path"]
+        model_path = os.path.join(
+            get_package_dir(), self.config["models"]["ml_based"]["model_path"]
+        )
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"No trained model found at {model_path}")
 

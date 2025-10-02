@@ -8,7 +8,7 @@
     },
     "models": {
         "ml_based": {
-            "model_path": "rally_state_pipeline/models/ml/weights/rally_state_model.pkl"
+            "model_path": "models/ml/weights/rally_state_model.pkl"
         },
         "rule_based": {
             "lookback_frames": 2,
