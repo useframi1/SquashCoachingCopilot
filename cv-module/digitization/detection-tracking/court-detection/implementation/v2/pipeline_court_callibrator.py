@@ -3,8 +3,11 @@ import cv2
 import numpy as np
 import torch
 
+from utils import load_config
+
+
 class CourtCalibrator:
-    def __init__(self,config: dict = None ):
+    def __init__(self, config: dict = None):
         """Initialize the court calibrator with YOLO model."""
         self.config = config if config else load_config()
         self.model = YOLO(self.config["model_path"], verbose=False)
@@ -24,10 +27,10 @@ class CourtCalibrator:
     def detect_keypoints(self, frame):
         """
         Detect keypoints from frame.
-        
+
         Args:
             frame: Input frame (original size)
-            
+
         Returns:
             Dictionary mapping class_name to numpy array of keypoints (4, 2)
         """
@@ -65,20 +68,20 @@ class CourtCalibrator:
     def process_frame(self, frame):
         """
         Compute homography matrices for all detected classes.
-        
+
         Args:
             frame: Input frame
-            
+
         Returns:
             Dictionary mapping class_name to homography matrix
         """
         keypoints_per_class = self.detect_keypoints(frame)
-        
+
         for class_name, pixel_coords in keypoints_per_class.items():
             real_coords = self._get_real_coords(class_name)
             H, _ = cv2.findHomography(pixel_coords, real_coords)
             self.homographies[class_name] = H
-            
+
         return self.homographies
 
     def get_homography(self, class_name):
@@ -88,5 +91,3 @@ class CourtCalibrator:
                 f"No homography found for '{class_name}'. Run process_frame first."
             )
         return self.homographies[class_name]
-
-    
