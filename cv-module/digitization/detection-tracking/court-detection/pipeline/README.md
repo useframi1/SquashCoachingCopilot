@@ -1,0 +1,189 @@
+# Court Detection Pipeline
+
+A Python package for detecting and calibrating squash court features in video frames using YOLO-based keypoint detection and homography transformation.
+
+## Overview
+
+This package provides automated court calibration for squash videos by:
+
+-   Detecting court keypoints (T-boxes and wall markers) using a YOLO pose estimation model
+-   Computing homography matrices to map pixel coordinates to real-world court coordinates
+-   Supporting GPU acceleration for faster processing
+
+## Installation
+
+```bash
+pip install -e .
+```
+
+### Requirements
+
+-   Python >= 3.7
+-   numpy
+-   opencv-python
+-   torch
+-   ultralytics
+
+## Usage
+
+### Basic Example
+
+```python
+from court_detection_pipeline import CourtCalibrator
+import cv2
+
+# Initialize the calibrator
+calibrator = CourtCalibrator()
+
+# Load a video
+cap = cv2.VideoCapture("squash_video.mp4")
+
+# Read the first frame
+ret, frame = cap.read()
+if not ret:
+    raise ValueError("Failed to read video frame")
+
+# Detect keypoints and compute homography matrices
+homographies, keypoints = calibrator.process_frame(frame)
+
+# Draw keypoints on the frame
+for class_name, kp_array in keypoints.items():
+    for i, (x, y) in enumerate(kp_array):
+        cv2.circle(frame, (int(x), int(y)), 5, (0, 255, 0), -1)
+        cv2.putText(frame, f"{class_name}_{i}", (int(x)+10, int(y)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+# Display the frame with keypoints
+cv2.imshow("Court Keypoints", frame)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# Get specific homography matrix
+H_tbox = calibrator.get_homography("t-boxes")
+H_wall = calibrator.get_homography("wall")
+
+# Transform pixel coordinates to real-world coordinates
+pixel_point = [[100, 200]]  # [x, y]
+real_point = cv2.perspectiveTransform(pixel_point, H_tbox)
+
+cap.release()
+```
+
+### Custom Configuration
+
+You can provide a custom configuration file:
+
+```python
+from court_detection_pipeline.utils import load_config
+
+# Load custom config
+config = load_config("path/to/custom_config.json")
+
+# Initialize with custom config
+calibrator = CourtCalibrator(config=config)
+```
+
+## Configuration
+
+The package uses a `config.json` file with the following parameters:
+
+```json
+{
+    "model_path": "model/weights/best.pt",
+    "imgsz": 640,
+    "real_t_coords": [
+        [1.6, 5.44],
+        [4.8, 5.44],
+        [4.8, 7.04],
+        [1.6, 7.04]
+    ],
+    "real_wall_coords": [
+        [0, 1.78],
+        [6.4, 1.78],
+        [6.4, 0],
+        [0, 0]
+    ],
+    "conf": 0.5
+}
+```
+
+-   `model_path`: Path to YOLO model weights (relative to package directory)
+-   `imgsz`: Input image size for YOLO inference
+-   `real_t_coords`: Real-world coordinates (in meters) for T-box corners
+-   `real_wall_coords`: Real-world coordinates (in meters) for wall markers
+-   `conf`: Confidence threshold for keypoint detection
+
+## API Reference
+
+### CourtCalibrator
+
+#### `__init__(config: dict = None)`
+
+Initialize the court calibrator with optional custom configuration.
+
+#### `detect_keypoints(frame) -> dict`
+
+Detect keypoints from a video frame.
+
+**Args:**
+
+-   `frame`: Input frame (BGR image)
+
+**Returns:**
+
+-   Dictionary mapping class names to numpy arrays of keypoints (4, 2)
+
+#### `process_frame(frame) -> dict`
+
+Compute homography matrices for all detected court features.
+
+**Args:**
+
+-   `frame`: Input frame (BGR image)
+
+**Returns:**
+
+-   homographies: Dict mapping class_name to homography matrix
+-   keypoints_per_class: Dict mapping class_name to detected keypoints
+
+#### `get_homography(class_name: str) -> np.ndarray`
+
+Get the homography matrix for a specific court feature.
+
+**Args:**
+
+-   `class_name`: Name of the court feature ("t-boxes" or "wall")
+
+**Returns:**
+
+-   3x3 homography matrix
+
+**Raises:**
+
+-   `ValueError`: If homography not found (process_frame must be called first)
+
+## Project Structure
+
+```
+court_detection_pipeline/
+    __init__.py
+    config.json
+    court_calibrator.py
+    utils.py
+    model/
+        weights/
+            best.pt
+```
+
+## Hardware Acceleration
+
+The package automatically detects and uses CUDA-enabled GPUs when available, falling back to CPU processing otherwise.
+
+## Author
+
+Youssef Elhagg
+Email: yousseframi@aucegypt.edu
+
+## License
+
+This project is part of a thesis on Squash Coaching Copilot.

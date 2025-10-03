@@ -1,0 +1,9 @@
+--- Overall Pose Metrics ---
+Precision: 0.9296
+Recall:    0.8994
+mAP@0.5:   0.9310
+mAP@0.5-0.95: 0.8573
+
+--- Per-Class Pose Metrics ---
+t-boxes    | P: 0.9098 | R: 0.9048 | mAP50: 0.9167 | mAP50-95: 0.9119
+wall       | P: 0.9494 | R: 0.8941 | mAP50: 0.9453 | mAP50-95: 0.8027
