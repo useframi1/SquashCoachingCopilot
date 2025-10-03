@@ -1,0 +1,24 @@
+{
+    "model": {
+        "model_path": "model_best.pt",
+        "device": "auto",
+        "model_width": 640,
+        "model_height": 360
+    },
+    "video": {
+        "input_path": "video-5.mp4",
+        "max_frames": 500
+    },
+    "tracking": {
+        "trace_length": 7,
+        "trace_color": [0, 0, 255],
+        "trace_thickness": 10
+    },
+    "output": {
+        "output_dir": "tracking_results",
+        "save_video": true,
+        "save_plots": true,
+        "save_metrics": true,
+        "plot_dpi": 300
+    }
+}
