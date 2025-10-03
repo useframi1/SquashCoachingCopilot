@@ -1,0 +1,212 @@
+# Player Tracking Pipeline
+
+A Python package for detecting and tracking two squash players in video footage using YOLO object detection and ResNet50-based re-identification.
+
+## Features
+
+-   **Real-time player detection** using YOLOv8
+-   **Player re-identification** with ResNet50 feature extraction
+-   **Robust tracking** combining appearance and position-based matching
+-   **Clean API** with simple frame-by-frame processing
+-   **Configurable parameters** via JSON configuration
+
+## Installation
+
+### From source
+
+```bash
+pip install -e .
+```
+
+### Requirements
+
+-   Python >= 3.7
+-   CUDA-compatible GPU (optional, for faster inference)
+
+## Quick Start
+
+```python
+import cv2
+from player_tracking_pipeline import PlayerTracker
+
+# Initialize tracker
+tracker = PlayerTracker()
+
+# Open video
+cap = cv2.VideoCapture("squash_match.mp4")
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Track players in frame
+    results = tracker.process_frame(frame)
+
+    # Access player positions
+    player1_pos = results[1]["position"]  # (x, y) or None
+    player2_pos = results[2]["position"]  # (x, y) or None
+
+    # Access bounding boxes
+    player1_bbox = results[1]["bbox"]  # [x1, y1, x2, y2] or None
+    player2_bbox = results[2]["bbox"]  # [x1, y1, x2, y2] or None
+
+    # Access detection confidence
+    player1_conf = results[1]["confidence"]  # float or None
+    player2_conf = results[2]["confidence"]  # float or None
+
+cap.release()
+```
+
+## API Reference
+
+### PlayerTracker
+
+The main class for player detection and tracking.
+
+#### `__init__(config: dict = None)`
+
+Initialize the player tracker.
+
+**Parameters:**
+
+-   `config` (dict, optional): Configuration dictionary. If None, loads from package's `config.json`.
+
+**Example:**
+
+```python
+# Use default config
+tracker = PlayerTracker()
+
+# Use custom config
+custom_config = {
+    "models": {
+        "yolo_model": "model/weights/yolov8m.pt",
+        "reid_feature_size": 512,
+        "reid_input_size": [224, 224]
+    },
+    "tracker": {
+        "max_history": 30,
+        "reid_threshold": 0.07,
+        "reid_weight": 0.1,
+        "position_weight": 0.9
+    }
+}
+tracker = PlayerTracker(config=custom_config)
+```
+
+#### `process_frame(frame)`
+
+Process a single frame and return player tracking information.
+
+**Parameters:**
+
+-   `frame` (numpy.ndarray): BGR image from OpenCV
+
+**Returns:**
+
+-   `dict`: Dictionary with tracking results for both players:
+    ```python
+    {
+        1: {
+            "position": (x, y),      # Bottom-center position or None
+            "bbox": [x1, y1, x2, y2], # Bounding box or None
+            "confidence": float       # Detection confidence or None
+        },
+        2: {
+            "position": (x, y),      # Bottom-center position or None
+            "bbox": [x1, y1, x2, y2], # Bounding box or None
+            "confidence": float       # Detection confidence or None
+        }
+    }
+    ```
+
+#### `reset()`
+
+Reset tracker state. Useful when processing a new video.
+
+**Example:**
+
+```python
+tracker.reset()
+```
+
+## Configuration
+
+The tracker behavior can be customized via the configuration file:
+
+### Models Configuration
+
+-   `yolo_model`: Path to YOLO weights file (relative to package directory)
+-   `reid_feature_size`: Dimension of re-identification feature vectors (default: 512)
+-   `reid_input_size`: Input size for ResNet50 model (default: [224, 224])
+
+### Tracker Configuration
+
+-   `max_history`: Maximum number of historical positions to keep (default: 30)
+-   `reid_threshold`: Threshold for re-identification matching (default: 0.07)
+-   `reid_weight`: Weight for appearance-based matching (default: 0.1)
+-   `position_weight`: Weight for position-based matching (default: 0.9)
+
+## How It Works
+
+1. **Detection**: YOLOv8 detects people in each frame
+2. **Feature Extraction**: ResNet50 extracts appearance features from detected bounding boxes
+3. **Player Assignment**:
+    - First frame: Players assigned by left-right position
+    - Subsequent frames: Combined appearance and position matching
+4. **Tracking**: Exponential moving average updates player features over time
+
+## Example: Visualizing Results
+
+```python
+import cv2
+from player_tracking_pipeline import PlayerTracker
+
+tracker = PlayerTracker()
+cap = cv2.VideoCapture("squash_match.mp4")
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    results = tracker.process_frame(frame)
+
+    # Draw bounding boxes and positions
+    for player_id in [1, 2]:
+        if results[player_id]["bbox"]:
+            x1, y1, x2, y2 = map(int, results[player_id]["bbox"])
+            color = (0, 255, 0) if player_id == 1 else (255, 0, 0)
+
+            # Draw bbox
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+            # Draw position
+            pos = results[player_id]["position"]
+            cv2.circle(frame, (int(pos[0]), int(pos[1])), 5, color, -1)
+
+            # Draw label
+            label = f"P{player_id}: {results[player_id]['confidence']:.2f}"
+            cv2.putText(frame, label, (x1, y1-10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+    cv2.imshow("Player Tracking", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+```
+
+## License
+
+This project is part of a thesis on Squash Coaching Copilot.
+
+## Author
+
+Youssef Elhagg (yousseframi@aucegypt.edu)
+
+## Version
+
+0.1.0

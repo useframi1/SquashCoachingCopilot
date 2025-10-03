@@ -1,0 +1,13 @@
+{
+    "models": {
+        "yolo_model": "model/weights/yolov8m.pt",
+        "reid_feature_size": 512,
+        "reid_input_size": [224, 224]
+    },
+    "tracker": {
+        "max_history": 30,
+        "reid_threshold": 0.07,
+        "reid_weight": 0.1,
+        "position_weight": 0.9
+    }
+}
