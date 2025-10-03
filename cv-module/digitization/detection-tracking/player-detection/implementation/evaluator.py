@@ -3,14 +3,16 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from collections import defaultdict
-from config import CONFIG
 from player_tracker import PlayerTracker
+from utils import load_config
 
 
 class PlayerTrackerEvaluator:
-    def __init__(self):
-        self.coco_json_path = CONFIG["paths"]["coco_annotations"]
-        self.iou_threshold = CONFIG["evaluation"]["iou_threshold"]
+    def __init__(self, config: dict = None):
+        self.config = config if config else load_config()
+
+        self.coco_json_path = self.config["paths"]["coco_annotations"]
+        self.iou_threshold = self.config["evaluation"]["iou_threshold"]
         self.ground_truth = self.load_coco_annotations()
 
         # Initialize tracker
@@ -31,8 +33,8 @@ class PlayerTrackerEvaluator:
         self.track_breaks = 0
 
         # Per-player metrics
-        player_1_id = CONFIG["evaluation"]["player_1_class_id"]
-        player_2_id = CONFIG["evaluation"]["player_2_class_id"]
+        player_1_id = self.config["evaluation"]["player_1_class_id"]
+        player_2_id = self.config["evaluation"]["player_2_class_id"]
         self.player_metrics = {
             player_1_id: {"tp": 0, "fp": 0, "fn": 0},
             player_2_id: {"tp": 0, "fp": 0, "fn": 0},
@@ -73,8 +75,8 @@ class PlayerTrackerEvaluator:
 
     def frame_name_formatter(self, frame_number):
         """Format frame name according to config"""
-        pattern = CONFIG["frame_formatting"]["pattern"]
-        video_name = CONFIG["frame_formatting"]["video_name"]
+        pattern = self.config["frame_formatting"]["pattern"]
+        video_name = self.config["frame_formatting"]["video_name"]
         return pattern.format(video_name=video_name, frame_number=frame_number)
 
     def calculate_iou(self, box1, box2):
@@ -206,28 +208,30 @@ class PlayerTrackerEvaluator:
 
     def run_video(self):
         """Run tracker on video and evaluate against ground truth"""
-        cap = cv2.VideoCapture(CONFIG["paths"]["test_video"])
+        cap = cv2.VideoCapture(self.config["paths"]["test_video"])
         frame_count = 0
 
         video_writer = None
-        if CONFIG["paths"]["output_video"]:
+        if self.config["paths"]["output_video"]:
             fps = cap.get(cv2.CAP_PROP_FPS)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-            codec = CONFIG["output"]["video_codec"]
+            codec = self.config["output"]["video_codec"]
             fourcc = cv2.VideoWriter_fourcc(*codec)
             video_writer = cv2.VideoWriter(
-                CONFIG["paths"]["output_video"], fourcc, fps, (width, height)
+                self.config["paths"]["output_video"], fourcc, fps, (width, height)
             )
-            print(f"Output video will be saved to: {CONFIG['paths']['output_video']}")
+            print(
+                f"Output video will be saved to: {self.config['paths']['output_video']}"
+            )
 
-        print(f"Processing video: {CONFIG['paths']['test_video']}")
+        print(f"Processing video: {self.config['paths']['test_video']}")
 
         while cap.isOpened():
             if (
-                CONFIG["processing"]["max_frames"]
-                and frame_count >= CONFIG["processing"]["max_frames"]
+                self.config["processing"]["max_frames"]
+                and frame_count >= self.config["processing"]["max_frames"]
             ):
                 break
 
@@ -257,18 +261,18 @@ class PlayerTrackerEvaluator:
                 self.evaluate_frame(predictions, frame_name)
 
             # Draw tracking visualization
-            if CONFIG["visualization"]["display"] or video_writer:
+            if self.config["visualization"]["display"] or video_writer:
                 for player_id in [1, 2]:
                     if results[player_id]["position"]:
                         color_key = f"player_{player_id}_color"
-                        color = tuple(CONFIG["visualization"][color_key])
+                        color = tuple(self.config["visualization"][color_key])
                         pos = results[player_id]["position"]
-                        radius = CONFIG["visualization"]["circle_radius"]
+                        radius = self.config["visualization"]["circle_radius"]
                         cv2.circle(frame, (int(pos[0]), int(pos[1])), radius, color, -1)
 
                         if results[player_id]["bbox"]:
                             bbox = results[player_id]["bbox"]
-                            thickness = CONFIG["visualization"]["bbox_thickness"]
+                            thickness = self.config["visualization"]["bbox_thickness"]
                             cv2.rectangle(
                                 frame,
                                 (int(bbox[0]), int(bbox[1])),
@@ -289,29 +293,29 @@ class PlayerTrackerEvaluator:
             if video_writer:
                 video_writer.write(frame)
 
-            if CONFIG["visualization"]["display"]:
-                window_name = CONFIG["visualization"]["window_name"]
+            if self.config["visualization"]["display"]:
+                window_name = self.config["visualization"]["window_name"]
                 cv2.imshow(window_name, frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
             frame_count += 1
 
-            if frame_count % CONFIG["processing"]["progress_interval"] == 0:
+            if frame_count % self.config["processing"]["progress_interval"] == 0:
                 print(f"Processed {frame_count} frames...")
 
         cap.release()
         if video_writer:
             video_writer.release()
-            print(f"Output video saved to: {CONFIG['paths']['output_video']}")
-        if CONFIG["visualization"]["display"]:
+            print(f"Output video saved to: {self.config['paths']['output_video']}")
+        if self.config["visualization"]["display"]:
             cv2.destroyAllWindows()
 
         print(f"Completed: {frame_count} frames processed")
 
         metrics_results = self.calculate_final_metrics()
 
-        if CONFIG["paths"]["output_results"]:
+        if self.config["paths"]["output_results"]:
             self.save_results_to_txt(metrics_results)
 
         return metrics_results
@@ -346,8 +350,8 @@ class PlayerTrackerEvaluator:
         )
 
         player_stats = {}
-        player_1_id = CONFIG["evaluation"]["player_1_class_id"]
-        player_2_id = CONFIG["evaluation"]["player_2_class_id"]
+        player_1_id = self.config["evaluation"]["player_1_class_id"]
+        player_2_id = self.config["evaluation"]["player_2_class_id"]
 
         for player_id in [player_1_id, player_2_id]:
             if player_id in self.player_metrics:
@@ -395,7 +399,7 @@ class PlayerTrackerEvaluator:
 
     def save_results_to_txt(self, results):
         """Save evaluation results to a TXT file"""
-        with open(CONFIG["paths"]["output_results"], "w") as f:
+        with open(self.config["paths"]["output_results"], "w") as f:
             overall = results["overall"]
 
             f.write("=" * 60 + "\n")
@@ -403,7 +407,7 @@ class PlayerTrackerEvaluator:
             f.write("=" * 60 + "\n\n")
 
             f.write("OVERALL PERFORMANCE:\n")
-            precision = CONFIG["output"]["results_precision"]
+            precision = self.config["output"]["results_precision"]
             f.write(f"   • Precision: {overall['precision']:.{precision}f}\n")
             f.write(f"   • Recall: {overall['recall']:.{precision}f}\n")
             f.write(f"   • F1-Score: {overall['f1_score']:.{precision}f}\n")
@@ -427,7 +431,7 @@ class PlayerTrackerEvaluator:
                 f.write(f"      - F1: {stats['f1_score']:.{precision}f}\n")
                 f.write(f"      - GT Instances: {stats['detections']}\n")
 
-        print(f"Results saved to: {CONFIG['paths']['output_results']}")
+        print(f"Results saved to: {self.config['paths']['output_results']}")
 
     def print_results(self, results=None):
         """Print formatted evaluation results"""

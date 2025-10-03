@@ -4,7 +4,7 @@ import torch
 from collections import deque
 from ultralytics import YOLO
 from torchvision.models import resnet50, ResNet50_Weights
-from config import CONFIG
+from utils import load_config
 
 
 class PlayerTracker:
@@ -13,16 +13,15 @@ class PlayerTracker:
     Returns the bottom-center position of each player's bounding box.
     """
 
-    def __init__(self):
+    def __init__(self, config: dict = None):
         """
         Initialize the player tracker.
-
         Args:
-            max_history: Maximum number of historical positions to maintain
-            reid_threshold: Threshold for re-identification matching (lower = stricter)
+            config (dict): Configuration dictionary. If None, loads from 'config.json'.
         """
-        self.max_history = CONFIG["tracker"]["max_history"]
-        self.reid_threshold = CONFIG["tracker"]["reid_threshold"]
+        self.config = config if config else load_config()
+        self.max_history = self.config["tracker"]["max_history"]
+        self.reid_threshold = self.config["tracker"]["reid_threshold"]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Player state
@@ -39,12 +38,12 @@ class PlayerTracker:
     def _initialize_models(self):
         """Load YOLO detector and ResNet50 re-identification model."""
         print(f"Loading models on device: {self.device}")
-        self.detector = YOLO(CONFIG["models"]["yolo_model"], verbose=False)
+        self.detector = YOLO(self.config["models"]["yolo_model"], verbose=False)
 
         # Load ResNet50 and modify on CPU first, then move to device
         self.reid_model = resnet50(weights=ResNet50_Weights.DEFAULT)
         in_features = self.reid_model.fc.in_features
-        feature_size = CONFIG["models"]["reid_feature_size"]
+        feature_size = self.config["models"]["reid_feature_size"]
         self.reid_model.fc = torch.nn.Linear(in_features, feature_size)
 
         # Move entire model to device and set to eval mode
@@ -221,8 +220,8 @@ class PlayerTracker:
                     pos_score = distance / frame_width
 
                 # Combined score (weighted)
-                reid_weight = CONFIG["tracker"]["reid_weight"]
-                pos_weight = CONFIG["tracker"]["position_weight"]
+                reid_weight = self.config["tracker"]["reid_weight"]
+                pos_weight = self.config["tracker"]["position_weight"]
                 score = reid_score * reid_weight + pos_score * pos_weight
                 matching_scores[(i, player_id)] = score
         return matching_scores
@@ -285,7 +284,7 @@ class PlayerTracker:
             return None
 
         # Prepare image for ResNet50
-        input_size = tuple(CONFIG["models"]["reid_input_size"])
+        input_size = tuple(self.config["models"]["reid_input_size"])
         person_img = cv2.resize(person_img, input_size)
         person_tensor = torch.from_numpy(person_img).permute(2, 0, 1).float() / 255.0
         person_tensor = person_tensor.unsqueeze(0).to(self.device)
@@ -328,7 +327,7 @@ if __name__ == "__main__":
     tracker = PlayerTracker()
 
     # Open video
-    cap = cv2.VideoCapture(CONFIG["paths"]["test_video"])
+    cap = cv2.VideoCapture(tracker.config["paths"]["test_video"])
 
     frame_count = 0
     while cap.isOpened():
