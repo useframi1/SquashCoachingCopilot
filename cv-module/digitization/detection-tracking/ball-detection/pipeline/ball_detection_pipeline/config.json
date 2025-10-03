@@ -1,0 +1,5 @@
+{
+    "model_path": "model/weights/model_best.pt",
+    "model_width": 640,
+    "model_height": 360
+}

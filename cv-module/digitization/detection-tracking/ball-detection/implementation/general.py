@@ -6,6 +6,15 @@ import cv2
 from scipy.spatial import distance
 
 
+def load_config(config_path="config.json"):
+    """Load configuration from a JSON file."""
+    import json
+
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    return config
+
+
 def train(model, train_loader, optimizer, device, epoch, max_iters=200):
     start_time = time.time()
     losses = []
