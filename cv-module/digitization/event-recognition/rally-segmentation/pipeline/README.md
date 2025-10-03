@@ -1,0 +1,110 @@
+# Rally State Pipeline
+
+A Python package for detecting rally states in squash videos. This package provides the `RallyStateDetector` class to identify and track rally states (start, active, end) based on player positions and movements.
+
+## Installation
+
+Install the package in development mode:
+
+```bash
+pip install -e .
+```
+
+## Usage
+
+### Basic Usage
+
+```python
+from rally_state_pipeline import RallyStateDetector
+
+# Initialize the detector
+detector = RallyStateDetector()
+
+# Process frames with player coordinates
+state = detector.process_frame(player_real_coords)
+print(f"Current state: {state}")  # Output: 'start', 'active', or 'end'
+```
+
+### With Custom Configuration
+
+```python
+from rally_state_pipeline import RallyStateDetector
+
+# Provide custom configuration
+config = {
+    "window_size": 10,
+    "active_model": "ml_based",  # or "rule_based"
+    # ... other config parameters
+}
+
+detector = RallyStateDetector(config=config)
+state = detector.process_frame(player_real_coords)
+```
+
+### Resetting State
+
+```python
+# Reset the detector for a new video
+detector.reset()
+```
+
+## API Reference
+
+### `RallyStateDetector`
+
+The main class for rally state detection.
+
+#### `__init__(config: dict = None)`
+
+Initialize the detector.
+
+-   **Parameters:**
+    -   `config` (dict, optional): Configuration dictionary. If None, loads from default config.json
+
+#### `process_frame(player_real_coords) -> str`
+
+Process a single frame and return the current rally state.
+
+-   **Parameters:**
+
+    -   `player_real_coords`: Dictionary containing player real-world coordinates
+
+-   **Returns:**
+    -   `str`: Current rally state ('start', 'active', or 'end')
+
+#### `reset()`
+
+Reset internal state for processing a new video.
+
+## Configuration
+
+The package uses a configuration file (`config.json`) that includes:
+
+-   Window size for metrics aggregation
+-   Active model type (ML-based or rule-based)
+-   Model-specific parameters
+-   Court dimensions and thresholds
+
+## Package Structure
+
+```
+rally_state_pipeline/
+    __init__.py              # Package entry point (exports RallyStateDetector only)
+    rally_state_detector.py  # Main detector class
+    config.json              # Default configuration
+    models/                  # Internal models (not exposed)
+    utilities/               # Internal utilities (not exposed)
+    ...
+```
+
+## Requirements
+
+-   Python >= 3.7
+-   numpy
+-   pandas
+-   scikit-learn
+-   joblib
+
+## Note
+
+Only the `RallyStateDetector` class is part of the public API. All other classes, functions, and modules are internal implementation details and should not be imported directly.
