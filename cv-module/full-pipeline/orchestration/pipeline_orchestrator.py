@@ -3,6 +3,7 @@
 import cv2
 import numpy as np
 from typing import Optional, Callable
+from tqdm import tqdm
 from court_detection_pipeline import CourtCalibrator
 from player_tracking_pipeline import PlayerTracker
 from rally_state_pipeline import RallyStateDetector
@@ -75,39 +76,36 @@ class PipelineOrchestrator:
         frame_count = 0
 
         try:
-            for frame_number, timestamp, frame in frames_iterator:
-                # Process frame through all pipelines and collect data
-                frame_data = self.process_frame(frame, frame_number, timestamp)
+            # Wrap iterator with tqdm for progress tracking
+            with tqdm(
+                total=total_frames, desc="Processing frames", unit="frame"
+            ) as pbar:
+                for frame_number, timestamp, frame in frames_iterator:
+                    # Process frame through all pipelines and collect data
+                    frame_data = self.process_frame(frame, frame_number, timestamp)
 
-                # Visualize results
-                annotated_frame = self.visualizer.render_frame(frame, frame_data)
+                    # Visualize results
+                    annotated_frame = self.visualizer.render_frame(frame, frame_data)
 
-                # Display frame if requested
-                if display:
-                    cv2.imshow("Squash Analysis Pipeline", annotated_frame)
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        print("Processing interrupted by user")
-                        break
+                    # Display frame if requested
+                    if display:
+                        cv2.imshow("Squash Analysis Pipeline", annotated_frame)
+                        if cv2.waitKey(1) & 0xFF == ord("q"):
+                            break
 
-                # Call callback with both frame_data and annotated_frame
-                if on_frame_processed:
-                    on_frame_processed(frame_data, annotated_frame)
+                    # Call callback with both frame_data and annotated_frame
+                    if on_frame_processed:
+                        on_frame_processed(frame_data, annotated_frame)
 
-                frame_count += 1
-
-                # Print progress
-                if frame_count % 30 == 0:
-                    progress = (
-                        (frame_count / total_frames) * 100 if total_frames > 0 else 0
-                    )
-                    print(f"Progress: {frame_count}/{total_frames} ({progress:.1f}%)")
+                    frame_count += 1
+                    pbar.update(1)
 
         finally:
             # Cleanup
             if display:
                 cv2.destroyAllWindows()
 
-        print(f"Processing complete. Processed {frame_count} frames.")
+        print(f"\nProcessing complete. Processed {frame_count} frames.")
 
         # Post-process collected data
         print("\nApplying post-processing to collected data...")

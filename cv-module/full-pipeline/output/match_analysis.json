@@ -1,35 +1,35 @@
 {
   "match_info": {
-    "total_frames": 8,
-    "duration": 0.13333333333333333,
+    "total_frames": 36,
+    "duration": 0.6,
     "fps": 60.0
   },
   "movement_analysis": {
     "player1": {
-      "total_distance": 0.023161607325145255,
+      "total_distance": 0.15414338135585318,
       "average_position": [
-        "2.0353117",
-        "7.5293126"
-      ],
-      "court_coverage": 1.0,
-      "max_speed": 0.33388548458682754,
-      "average_speed": 0.1985280627869593,
-      "max_acceleration": 8.672007574281325,
-      "direction_changes": 0,
-      "trajectory_length": 8
-    },
-    "player2": {
-      "total_distance": 0.05058851068109906,
-      "average_position": [
-        "4.897175",
-        "6.211313"
+        "1.9746346",
+        "7.5230603"
       ],
       "court_coverage": 2.0,
-      "max_speed": 0.6418170985382492,
-      "average_speed": 0.43361580583799203,
-      "max_acceleration": 18.005072358436657,
+      "max_speed": 0.49837768559990286,
+      "average_speed": 0.264245796610034,
+      "max_acceleration": 24.279489646568223,
+      "direction_changes": 4,
+      "trajectory_length": 36
+    },
+    "player2": {
+      "total_distance": 0.4397114621969662,
+      "average_position": [
+        "4.75077",
+        "6.1957884"
+      ],
+      "court_coverage": 2.0,
+      "max_speed": 1.61167002084779,
+      "average_speed": 0.7537910780519422,
+      "max_acceleration": 21.1782814870117,
       "direction_changes": 0,
-      "trajectory_length": 8
+      "trajectory_length": 36
     }
   },
   "rally_statistics": {

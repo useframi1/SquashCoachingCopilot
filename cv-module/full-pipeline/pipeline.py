@@ -95,7 +95,6 @@ class Pipeline:
                 video_writer = VideoWriter(output_path, metadata)
 
             # Step 3: Process video frames
-            print("\nProcessing frames...")
             metadata_dict = {
                 "fps": metadata.fps,
                 "width": metadata.width,

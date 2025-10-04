@@ -4,8 +4,8 @@ SQUASH MATCH ANALYSIS SUMMARY
 
 MATCH INFORMATION
 ------------------------------------------------------------
-Duration: 0.1 seconds
-Total Frames: 8
+Duration: 0.6 seconds
+Total Frames: 36
 
 RALLY STATISTICS
 ------------------------------------------------------------
@@ -17,14 +17,14 @@ MOVEMENT ANALYSIS
 ------------------------------------------------------------
 
 Player 1:
-  Total Distance: 0.02m
-  Average Speed: 0.20m/s
-  Court Coverage: 1.0%
-  Direction Changes: 0
+  Total Distance: 0.15m
+  Average Speed: 0.26m/s
+  Court Coverage: 2.0%
+  Direction Changes: 4
 
 Player 2:
-  Total Distance: 0.05m
-  Average Speed: 0.43m/s
+  Total Distance: 0.44m
+  Average Speed: 0.75m/s
   Court Coverage: 2.0%
   Direction Changes: 0
 
