@@ -1,0 +1,54 @@
+{
+  "match_info": {
+    "total_frames": 8,
+    "duration": 0.13333333333333333,
+    "fps": 60.0
+  },
+  "movement_analysis": {
+    "player1": {
+      "total_distance": 0.023161607325145255,
+      "average_position": [
+        "2.0353117",
+        "7.5293126"
+      ],
+      "court_coverage": 1.0,
+      "max_speed": 0.33388548458682754,
+      "average_speed": 0.1985280627869593,
+      "max_acceleration": 8.672007574281325,
+      "direction_changes": 0,
+      "trajectory_length": 8
+    },
+    "player2": {
+      "total_distance": 0.05058851068109906,
+      "average_position": [
+        "4.897175",
+        "6.211313"
+      ],
+      "court_coverage": 2.0,
+      "max_speed": 0.6418170985382492,
+      "average_speed": 0.43361580583799203,
+      "max_acceleration": 18.005072358436657,
+      "direction_changes": 0,
+      "trajectory_length": 8
+    }
+  },
+  "rally_statistics": {
+    "total_rallies": 0,
+    "average_duration": 0.0,
+    "max_duration": 0.0,
+    "min_duration": 0.0,
+    "total_play_time": 0.0,
+    "player1_avg_distance": 0.0,
+    "player2_avg_distance": 0.0,
+    "player1_avg_intensity": 0.0,
+    "player2_avg_intensity": 0.0,
+    "average_shots_per_rally": 0.0
+  },
+  "rallies": [],
+  "coaching_insights": [
+    "Player 1: Low court coverage. Consider improving movement to cover more court area.",
+    "Player 2: Low court coverage. Consider improving movement to cover more court area.",
+    "Player 2 is significantly more active, potentially dominating rallies.",
+    "Short rallies suggest aggressive play or quick errors."
+  ]
+}
