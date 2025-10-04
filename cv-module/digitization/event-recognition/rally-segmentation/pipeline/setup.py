@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="rally_state_pipeline",
-    version="0.1.7",
+    version="0.1.12",
     description="A package for detecting rally states in squash videos",
     author="Youssef Elhagg",
     author_email="yousseframi@aucegypt.edu",

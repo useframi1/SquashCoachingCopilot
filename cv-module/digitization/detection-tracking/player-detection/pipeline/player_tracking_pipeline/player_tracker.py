@@ -15,13 +15,15 @@ class PlayerTracker:
     Returns the bottom-center position of each player's bounding box.
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict = None, homography: np.ndarray = None):
         """
         Initialize the player tracker.
         Args:
             config (dict): Configuration dictionary. If None, loads from 'config.json'.
+            homography (np.ndarray): 3x3 homography matrix for court coordinate transformation.
         """
         self.config = config if config else load_config()
+        self.homography = homography
         self.max_history = self.config["tracker"]["max_history"]
         self.reid_threshold = self.config["tracker"]["reid_threshold"]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -62,18 +64,7 @@ class PlayerTracker:
             frame: BGR image (numpy array)
 
         Returns:
-            dict: {
-                1: {
-                    "position": (x, y) or None,  # Player 1 bottom-center position
-                    "bbox": [x1, y1, x2, y2] or None,  # Player 1 bounding box
-                    "confidence": float or None  # Detection confidence
-                },
-                2: {
-                    "position": (x, y) or None,  # Player 2 bottom-center position
-                    "bbox": [x1, y1, x2, y2] or None,  # Player 2 bounding box
-                    "confidence": float or None  # Detection confidence
-                }
-            }
+            results: Dictionary of player tracking information
         """
         frame_width = frame.shape[1]
 
@@ -85,8 +76,18 @@ class PlayerTracker:
 
         # Initialize results
         results = {
-            1: {"position": None, "bbox": None, "confidence": None},
-            2: {"position": None, "bbox": None, "confidence": None},
+            1: {
+                "position": None,
+                "real_position": None,
+                "bbox": None,
+                "confidence": None,
+            },
+            2: {
+                "position": None,
+                "real_position": None,
+                "bbox": None,
+                "confidence": None,
+            },
         }
 
         for det_idx, player_id in assignments.items():
@@ -97,10 +98,13 @@ class PlayerTracker:
             center_x = (bbox[0] + bbox[2]) / 2
             bottom_y = bbox[3]
             position = (center_x, bottom_y)
+            pixel_point = np.array([[position]], dtype=np.float32)
+            real_point = cv2.perspectiveTransform(pixel_point, self.homography)
 
             # Store all tracking information
             results[player_id] = {
                 "position": position,
+                "real_position": real_point[0][0],
                 "bbox": bbox.tolist(),
                 "confidence": float(confidence),
             }

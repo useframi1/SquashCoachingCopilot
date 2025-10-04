@@ -26,8 +26,6 @@ class StatePredictor:
         else:
             raise ValueError(f"Unknown model type: {active_model_type}")
 
-        print(f"Initialized StatePredictor with {active_model_type} model")
-
     def set_state(self, state: str):
         """Reset predictor state for new sequence."""
         self.model.set_state(state)

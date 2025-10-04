@@ -30,6 +30,9 @@ class RallyStateDetector:
         self.metrics_aggregator.metrics_history.clear()
 
     def process_frame(self, player_real_coords):
+        if player_real_coords[1] is None or player_real_coords[2] is None:
+            return self.current_state  # Skip if no player detected
+
         # Update metrics aggregator
         self.metrics_aggregator.update_metrics(player_real_coords)
 

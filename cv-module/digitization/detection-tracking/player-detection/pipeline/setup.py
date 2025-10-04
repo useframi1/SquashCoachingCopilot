@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="player_tracking_pipeline",
-    version="0.1.2",
+    version="0.1.6",
     description="A package for detecting players in squash videos",
     author="Youssef Elhagg",
     author_email="yousseframi@aucegypt.edu",

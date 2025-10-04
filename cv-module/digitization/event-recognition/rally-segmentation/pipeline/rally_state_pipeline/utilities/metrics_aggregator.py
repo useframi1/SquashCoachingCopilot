@@ -64,22 +64,17 @@ class MetricsAggregator:
         # Store current player positions
         player_ids = list(player_real_coords.keys())[:2]
         for i, player_id in enumerate(player_ids, 1):
-            if len(player_real_coords[player_id]) > 0:
-                pos = player_real_coords[player_id][-1]
-                metrics[f"player{i}_x"] = pos[0]
-                metrics[f"player{i}_y"] = pos[1]
+            pos = player_real_coords[player_id]
+            metrics[f"player{i}_x"] = pos[0]
+            metrics[f"player{i}_y"] = pos[1]
 
         # Calculate distance between players if both detected
         if len(player_real_coords) >= 2:
-            if (
-                len(player_real_coords[player_ids[0]]) > 0
-                and len(player_real_coords[player_ids[1]]) > 0
-            ):
-                pos1 = player_real_coords[player_ids[0]][-1]
-                pos2 = player_real_coords[player_ids[1]][-1]
+            pos1 = player_real_coords[player_ids[0]]
+            pos2 = player_real_coords[player_ids[1]]
 
-                distance = self.calculate_distance(pos1, pos2)
-                metrics["player_distance"] = distance
+            distance = self.calculate_distance(pos1, pos2)
+            metrics["player_distance"] = distance
 
         return metrics
 
