@@ -22,15 +22,16 @@ class StrokePredictor:
         self.yolo_model = YOLO(yolo_model_path)
 
         # Load your trained model
-        if model_path.endswith(".pkl"):
+        if model_path.endswith(".h5") or model_path.endswith(".keras"):
+            from tensorflow import keras
+            self.model = keras.models.load_model(model_path)
+            self.model_type = "lstm"
+        elif model_path.endswith(".pkl"):
             with open(model_path, "rb") as f:
                 self.model = pickle.load(f)
             self.model_type = "xgboost"
-        else:  # .h5 for Keras/LSTM
-            from tensorflow import keras
-
-            self.model = keras.models.load_model(model_path)
-            self.model_type = "lstm"
+        else:
+            raise ValueError(f"Unsupported model format: {model_path}")
 
         # COCO keypoint indices
         self.RELEVANT_IDX = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
@@ -52,9 +53,13 @@ class StrokePredictor:
         # Label mapping
         self.label_map = {0: "forehand", 1: "backhand", 2: "neither"}
 
-        # Buffers for each tracked player
+        # Buffers for each tracked player (stores ALL keypoints, not just window_size)
         self.player_buffers = {}
         self.last_predictions = {}
+        
+        # Track prediction cooldown to avoid spam
+        self.prediction_cooldown = {}
+        self.cooldown_frames = 5  # Don't predict same stroke again for 5 frames
 
     def extract_keypoints(self, person_keypoints):
         """Extract keypoints into a dictionary"""
@@ -104,13 +109,14 @@ class StrokePredictor:
 
         return normalized
 
-    def predict_stroke(self, player_id, keypoints_sequence):
+    def predict_stroke(self, player_id, keypoints_sequence, current_frame):
         """
-        Predict stroke type from a sequence of keypoints
+        Predict stroke type from a sequence of keypoints using sliding window
 
         Args:
             player_id: ID of the player
-            keypoints_sequence: List of normalized keypoint dictionaries
+            keypoints_sequence: List of ALL normalized keypoint dictionaries for this player
+            current_frame: Current frame number
 
         Returns:
             prediction: Stroke type (forehand/backhand/neither)
@@ -119,8 +125,9 @@ class StrokePredictor:
         if len(keypoints_sequence) < self.window_size:
             return None, None
 
-        # Take the last window_size frames
-        sequence = keypoints_sequence[-self.window_size :]
+        # SLIDING WINDOW: Take the LAST window_size frames (most recent)
+        # This creates an overlapping window that slides with each new frame
+        sequence = keypoints_sequence[-self.window_size:]
 
         # Convert to feature array
         coord_cols = [
@@ -145,8 +152,15 @@ class StrokePredictor:
 
         stroke_type = self.label_map[prediction]
 
-        # Only report if not "neither" and confidence > 0.7
+        # Check cooldown to avoid repetitive predictions
+        if player_id in self.prediction_cooldown:
+            last_frame, last_stroke = self.prediction_cooldown[player_id]
+            if current_frame - last_frame < self.cooldown_frames and stroke_type == last_stroke:
+                return None, None
+
+        # Only report if not "neither" and confidence > threshold
         if stroke_type != "neither" and confidence > 0.5:
+            self.prediction_cooldown[player_id] = (current_frame, stroke_type)
             return stroke_type, confidence
 
         return None, None
@@ -178,25 +192,24 @@ class StrokePredictor:
                 keypoints = self.extract_keypoints(person_keypoints)
                 normalized_keypoints = self.normalize_keypoints(keypoints)
 
-                # Initialize buffer for new player
+                # Initialize buffer for new player (unlimited size for sliding window)
                 if current_id not in self.player_buffers:
-                    self.player_buffers[current_id] = deque(maxlen=self.window_size)
+                    self.player_buffers[current_id] = []
                     self.last_predictions[current_id] = None
 
-                # Add to buffer
+                # Add to buffer (sliding window: keep adding frames)
                 self.player_buffers[current_id].append(normalized_keypoints)
 
-                # Try to predict
-                if len(self.player_buffers[current_id]) == self.window_size:
+                # Predict on EVERY frame once we have enough data (sliding window)
+                if len(self.player_buffers[current_id]) >= self.window_size:
                     stroke, confidence = self.predict_stroke(
-                        current_id, list(self.player_buffers[current_id])
+                        current_id, 
+                        self.player_buffers[current_id],
+                        frame_idx
                     )
 
-                    # Only report if prediction changed or is new
-                    if (
-                        stroke is not None
-                        and stroke != self.last_predictions[current_id]
-                    ):
+                    # Report new predictions
+                    if stroke is not None:
                         predictions.append(
                             {
                                 "player_id": current_id,
@@ -234,7 +247,7 @@ def run_inference(video_path, model_path, output_path=None):
 
     frame_idx = 0
 
-    print("Starting inference...")
+    print("Starting inference with SLIDING WINDOW...")
     print("Press 'q' to quit")
     print("-" * 60)
 
