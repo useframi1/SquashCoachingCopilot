@@ -46,6 +46,9 @@ class PlayerTracker:
         )
         self.detector = YOLO(model_path, verbose=False)
 
+        # Check if model supports pose estimation
+        self.has_pose = hasattr(self.detector.model, 'kpt_shape') if hasattr(self.detector, 'model') else False
+
         # Load ResNet50 and modify on CPU first, then move to device
         self.reid_model = resnet50(weights=ResNet50_Weights.DEFAULT)
         in_features = self.reid_model.fc.in_features
@@ -69,7 +72,7 @@ class PlayerTracker:
         frame_width = frame.shape[1]
 
         # Detect people in frame
-        detections = self._detect_people(frame)
+        detections, keypoints = self._detect_people(frame)
 
         # Assign detections to player IDs
         assignments = self._assign_detections(detections, frame, frame_width)
@@ -81,12 +84,14 @@ class PlayerTracker:
                 "real_position": None,
                 "bbox": None,
                 "confidence": None,
+                "keypoints": None,
             },
             2: {
                 "position": None,
                 "real_position": None,
                 "bbox": None,
                 "confidence": None,
+                "keypoints": None,
             },
         }
 
@@ -101,12 +106,19 @@ class PlayerTracker:
             pixel_point = np.array([[position]], dtype=np.float32)
             real_point = cv2.perspectiveTransform(pixel_point, self.homography)
 
+            # Get keypoints for this detection
+            kp = keypoints[det_idx] if keypoints[det_idx] is not None else None
+
             # Store all tracking information
             results[player_id] = {
                 "position": position,
                 "real_position": real_point[0][0],
                 "bbox": bbox.tolist(),
                 "confidence": float(confidence),
+                "keypoints": {
+                    "xy": kp['xy'].tolist() if kp is not None else None,
+                    "conf": kp['conf'].tolist() if kp is not None and kp['conf'] is not None else None
+                } if kp is not None else None,
             }
 
             # Update position history
@@ -119,7 +131,9 @@ class PlayerTracker:
         Detect people in the frame using YOLO.
 
         Returns:
-            list: Top 2 person detections sorted by confidence
+            tuple: (detections, keypoints)
+                - detections: list of top 2 person detections sorted by confidence
+                - keypoints: list of keypoint arrays (None if pose not supported)
         """
         results = self.detector(frame, verbose=False)[0]
         detections = results.boxes.xyxy.cpu().numpy()
@@ -127,11 +141,33 @@ class PlayerTracker:
         classes = results.boxes.cls.cpu().numpy()
         detections = np.hstack([detections, confidences[:, None], classes[:, None]])
 
+        # Extract keypoints if available
+        keypoints_data = None
+        if self.has_pose and results.keypoints is not None:
+            keypoints_data = {
+                'xy': results.keypoints.xy.cpu().numpy(),
+                'conf': results.keypoints.conf.cpu().numpy() if hasattr(results.keypoints, 'conf') else None
+            }
+
         # Filter for person class (class 0) and get top 2
         person_dets = [det for det in detections if det[5] == 0]
         person_dets = sorted(person_dets, key=lambda x: x[4], reverse=True)[:2]
 
-        return person_dets
+        # Get corresponding keypoints for top 2 detections
+        person_keypoints = []
+        if keypoints_data is not None:
+            for i in range(len(person_dets)):
+                # Find original index in detections
+                det_idx = next(j for j, det in enumerate(detections) if np.array_equal(det, person_dets[i]))
+                kp = {
+                    'xy': keypoints_data['xy'][det_idx],
+                    'conf': keypoints_data['conf'][det_idx] if keypoints_data['conf'] is not None else None
+                }
+                person_keypoints.append(kp)
+        else:
+            person_keypoints = [None] * len(person_dets)
+
+        return person_dets, person_keypoints
 
     def _assign_detections(self, detections, frame, frame_width):
         """

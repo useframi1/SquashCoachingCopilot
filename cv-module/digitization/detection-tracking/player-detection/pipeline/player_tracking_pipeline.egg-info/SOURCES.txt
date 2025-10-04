@@ -10,4 +10,5 @@ player_tracking_pipeline.egg-info/dependency_links.txt
 player_tracking_pipeline.egg-info/requires.txt
 player_tracking_pipeline.egg-info/top_level.txt
 player_tracking_pipeline/model/__init__.py
+player_tracking_pipeline/model/weights/yolov8m-pose.pt
 player_tracking_pipeline/model/weights/yolov8m.pt

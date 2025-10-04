@@ -1,6 +1,6 @@
 {
     "models": {
-        "yolo_model": "model/weights/yolov8m.pt",
+        "yolo_model": "model/weights/yolov8m-pose.pt",
         "reid_feature_size": 512,
         "reid_input_size": [224, 224]
     },
