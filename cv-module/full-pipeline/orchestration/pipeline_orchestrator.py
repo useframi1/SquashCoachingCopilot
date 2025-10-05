@@ -8,6 +8,7 @@ from court_detection_pipeline import CourtCalibrator
 from player_tracking_pipeline import PlayerTracker
 from rally_state_pipeline import RallyStateDetector
 from ball_detection_pipeline import BallTracker
+from stroke_detection_pipeline import StrokeDetector
 from data import DataCollector
 from data.data_models import FrameData
 from .visualizer import Visualizer
