@@ -1,6 +1,22 @@
 import numpy as np
 from tensorflow import keras
+import torch
+import torch.nn as nn
 
+class LSTMClassifier(nn.Module):
+    def __init__(self, input_size, hidden_size, num_classes, dropout=0.1):
+        super(LSTMClassifier, self).__init__()
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_size, num_classes)
+    
+    def forward(self, x):
+        lstm_out, (hidden, cell) = self.lstm(x)
+        last_hidden = hidden[-1]
+        out = self.dropout(last_hidden)
+        out = self.fc(out)
+        return out
 
 class StrokeDetector:
     """
@@ -8,7 +24,7 @@ class StrokeDetector:
     Processes keypoints from an external source and predicts stroke types using sliding window.
     """
 
-    def __init__(self, model_path, window_size=16, confidence_threshold=0.5, cooldown_frames=5):
+    def __init__(self, model_path, window_size=15, confidence_threshold=0.5, cooldown_frames=5):
         """
         Initialize the stroke detector
 
@@ -22,12 +38,27 @@ class StrokeDetector:
         self.confidence_threshold = confidence_threshold
         self.cooldown_frames = cooldown_frames
 
-        # Load LSTM model
+        # Load LSTM model tensorflow or pytorch
         if model_path.endswith(".h5") or model_path.endswith(".keras"):
             self.model = keras.models.load_model(model_path)
+            self.is_pytorch = False
+        elif model_path.endswith(".pth") or model_path.endswith(".pt"):
+            checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+            config = checkpoint['model_config']
+            self.model = LSTMClassifier(
+                input_size=config['input_size'],
+                hidden_size=config['hidden_size'],
+                num_classes=config['num_classes'],
+                dropout=config['dropout']
+            )
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.eval()
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.model.to(self.device)
+            self.is_pytorch = True
         else:
-            raise ValueError(f"Unsupported model format. Expected .h5 or .keras, got: {model_path}")
-
+            raise ValueError(f"Unsupported model format. Expected .h5, .keras, .pth, or .pt, got: {model_path}")
+        
         # COCO keypoint names (indices 5-16 in COCO format)
         self.RELEVANT_NAMES = [
             "left_shoulder",
@@ -139,8 +170,18 @@ class StrokeDetector:
         # Reshape for LSTM (1, window_size, num_features)
         features = features.reshape(1, self.window_size, -1)
         
-        # Get prediction
-        probabilities = self.model.predict(features, verbose=0)[0]
+       # Get prediction
+        if self.is_pytorch:
+            with torch.no_grad():
+                features_tensor = torch.FloatTensor(features).to(self.device)
+                outputs = self.model(features_tensor)
+                probabilities = torch.softmax(outputs, dim=1)[0].cpu().numpy()
+        else:
+            probabilities = self.model.predict(features, verbose=0)[0]
+        
+        prediction = np.argmax(probabilities)
+        confidence = probabilities[prediction]
+
         prediction = np.argmax(probabilities)
         confidence = probabilities[prediction]
 
@@ -224,7 +265,7 @@ class StrokeDetector:
 # Example usage
 # if __name__ == "__main__":
 #     # Initialize the stroke detector
-#     model_path = "lstm_model.h5"  # or .keras
+#     model_path = "pytorch_lstm_model.pth"  # or .keras
 #     detector = StrokeDetector(
 #         model_path=model_path,
 #         window_size=16,

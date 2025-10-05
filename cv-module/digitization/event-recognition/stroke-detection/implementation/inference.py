@@ -3,18 +3,33 @@ import numpy as np
 from ultralytics import YOLO
 from collections import deque
 import pickle
+import torch
+import torch.nn as nn
 
-# Import your preprocessing functions
-# from your_preprocessing_module import normalize_keypoints_df, add_angle_features, etc.
+
+class LSTMClassifier(nn.Module):
+    def __init__(self, input_size, hidden_size, num_classes, dropout=0.1):
+        super(LSTMClassifier, self).__init__()
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_size, num_classes)
+    
+    def forward(self, x):
+        lstm_out, (hidden, cell) = self.lstm(x)
+        last_hidden = hidden[-1]
+        out = self.dropout(last_hidden)
+        out = self.fc(out)
+        return out
 
 
 class StrokePredictor:
-    def __init__(self, model_path, yolo_model_path="yolo11n-pose.pt", window_size=16):
+    def __init__(self, model_path, yolo_model_path="yolo11n-pose.pt", window_size=15):
         """
         Initialize the stroke predictor
 
         Args:
-            model_path: Path to your trained model (XGBoost .pkl or LSTM .h5)
+            model_path: Path to your trained LSTM model (.h5, .keras, .pth, or .pt)
             yolo_model_path: Path to YOLO pose model
             window_size: Number of frames for prediction window
         """
@@ -25,11 +40,21 @@ class StrokePredictor:
         if model_path.endswith(".h5") or model_path.endswith(".keras"):
             from tensorflow import keras
             self.model = keras.models.load_model(model_path)
-            self.model_type = "lstm"
-        elif model_path.endswith(".pkl"):
-            with open(model_path, "rb") as f:
-                self.model = pickle.load(f)
-            self.model_type = "xgboost"
+            self.is_pytorch = False
+        elif model_path.endswith(".pth") or model_path.endswith(".pt"):
+            checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+            config = checkpoint['model_config']
+            self.model = LSTMClassifier(
+                input_size=config['input_size'],
+                hidden_size=config['hidden_size'],
+                num_classes=config['num_classes'],
+                dropout=config['dropout']
+            )
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.eval()
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.model.to(self.device)
+            self.is_pytorch = True
         else:
             raise ValueError(f"Unsupported model format: {model_path}")
 
@@ -126,7 +151,6 @@ class StrokePredictor:
             return None, None
 
         # SLIDING WINDOW: Take the LAST window_size frames (most recent)
-        # This creates an overlapping window that slides with each new frame
         sequence = keypoints_sequence[-self.window_size:]
 
         # Convert to feature array
@@ -134,21 +158,23 @@ class StrokePredictor:
             f"{axis}_{name}" for name in self.RELEVANT_NAMES for axis in ["x", "y"]
         ]
 
-        # Create feature matrix
+        # Create feature matrix (window_size, num_features)
         features = np.array([[frame[col] for col in coord_cols] for frame in sequence])
 
-        if self.model_type == "xgboost":
-            # Flatten for XGBoost
-            features = features.flatten().reshape(1, -1)
-            prediction = self.model.predict(features)[0]
-            probabilities = self.model.predict_proba(features)[0]
-            confidence = probabilities[prediction]
-        else:  # LSTM
-            # Reshape for LSTM (1, window_size, num_features)
-            features = features.reshape(1, self.window_size, -1)
+        # Reshape for LSTM (1, window_size, num_features)
+        features = features.reshape(1, self.window_size, -1)
+        
+        # Get prediction
+        if self.is_pytorch:
+            with torch.no_grad():
+                features_tensor = torch.FloatTensor(features).to(self.device)
+                outputs = self.model(features_tensor)
+                probabilities = torch.softmax(outputs, dim=1)[0].cpu().numpy()
+        else:
             probabilities = self.model.predict(features, verbose=0)[0]
-            prediction = np.argmax(probabilities)
-            confidence = probabilities[prediction]
+        
+        prediction = np.argmax(probabilities)
+        confidence = probabilities[prediction]
 
         stroke_type = self.label_map[prediction]
 
@@ -316,7 +342,7 @@ def run_inference(video_path, model_path, output_path=None):
 if __name__ == "__main__":
     # Example usage
     video_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/video-2.mp4"
-    model_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/lstm_model.h5"  # or .h5 for LSTM
+    model_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/pytorch_lstm_model.pth"  # .h5, .keras, .pth, or .pt
     output_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/output_video.mp4"  # Optional
 
     run_inference(video_path, model_path, output_path)
