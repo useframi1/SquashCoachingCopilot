@@ -5,15 +5,17 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sklearn.utils.class_weight import compute_class_weight
+from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
+import pickle
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
 np.random.seed(42)
 
 # Check if GPU is available
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f'Using device: {device}')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
 # ==================== Loading Dataset ====================
 df_1 = pd.read_json("annotated_jsons/AO_Output.json")
@@ -47,6 +49,7 @@ print(f"Train event counts:\n{train_df['event'].value_counts()}")
 print(f"Test shape: {test_df.shape}")
 print(f"Test event counts:\n{test_df['event'].value_counts()}")
 
+
 # ==================== Expand Keypoints ====================
 def expand_df(df):
     expanded_df = (
@@ -61,10 +64,12 @@ def expand_df(df):
     df_expanded.drop(columns=["keypoints"], inplace=True)
     return df_expanded
 
+
 train_df_expanded = expand_df(train_df)
 test_df_expanded = expand_df(test_df)
 
 print(f"Expanded train shape: {train_df_expanded.shape}")
+
 
 # ==================== Normalize Keypoints ====================
 def normalize_keypoints_df(df):
@@ -118,8 +123,10 @@ def normalize_keypoints_df(df):
 
     return df_norm
 
+
 train_df_expanded = normalize_keypoints_df(train_df_expanded)
 test_df_expanded = normalize_keypoints_df(test_df_expanded)
+
 
 # ==================== Add Sequences ====================
 def add_sequence(df_expanded):
@@ -133,7 +140,7 @@ def add_sequence(df_expanded):
     for idx in event_indices:
         label = df_expanded.at[idx, "event"]
         group_id = df_expanded.at[idx, "index"]
-        
+
         # Add the labeled frame itself
         selected_indices.add(idx)
         df_expanded.at[idx, "event"] = label
@@ -215,27 +222,40 @@ def add_sequence(df_expanded):
 
     return df_expanded
 
+
 train_df_expanded = add_sequence(train_df_expanded)
 test_df_expanded = add_sequence(test_df_expanded)
 
-print(f"Train event counts after sequencing:\n{train_df_expanded['event'].value_counts()}")
-print(f"Test event counts after sequencing:\n{test_df_expanded['event'].value_counts()}")
+print(
+    f"Train event counts after sequencing:\n{train_df_expanded['event'].value_counts()}"
+)
+print(
+    f"Test event counts after sequencing:\n{test_df_expanded['event'].value_counts()}"
+)
 
 # Drop unnecessary columns
 train_df_expanded.drop(columns=["player_id", "time", "index"], inplace=True)
 test_df_expanded.drop(columns=["player_id", "time", "index"], inplace=True)
 
 # ==================== Label Encoding ====================
-label_map = {"forehand": 0, "backhand": 1, "neither": 2}
-train_df_expanded = train_df_expanded[
-    train_df_expanded["event"].isin(label_map.keys())
-].copy()
-train_df_expanded["event"] = train_df_expanded["event"].map(label_map).astype(int)
+# Initialize and fit LabelEncoder
+label_encoder = LabelEncoder()
+label_encoder.fit(["forehand", "backhand", "neither"])
 
-test_df_expanded = test_df_expanded[
-    test_df_expanded["event"].isin(label_map.keys())
+print(f"Label encoder classes: {label_encoder.classes_}")
+print(f"Label encoder mapping: {dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))}")
+
+# Filter and encode train data
+train_df_expanded = train_df_expanded[
+    train_df_expanded["event"].isin(label_encoder.classes_)
 ].copy()
-test_df_expanded["event"] = test_df_expanded["event"].map(label_map).astype(int)
+train_df_expanded["event"] = label_encoder.transform(train_df_expanded["event"])
+
+# Filter and encode test data
+test_df_expanded = test_df_expanded[
+    test_df_expanded["event"].isin(label_encoder.classes_)
+].copy()
+test_df_expanded["event"] = label_encoder.transform(test_df_expanded["event"])
 
 # Get coordinate columns
 coord_cols = [
@@ -244,23 +264,25 @@ coord_cols = [
     if col.startswith("x") or col.startswith("y")
 ]
 
+
 # ==================== Create Sequences ====================
 def create_sequences(df_expanded, coord_cols, window_size=15):
     X = []
     y = []
-    
+
     for i in range(0, len(df_expanded), window_size):
         if i + window_size <= len(df_expanded):
             window = df_expanded.iloc[i : i + window_size]
-            
+
             if window["event"].nunique() == 1:
                 X.append(window[coord_cols].values)
                 y.append(window["event"].iloc[0])
-    
+
     X = np.array(X)
     y = np.array(y)
-    
+
     return X, y
+
 
 window_size = 15
 X_train, y_train = create_sequences(train_df_expanded, coord_cols, window_size)
@@ -274,17 +296,19 @@ print(f"X_test shape: {X_test.shape}")
 print(f"y_test shape: {y_test.shape}")
 print(f"Label distribution: {np.unique(y_test, return_counts=True)}")
 
+
 # ==================== PyTorch Dataset ====================
 class SquashDataset(Dataset):
     def __init__(self, X, y):
         self.X = torch.FloatTensor(X)
         self.y = torch.LongTensor(y)
-    
+
     def __len__(self):
         return len(self.X)
-    
+
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
+
 
 # ==================== LSTM Model ====================
 class LSTMClassifier(nn.Module):
@@ -294,13 +318,14 @@ class LSTMClassifier(nn.Module):
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_size, num_classes)
-    
+
     def forward(self, x):
         lstm_out, (hidden, cell) = self.lstm(x)
         last_hidden = hidden[-1]
         out = self.dropout(last_hidden)
         out = self.fc(out)
         return out
+
 
 # ==================== Training Setup ====================
 # Create datasets and dataloaders
@@ -320,9 +345,7 @@ dropout = 0.1
 model = LSTMClassifier(input_size, hidden_size, num_classes, dropout).to(device)
 
 # Compute class weights
-class_weights = compute_class_weight('balanced', 
-                                    classes=np.unique(y_train), 
-                                    y=y_train)
+class_weights = compute_class_weight("balanced", classes=np.unique(y_train), y=y_train)
 class_weights = torch.FloatTensor(class_weights).to(device)
 print(f"Class weights: {dict(enumerate(class_weights.cpu().numpy()))}")
 
@@ -333,16 +356,11 @@ optimizer = optim.Adam(model.parameters())
 # ==================== Training Loop ====================
 epochs = 100
 patience = 10
-best_val_loss = float('inf')
+best_val_loss = float("inf")
 patience_counter = 0
 best_model_state = None
 
-history = {
-    'train_loss': [],
-    'train_acc': [],
-    'val_loss': [],
-    'val_acc': []
-}
+history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
 
 print("Starting training...")
 for epoch in range(epochs):
@@ -351,55 +369,57 @@ for epoch in range(epochs):
     train_loss = 0
     train_correct = 0
     train_total = 0
-    
+
     for X_batch, y_batch in train_loader:
         X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-        
+
         optimizer.zero_grad()
         outputs = model(X_batch)
         loss = criterion(outputs, y_batch)
-        
+
         loss.backward()
         optimizer.step()
-        
+
         train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
         train_total += y_batch.size(0)
         train_correct += (predicted == y_batch).sum().item()
-    
+
     avg_train_loss = train_loss / len(train_loader)
     train_accuracy = train_correct / train_total
-    
+
     # Validation
     model.eval()
     val_loss = 0
     val_correct = 0
     val_total = 0
-    
+
     with torch.no_grad():
         for X_batch, y_batch in test_loader:
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-            
+
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)
-            
+
             val_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
             val_total += y_batch.size(0)
             val_correct += (predicted == y_batch).sum().item()
-    
+
     avg_val_loss = val_loss / len(test_loader)
     val_accuracy = val_correct / val_total
-    
-    history['train_loss'].append(avg_train_loss)
-    history['train_acc'].append(train_accuracy)
-    history['val_loss'].append(avg_val_loss)
-    history['val_acc'].append(val_accuracy)
-    
-    print(f'Epoch {epoch+1}/{epochs} - '
-          f'accuracy: {train_accuracy:.4f} - loss: {avg_train_loss:.4f} - '
-          f'val_accuracy: {val_accuracy:.4f} - val_loss: {avg_val_loss:.4f}')
-    
+
+    history["train_loss"].append(avg_train_loss)
+    history["train_acc"].append(train_accuracy)
+    history["val_loss"].append(avg_val_loss)
+    history["val_acc"].append(val_accuracy)
+
+    print(
+        f"Epoch {epoch+1}/{epochs} - "
+        f"accuracy: {train_accuracy:.4f} - loss: {avg_train_loss:.4f} - "
+        f"val_accuracy: {val_accuracy:.4f} - val_loss: {avg_val_loss:.4f}"
+    )
+
     # Early stopping
     if avg_val_loss < best_val_loss:
         best_val_loss = avg_val_loss
@@ -408,7 +428,7 @@ for epoch in range(epochs):
     else:
         patience_counter += 1
         if patience_counter >= patience:
-            print(f'Early stopping triggered at epoch {epoch+1}')
+            print(f"Early stopping triggered at epoch {epoch+1}")
             break
 
 # Restore best model
@@ -426,7 +446,7 @@ with torch.no_grad():
         outputs = model(X_batch)
         probs = torch.softmax(outputs, dim=1)
         preds = torch.argmax(outputs, dim=1)
-        
+
         all_preds.extend(preds.cpu().numpy())
         all_probs.extend(probs.cpu().numpy())
 
@@ -434,12 +454,13 @@ y_pred = np.array(all_preds)
 y_pred_probs = np.array(all_probs)
 
 from sklearn.metrics import classification_report
+
 print("\nClassification Report:")
 print(classification_report(y_test, y_pred))
 
 # ==================== Plot Training History ====================
-training_acc = history['train_acc']
-val_acc = history['val_acc']
+training_acc = history["train_acc"]
+val_acc = history["val_acc"]
 
 EPOCHS = len(training_acc)
 epoch_count = range(1, EPOCHS + 1)
@@ -453,13 +474,17 @@ plt.ylabel("LSTM Accuracy")
 plt.show()
 
 # ==================== Save Model ====================
-torch.save({
-    'model_state_dict': model.state_dict(),
-    'model_config': {
-        'input_size': input_size,
-        'hidden_size': hidden_size,
-        'num_classes': num_classes,
-        'dropout': dropout
-    }
-}, "lstm_model.pth")
-print("Model saved to lstm_model.pth")
+torch.save(
+    {
+        "model_state_dict": model.state_dict(),
+        "model_config": {
+            "input_size": input_size,
+            "hidden_size": hidden_size,
+            "num_classes": num_classes,
+            "dropout": dropout,
+        },
+        "label_encoder": label_encoder,
+    },
+    "lstm_model.pt",
+)
+print("Model saved to lstm_model.pt with label encoder")

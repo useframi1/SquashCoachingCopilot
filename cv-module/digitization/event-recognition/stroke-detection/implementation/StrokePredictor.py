@@ -3,6 +3,7 @@ from tensorflow import keras
 import torch
 import torch.nn as nn
 
+
 class LSTMClassifier(nn.Module):
     def __init__(self, input_size, hidden_size, num_classes, dropout=0.1):
         super(LSTMClassifier, self).__init__()
@@ -10,7 +11,7 @@ class LSTMClassifier(nn.Module):
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_size, num_classes)
-    
+
     def forward(self, x):
         lstm_out, (hidden, cell) = self.lstm(x)
         last_hidden = hidden[-1]
@@ -18,13 +19,16 @@ class LSTMClassifier(nn.Module):
         out = self.fc(out)
         return out
 
+
 class StrokeDetector:
     """
     LSTM-based Stroke Detection Module for Tennis/Squash
     Processes keypoints from an external source and predicts stroke types using sliding window.
     """
 
-    def __init__(self, model_path, window_size=15, confidence_threshold=0.5, cooldown_frames=5):
+    def __init__(
+        self, model_path, window_size=15, confidence_threshold=0.5, cooldown_frames=5
+    ):
         """
         Initialize the stroke detector
 
@@ -43,22 +47,25 @@ class StrokeDetector:
             self.model = keras.models.load_model(model_path)
             self.is_pytorch = False
         elif model_path.endswith(".pth") or model_path.endswith(".pt"):
-            checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-            config = checkpoint['model_config']
+            checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
+            config = checkpoint["model_config"]
             self.model = LSTMClassifier(
-                input_size=config['input_size'],
-                hidden_size=config['hidden_size'],
-                num_classes=config['num_classes'],
-                dropout=config['dropout']
+                input_size=config["input_size"],
+                hidden_size=config["hidden_size"],
+                num_classes=config["num_classes"],
+                dropout=config["dropout"],
             )
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            self.label_encoder = checkpoint.get("label_encoder", None)
             self.model.eval()
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.model.to(self.device)
             self.is_pytorch = True
         else:
-            raise ValueError(f"Unsupported model format. Expected .h5, .keras, .pth, or .pt, got: {model_path}")
-        
+            raise ValueError(
+                f"Unsupported model format. Expected .h5, .keras, .pth, or .pt, got: {model_path}"
+            )
+
         # COCO keypoint names (indices 5-16 in COCO format)
         self.RELEVANT_NAMES = [
             "left_shoulder",
@@ -75,13 +82,11 @@ class StrokeDetector:
             "right_ankle",
         ]
 
-        # Label mapping
-        self.label_map = {0: "forehand", 1: "backhand", 2: "neither"}
-
         # Buffers for each tracked player
         self.player_buffers = {}
         self.last_predictions = {}
         self.prediction_cooldown = {}
+        self.frame_counter = 0
 
     def extract_relevant_keypoints(self, person_keypoints):
         """Extract keypoints into a dictionary"""
@@ -92,14 +97,13 @@ class StrokeDetector:
             keypoints[f"y_{self.RELEVANT_NAMES[j]}"] = kp[1]
         return keypoints
 
-
     def normalize_keypoints(self, keypoints_dict):
         """
         Normalize keypoints relative to hip center and torso length
-        
+
         Args:
             keypoints_dict: Dictionary with x_ and y_ coordinates for relevant keypoints
-            
+
         Returns:
             Dictionary with normalized keypoints
         """
@@ -141,14 +145,13 @@ class StrokeDetector:
 
         return normalized
 
-    def predict_stroke(self, player_id, keypoints_sequence, current_frame):
+    def predict_stroke(self, player_id, keypoints_sequence):
         """
         Predict stroke type from a sequence of keypoints using sliding window
 
         Args:
             player_id: ID of the player
             keypoints_sequence: List of ALL normalized keypoint dictionaries for this player
-            current_frame: Current frame number
 
         Returns:
             tuple: (stroke_type, confidence) or (None, None) if no prediction
@@ -157,7 +160,7 @@ class StrokeDetector:
             return None, None
 
         # SLIDING WINDOW: Take the LAST window_size frames (most recent)
-        sequence = keypoints_sequence[-self.window_size:]
+        sequence = keypoints_sequence[-self.window_size :]
 
         # Convert to feature array
         coord_cols = [
@@ -169,8 +172,8 @@ class StrokeDetector:
 
         # Reshape for LSTM (1, window_size, num_features)
         features = features.reshape(1, self.window_size, -1)
-        
-       # Get prediction
+
+        # Get prediction
         if self.is_pytorch:
             with torch.no_grad():
                 features_tensor = torch.FloatTensor(features).to(self.device)
@@ -178,54 +181,58 @@ class StrokeDetector:
                 probabilities = torch.softmax(outputs, dim=1)[0].cpu().numpy()
         else:
             probabilities = self.model.predict(features, verbose=0)[0]
-        
-        prediction = np.argmax(probabilities)
-        confidence = probabilities[prediction]
 
         prediction = np.argmax(probabilities)
         confidence = probabilities[prediction]
 
-        stroke_type = self.label_map[prediction]
+        # Use label_encoder if available
+        stroke_type = self.label_encoder.inverse_transform([prediction])[0]
 
         # Check cooldown to avoid repetitive predictions
         if player_id in self.prediction_cooldown:
-            last_frame, last_stroke = self.prediction_cooldown[player_id]
-            if current_frame - last_frame < self.cooldown_frames and stroke_type == last_stroke:
-                return None, None
+            last_cooldown_count, last_stroke = self.prediction_cooldown[player_id]
+            frames_since_last = self.frame_counter - last_cooldown_count
+            if frames_since_last < self.cooldown_frames and stroke_type == last_stroke:
+                return last_stroke, confidence
 
         # Only report if not "neither" and confidence > threshold
         if stroke_type != "neither" and confidence > self.confidence_threshold:
-            self.prediction_cooldown[player_id] = (current_frame, stroke_type)
+            self.prediction_cooldown[player_id] = (self.frame_counter, stroke_type)
             return stroke_type, confidence
 
-        return None, None
+        return "neither", confidence
 
-    def process_frame(self, player_keypoints, frame_idx):
+    def process_frame(self, player_keypoints):
         """
         Process keypoints for multiple players and return predictions
-        
+
         Args:
             player_keypoints: Dictionary mapping player_id to their keypoints
                              Format: {player_id: keypoints_data, ...}
                              where keypoints_data can be:
                                - Dictionary: {'x_left_shoulder': val, 'y_left_shoulder': val, ...}
                                - Array/List: COCO format keypoints (17 keypoints)
-            frame_idx: Current frame number
-            
+
         Returns:
             List of prediction dictionaries with keys:
                 - player_id: ID of the player
                 - stroke: Predicted stroke type ('forehand', 'backhand')
                 - confidence: Prediction confidence (0-1)
-                - frame: Frame number
+                - frame: Internal frame counter
         """
-        predictions = []
+        predictions = {
+            1: {"stroke": "neither", "confidence": 0.0},
+            2: {"stroke": "neither", "confidence": 0.0},
+        }
+
+        # Increment internal frame counter
+        self.frame_counter += 1
 
         for player_id, keypoints_data in player_keypoints.items():
             try:
                 # Extract relevant keypoints
                 keypoints = self.extract_relevant_keypoints(keypoints_data)
-                
+
                 # Normalize keypoints
                 normalized_keypoints = self.normalize_keypoints(keypoints)
 
@@ -240,23 +247,21 @@ class StrokeDetector:
                 # Predict on EVERY frame once we have enough data (sliding window)
                 if len(self.player_buffers[player_id]) >= self.window_size:
                     stroke, confidence = self.predict_stroke(
-                        player_id,
-                        self.player_buffers[player_id],
-                        frame_idx
+                        player_id, self.player_buffers[player_id]
                     )
 
                     # Report new predictions
                     if stroke is not None:
-                        predictions.append({
-                            "player_id": player_id,
+                        predictions[player_id] = {
                             "stroke": stroke,
                             "confidence": confidence,
-                            "frame": frame_idx,
-                        })
+                        }
                         self.last_predictions[player_id] = stroke
 
             except Exception as e:
-                print(f"Warning: Error processing player {player_id} at frame {frame_idx}: {e}")
+                print(
+                    f"Warning: Error processing player {player_id} at frame {self.frame_counter}: {e}"
+                )
                 continue
 
         return predictions
