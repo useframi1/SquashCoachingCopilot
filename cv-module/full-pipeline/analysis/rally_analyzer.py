@@ -27,50 +27,37 @@ class RallyAnalyzer:
 
     def segment_rallies(self, frames: List[FrameData]) -> List[Dict]:
         """
-        Segment video into individual rallies based on rally state.
+        Segment video into individual rallies from rally_start to rally_end.
 
         Args:
             frames: List of frame data
 
         Returns:
-            List of rally segments with start/end frames and state info
+            List of rally segments with start/end frames
         """
         rallies = []
-        current_rally = None
+        rally_start_frame = None
 
         for i, frame in enumerate(frames):
             rally_state = frame.rally_state
 
             # Detect rally start
-            if rally_state == "Rally" and (current_rally is None or current_rally["state"] != "Rally"):
-                if current_rally is not None:
-                    # End previous rally
-                    current_rally["end_frame"] = i - 1
-                    rallies.append(current_rally)
-
-                # Start new rally
-                current_rally = {
-                    "start_frame": i,
-                    "end_frame": None,
-                    "state": "Rally",
-                }
+            if rally_state == "start":
+                rally_start_frame = i
 
             # Detect rally end
-            elif rally_state != "Rally" and current_rally is not None and current_rally["state"] == "Rally":
-                current_rally["end_frame"] = i - 1
-                rallies.append(current_rally)
-                current_rally = None
-
-        # Close last rally if still open
-        if current_rally is not None:
-            current_rally["end_frame"] = len(frames) - 1
-            rallies.append(current_rally)
+            elif rally_state == "end" and rally_start_frame is not None:
+                rallies.append(
+                    {
+                        "start_frame": rally_start_frame,
+                        "end_frame": i,
+                    }
+                )
+                rally_start_frame = None
 
         return rallies
 
-    def analyze_rally(
-        self, frames: List[FrameData], rally_segment: Dict
-    ) -> Dict:
+    def analyze_rally(self, frames: List[FrameData], rally_segment: Dict) -> Dict:
         """
         Analyze a single rally segment.
 
@@ -83,7 +70,7 @@ class RallyAnalyzer:
         """
         start = rally_segment["start_frame"]
         end = rally_segment["end_frame"]
-        rally_frames = frames[start:end + 1]
+        rally_frames = frames[start : end + 1]
 
         # Calculate basic metrics
         duration = len(rally_frames) / self.fps
@@ -176,7 +163,7 @@ class RallyAnalyzer:
         for i in range(1, len(trajectory)):
             dx = trajectory[i][0] - trajectory[i - 1][0]
             dy = trajectory[i][1] - trajectory[i - 1][1]
-            total_distance += np.sqrt(dx ** 2 + dy ** 2)
+            total_distance += np.sqrt(dx**2 + dy**2)
 
         return total_distance
 

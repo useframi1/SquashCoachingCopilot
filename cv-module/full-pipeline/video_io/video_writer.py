@@ -18,7 +18,7 @@ class VideoWriter:
     - Does NOT: Process or modify frames
     """
 
-    def __init__(self, output_path: str, metadata: VideoMetadata, codec: str = "avc1"):
+    def __init__(self, output_path: str, metadata: VideoMetadata, codec: str = "mp4v"):
         """
         Initialize video writer.
 
@@ -37,10 +37,7 @@ class VideoWriter:
 
         fourcc = cv2.VideoWriter_fourcc(*codec)
         self.writer = cv2.VideoWriter(
-            output_path,
-            fourcc,
-            metadata.fps,
-            (metadata.width, metadata.height)
+            output_path, fourcc, metadata.fps, (metadata.width, metadata.height)
         )
 
         if not self.writer.isOpened():
