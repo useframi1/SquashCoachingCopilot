@@ -7,7 +7,7 @@ into a single, easy-to-use interface.
 
 from typing import Optional, Union
 from orchestration import PipelineOrchestrator, Visualizer
-from video_io import VideoReader, VideoWriter
+from video_io import VideoHandler
 from data import DataCollector
 from analysis import CoachingAnalyzer
 from config import PipelineConfig, DEFAULT_CONFIG
@@ -18,7 +18,7 @@ class Pipeline:
     Complete pipeline for squash video analysis.
 
     Integrates four main components:
-    - VideoReader: Handles video I/O and metadata extraction
+    - VideoHandler: Handles video I/O and metadata extraction
     - PipelineOrchestrator: Processes video frames through detection pipelines
     - DataCollector: Aggregates and validates tracking data
     - CoachingAnalyzer: Generates coaching insights and analysis
@@ -68,7 +68,8 @@ class Pipeline:
             visualizer=self.visualizer,
         )
 
-        # Analyzer will be initialized after reading video metadata (to get fps)
+        # VideoHandler and Analyzer will be initialized in run()
+        self.video_handler = None
         self.analyzer = None
 
     def run(self):
@@ -78,60 +79,64 @@ class Pipeline:
         # Use config defaults if not specified
         video_path = self.config.video_path
         output_path = self.config.output_path
+        output_codec = self.config.output_codec
         display = self.config.display
         analysis_output_path = self.config.analysis_output_path
 
-        # Step 1: Initialize video reader and extract metadata
+        # Step 1: Initialize VideoHandler
         print(f"Opening video: {video_path}")
-        with VideoReader(video_path) as video_reader:
-            metadata = video_reader.get_metadata()
-            print(f"Video metadata: {metadata}")
+        self.video_handler = VideoHandler(
+            input_path=video_path, output_path=output_path, codec=output_codec
+        )
 
-            # Initialize analyzer with actual video fps
-            self.analyzer = CoachingAnalyzer(fps=metadata.fps)
+        metadata = self.video_handler.get_metadata()
+        print(f"Video metadata: {metadata}")
 
-            # Step 2: Initialize video writer if output path is specified
-            video_writer = None
-            if output_path:
-                video_writer = VideoWriter(output_path, metadata)
+        # Initialize analyzer with actual video fps
+        self.analyzer = CoachingAnalyzer(fps=metadata.fps)
 
-            # Step 3: Process video frames
-            metadata_dict = {
-                "fps": metadata.fps,
-                "width": metadata.width,
-                "height": metadata.height,
-                "total_frames": metadata.total_frames,
-            }
+        # Step 2: Read and process video frames
+        metadata_dict = {
+            "fps": metadata.fps,
+            "width": metadata.width,
+            "height": metadata.height,
+            "total_frames": metadata.total_frames,
+        }
 
-            try:
-                # Define callback to write frames
-                def write_frame(frame_data, annotated_frame):
-                    if video_writer:
-                        video_writer.write(annotated_frame)
+        self.orchestrator.process_frames(
+            frames_iterator=self.video_handler.read_video(),
+            video_metadata=metadata_dict,
+            display=display,
+        )
 
-                self.orchestrator.process_frames(
-                    frames_iterator=video_reader.frames(),
-                    video_metadata=metadata_dict,
-                    display=display,
-                    on_frame_processed=write_frame,
-                )
-            finally:
-                # Release video writer
-                if video_writer:
-                    video_writer.release()
-
-        # Step 4: Get collected data
-        frames = self.orchestrator.get_collected_data()
+        # Step 3: Get collected and post-processed data
+        frames = self.data_collector.get_frame_history()
         print(f"\nCollected {len(frames)} frames of data")
+
+        annotated_frames = self.visualizer.render_frames(
+            frames=self.video_handler.read_video(),
+            frame_data_list=frames,
+        )
+        self.video_handler.write_video(
+            annotated_frames, output_path="output/annotated_video.mp4"
+        )
+
+        # Post-process collected data
+        print("\nApplying post-processing to collected data...")
+        frames = self.data_collector.post_process()
+        print("Post-processing complete!")
+
+        # Step 4: Render and write output video if output path is specified
+        if output_path:
+            annotated_frames = self.visualizer.render_frames(
+                frames=self.video_handler.read_video(),
+                frame_data_list=frames,
+            )
+            self.video_handler.write_video(annotated_frames)
 
         # Step 5: Perform analysis
         print("\nPerforming coaching analysis...")
         analysis = self.analyzer.analyze_match(frames)
-
-        print(f"  Total Rallies: {analysis['rally_statistics']['total_rallies']}")
-        print(
-            f"  Average Rally Duration: {analysis['rally_statistics']['average_duration']:.2f}s"
-        )
 
         # Step 6: Export analysis
         print(f"\nExporting analysis to {analysis_output_path}.*")

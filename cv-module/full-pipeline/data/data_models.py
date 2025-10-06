@@ -53,6 +53,7 @@ class PlayerData:
             "bbox": self.bbox,
             "confidence": self.confidence,
             "keypoints": self.keypoints,
+            "stroke_type": self.stroke_type,
         }
 
 

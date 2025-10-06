@@ -2,7 +2,8 @@
 
 import cv2
 import numpy as np
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Generator, Tuple
+from tqdm import tqdm
 from data.data_models import FrameData, PlayerData, BallData
 
 
@@ -274,3 +275,32 @@ class Visualizer:
         )
 
         return frame
+
+    def render_frames(
+        self,
+        frames: Generator[Tuple[int, float, np.ndarray], None, None],
+        frame_data_list: List[FrameData],
+    ) -> Generator[np.ndarray, None, None]:
+        """
+        Render multiple frames with post-processed data.
+
+        Args:
+            frames: Generator yielding (frame_number, timestamp, frame) tuples
+            frame_data_list: List of post-processed FrameData objects
+
+        Yields:
+            Annotated frames
+        """
+        print("\nRendering post-processed frames...")
+        with tqdm(total=len(frame_data_list), desc="Rendering frames", unit="frame") as pbar:
+            for frame_number, _, frame in frames:
+                # Get the post-processed frame data for this frame
+                if frame_number < len(frame_data_list):
+                    frame_data = frame_data_list[frame_number]
+
+                    # Render frame with post-processed data
+                    annotated_frame = self.render_frame(frame, frame_data)
+
+                    yield annotated_frame
+
+                pbar.update(1)

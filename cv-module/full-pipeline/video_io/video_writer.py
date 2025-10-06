@@ -18,7 +18,7 @@ class VideoWriter:
     - Does NOT: Process or modify frames
     """
 
-    def __init__(self, output_path: str, metadata: VideoMetadata, codec: str = "mp4v"):
+    def __init__(self, output_path: str, metadata: VideoMetadata, codec: str = "avc1"):
         """
         Initialize video writer.
 

@@ -2,7 +2,7 @@
 
 import cv2
 import numpy as np
-from typing import Optional, Callable
+from typing import Optional
 from tqdm import tqdm
 from court_detection_pipeline import CourtCalibrator
 from player_tracking_pipeline import PlayerTracker
@@ -60,17 +60,15 @@ class PipelineOrchestrator:
         frames_iterator,
         video_metadata: dict,
         display: bool = True,
-        on_frame_processed: Optional[Callable[[FrameData, np.ndarray], None]] = None,
     ):
         """
         Process frames from an iterator through all pipelines.
+        Only processes and visualizes frames without writing.
 
         Args:
             frames_iterator: Iterator yielding (frame_number, timestamp, frame) tuples
             video_metadata: Dictionary with video metadata (fps, width, height, total_frames)
             display: Whether to display video in real-time
-            on_frame_processed: Optional callback called after each frame is processed.
-                              Receives (frame_data, annotated_frame) as arguments.
         """
         # Extract video properties
         total_frames = video_metadata["total_frames"]
@@ -86,18 +84,15 @@ class PipelineOrchestrator:
                     # Process frame through all pipelines and collect data
                     frame_data = self.process_frame(frame, frame_number, timestamp)
 
-                    # Visualize results
-                    annotated_frame = self.visualizer.render_frame(frame, frame_data)
-
                     # Display frame if requested
                     if display:
+                        # Visualize results (display only, no writing)
+                        annotated_frame = self.visualizer.render_frame(
+                            frame, frame_data
+                        )
                         cv2.imshow("Squash Analysis Pipeline", annotated_frame)
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             break
-
-                    # Call callback with both frame_data and annotated_frame
-                    if on_frame_processed:
-                        on_frame_processed(frame_data, annotated_frame)
 
                     frame_count += 1
                     pbar.update(1)
@@ -108,11 +103,6 @@ class PipelineOrchestrator:
                 cv2.destroyAllWindows()
 
         print(f"\nProcessing complete. Processed {frame_count} frames.")
-
-        # Post-process collected data
-        print("\nApplying post-processing to collected data...")
-        self.data_collector.post_process()
-        print("All processing complete!")
 
     def process_frame(
         self, frame: np.ndarray, frame_number: int, timestamp: float
@@ -184,15 +174,6 @@ class PipelineOrchestrator:
             1: player_results[1]["keypoints"]["xy"],
             2: player_results[2]["keypoints"]["xy"],
         }
-
-    def get_collected_data(self):
-        """
-        Get all collected data from the DataCollector.
-
-        Returns:
-            List of FrameData objects
-        """
-        return self.data_collector.get_frame_history()
 
     def reset(self):
         """Reset orchestrator and all sub-pipelines."""

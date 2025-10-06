@@ -19,7 +19,7 @@ class CoachingAnalyzer:
     - Export analysis results for coaching app
     """
 
-    def __init__(self, fps: float = 30.0):
+    def __init__(self, fps: float):
         """
         Initialize coaching analyzer.
 
@@ -85,7 +85,9 @@ class CoachingAnalyzer:
 
         # Speed and acceleration profiles
         speed_profile = self.movement_analyzer.get_speed_profile(frames, player_id)
-        accel_profile = self.movement_analyzer.get_acceleration_profile(frames, player_id)
+        accel_profile = self.movement_analyzer.get_acceleration_profile(
+            frames, player_id
+        )
 
         # Sprint detection
         sprints = self.movement_analyzer.detect_sprints(frames, player_id)
@@ -98,7 +100,9 @@ class CoachingAnalyzer:
             "movement_metrics": movement,
             "speed_profile_summary": {
                 "max": max(speed_profile) if speed_profile else 0.0,
-                "average": sum(speed_profile) / len(speed_profile) if speed_profile else 0.0,
+                "average": (
+                    sum(speed_profile) / len(speed_profile) if speed_profile else 0.0
+                ),
             },
             "acceleration_profile_summary": {
                 "max": max(accel_profile) if accel_profile else 0.0,
@@ -128,9 +132,24 @@ class CoachingAnalyzer:
             "player1": p1_analysis,
             "player2": p2_analysis,
             "comparison_summary": {
-                "more_active_player": 1 if p1_analysis["movement_metrics"]["total_distance"] > p2_analysis["movement_metrics"]["total_distance"] else 2,
-                "faster_player": 1 if p1_analysis["movement_metrics"]["max_speed"] > p2_analysis["movement_metrics"]["max_speed"] else 2,
-                "better_court_coverage": 1 if p1_analysis["positioning"]["court_coverage"] > p2_analysis["positioning"]["court_coverage"] else 2,
+                "more_active_player": (
+                    1
+                    if p1_analysis["movement_metrics"]["total_distance"]
+                    > p2_analysis["movement_metrics"]["total_distance"]
+                    else 2
+                ),
+                "faster_player": (
+                    1
+                    if p1_analysis["movement_metrics"]["max_speed"]
+                    > p2_analysis["movement_metrics"]["max_speed"]
+                    else 2
+                ),
+                "better_court_coverage": (
+                    1
+                    if p1_analysis["positioning"]["court_coverage"]
+                    > p2_analysis["positioning"]["court_coverage"]
+                    else 2
+                ),
             },
         }
 
@@ -183,33 +202,51 @@ class CoachingAnalyzer:
         p2_coverage = movement_metrics["player2"]["court_coverage"]
 
         if p1_coverage < 30:
-            insights.append("Player 1: Low court coverage. Consider improving movement to cover more court area.")
+            insights.append(
+                "Player 1: Low court coverage. Consider improving movement to cover more court area."
+            )
         if p2_coverage < 30:
-            insights.append("Player 2: Low court coverage. Consider improving movement to cover more court area.")
+            insights.append(
+                "Player 2: Low court coverage. Consider improving movement to cover more court area."
+            )
 
         # Speed insights
         p1_speed = movement_metrics["player1"]["average_speed"]
         p2_speed = movement_metrics["player2"]["average_speed"]
 
         if p1_speed > p2_speed * 1.2:
-            insights.append("Player 1 is significantly more active, potentially dominating rallies.")
+            insights.append(
+                "Player 1 is significantly more active, potentially dominating rallies."
+            )
         elif p2_speed > p1_speed * 1.2:
-            insights.append("Player 2 is significantly more active, potentially dominating rallies.")
+            insights.append(
+                "Player 2 is significantly more active, potentially dominating rallies."
+            )
 
         # Rally insights
         if rally_stats["average_duration"] > 15:
-            insights.append("Long rally duration indicates good fitness and defensive play.")
+            insights.append(
+                "Long rally duration indicates good fitness and defensive play."
+            )
         elif rally_stats["average_duration"] < 5:
             insights.append("Short rallies suggest aggressive play or quick errors.")
 
         # Intensity comparison
-        if rally_stats.get("player1_avg_intensity", 0) > rally_stats.get("player2_avg_intensity", 0) * 1.3:
+        if (
+            rally_stats.get("player1_avg_intensity", 0)
+            > rally_stats.get("player2_avg_intensity", 0) * 1.3
+        ):
             insights.append("Player 1 shows higher movement intensity during rallies.")
-        elif rally_stats.get("player2_avg_intensity", 0) > rally_stats.get("player1_avg_intensity", 0) * 1.3:
+        elif (
+            rally_stats.get("player2_avg_intensity", 0)
+            > rally_stats.get("player1_avg_intensity", 0) * 1.3
+        ):
             insights.append("Player 2 shows higher movement intensity during rallies.")
 
         if not insights:
-            insights.append("Performance metrics are balanced. Continue current training approach.")
+            insights.append(
+                "Performance metrics are balanced. Continue current training approach."
+            )
 
         return insights
 
@@ -232,7 +269,9 @@ class CoachingAnalyzer:
             rally_stats = analysis["rally_statistics"]
             f.write(f"Total Rallies: {rally_stats['total_rallies']}\n")
             f.write(f"Average Duration: {rally_stats['average_duration']:.2f}s\n")
-            f.write(f"Average Shots/Rally: {rally_stats['average_shots_per_rally']:.1f}\n\n")
+            f.write(
+                f"Average Shots/Rally: {rally_stats['average_shots_per_rally']:.1f}\n\n"
+            )
 
             # Movement analysis
             f.write("MOVEMENT ANALYSIS\n")

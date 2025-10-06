@@ -52,7 +52,7 @@ class VideoReader:
         fps = self.cap.get(cv2.CAP_PROP_FPS)
         width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_frames = self._count_frames()
         duration = total_frames / fps if fps > 0 else 0
 
         return VideoMetadata(
@@ -62,6 +62,30 @@ class VideoReader:
             total_frames=total_frames,
             duration=duration,
         )
+
+    def _count_frames(self) -> int:
+        """
+        Count total frames in video by reading through it.
+        More reliable than CAP_PROP_FRAME_COUNT for many codecs.
+
+        Returns:
+            Total number of frames
+        """
+        # Reset to beginning
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        # Count frames
+        frame_count = 0
+        while True:
+            ret, _ = self.cap.read()
+            if not ret:
+                break
+            frame_count += 1
+
+        # Reset to beginning for actual frame iteration
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        return frame_count
 
     def get_metadata(self) -> VideoMetadata:
         """

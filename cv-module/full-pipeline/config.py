@@ -52,9 +52,10 @@ class PipelineConfig:
     """Main pipeline configuration combining all component configs."""
 
     # Video processing options
-    video_path: str = "tests/video-5.mp4"
-    display: bool = True
+    video_path: str = "tests/video-3.mp4"
+    display: bool = False
     output_path: Optional[str] = "output/output_video.mp4"
+    output_codec: str = "avc1"  # Video codec for output (H.264)
     analysis_output_path: Optional[str] = "output/match_analysis"
 
     # Component configurations
