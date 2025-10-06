@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: stroke_detection_pipeline
-Version: 0.1.0
+Version: 0.1.1
 Summary: A package for detecting the strokes in squash videos
 Author: Youssef Elhagg
 Author-email: yousseframi@aucegypt.edu

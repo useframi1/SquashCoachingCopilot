@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: player_tracking_pipeline
-Version: 0.2.0
+Version: 0.2.1
 Summary: A package for detecting players in squash videos
 Author: Youssef Elhagg
 Author-email: yousseframi@aucegypt.edu

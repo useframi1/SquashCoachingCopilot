@@ -74,6 +74,7 @@ class DataCollector:
         player_results: dict,
         ball_position: tuple,
         rally_state: str,
+        stroke_data: dict,
     ) -> FrameData:
         """
         Collect raw data from all pipelines for a single frame.
@@ -88,6 +89,7 @@ class DataCollector:
             player_results: Player tracking results from PlayerTracker
             ball_position: Ball position (x, y) or (None, None)
             rally_state: Rally state from RallyStateDetector
+            stroke_data: Stroke detection data from StrokeDetector
 
         Returns:
             Raw FrameData object (not smoothed or interpolated)
@@ -100,6 +102,7 @@ class DataCollector:
             player_results,
             ball_position,
             rally_state,
+            stroke_data,
         )
 
         # Store raw data
@@ -116,6 +119,7 @@ class DataCollector:
         player_results: dict,
         ball_position: tuple,
         rally_state: str,
+        stroke_data: dict,
     ) -> FrameData:
         """Aggregate raw pipeline outputs into structured data models."""
         # Court data
@@ -138,6 +142,7 @@ class DataCollector:
             bbox=tuple(p1_raw["bbox"]) if p1_raw.get("bbox") else None,
             confidence=p1_raw.get("confidence"),
             keypoints=p1_raw.get("keypoints"),
+            stroke_type=stroke_data[1]["stroke"],
         )
 
         # Player 2 data
@@ -153,6 +158,7 @@ class DataCollector:
             bbox=tuple(p2_raw["bbox"]) if p2_raw.get("bbox") else None,
             confidence=p2_raw.get("confidence"),
             keypoints=p2_raw.get("keypoints"),
+            stroke_type=stroke_data[2]["stroke"],
         )
 
         # Ball data

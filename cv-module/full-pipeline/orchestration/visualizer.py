@@ -19,10 +19,22 @@ class Visualizer:
 
     # COCO keypoint skeleton connections (used by YOLO pose models)
     SKELETON = [
-        [16, 14], [14, 12], [17, 15], [15, 13], [12, 13],  # Head/shoulders
-        [6, 12], [7, 13], [6, 7],  # Torso
-        [6, 8], [8, 10], [7, 9], [9, 11],  # Arms
-        [12, 14], [14, 16], [13, 15], [15, 17]  # Legs
+        [16, 14],
+        [14, 12],
+        [17, 15],
+        [15, 13],
+        [12, 13],  # Head/shoulders
+        [6, 12],
+        [7, 13],
+        [6, 7],  # Torso
+        [6, 8],
+        [8, 10],
+        [7, 9],
+        [9, 11],  # Arms
+        [12, 14],
+        [14, 16],
+        [13, 15],
+        [15, 17],  # Legs
     ]
 
     def __init__(
@@ -32,6 +44,7 @@ class Visualizer:
         show_player_bbox: bool = True,
         show_ball: bool = True,
         show_rally_state: bool = True,
+        show_stroke_type: bool = True,
         keypoint_confidence_threshold: float = 0.5,
     ):
         """
@@ -43,6 +56,7 @@ class Visualizer:
             show_player_bbox: Whether to display player bounding boxes
             show_ball: Whether to display ball position
             show_rally_state: Whether to display rally state
+            show_stroke_type: Whether to display stroke type for both players
             keypoint_confidence_threshold: Minimum confidence for displaying keypoints
         """
         self.show_court_keypoints = show_court_keypoints
@@ -50,12 +64,13 @@ class Visualizer:
         self.show_player_bbox = show_player_bbox
         self.show_ball = show_ball
         self.show_rally_state = show_rally_state
+        self.show_stroke_type = show_stroke_type
         self.keypoint_confidence_threshold = keypoint_confidence_threshold
 
         # Colors
         self.player_colors = {
-            1: (0, 255, 0),   # Green for Player 1
-            2: (255, 0, 0),   # Blue for Player 2
+            1: (0, 255, 0),  # Green for Player 1
+            2: (255, 0, 0),  # Blue for Player 2
         }
         self.ball_color = (0, 0, 255)  # Red for ball
         self.court_color = (0, 255, 255)  # Yellow for court
@@ -92,6 +107,12 @@ class Visualizer:
         if self.show_rally_state:
             annotated_frame = self._draw_rally_state(
                 annotated_frame, frame_data.rally_state
+            )
+
+        # Draw stroke types
+        if self.show_stroke_type:
+            annotated_frame = self._draw_stroke_types(
+                annotated_frame, frame_data.player1, frame_data.player2
             )
 
         return annotated_frame
@@ -157,8 +178,10 @@ class Visualizer:
                 # COCO uses 1-based indexing, convert to 0-based
                 idx1, idx2 = joint1 - 1, joint2 - 1
                 if idx1 < len(kp_array) and idx2 < len(kp_array):
-                    if (conf_array[idx1] > self.keypoint_confidence_threshold and
-                        conf_array[idx2] > self.keypoint_confidence_threshold):
+                    if (
+                        conf_array[idx1] > self.keypoint_confidence_threshold
+                        and conf_array[idx2] > self.keypoint_confidence_threshold
+                    ):
                         pt1 = (int(kp_array[idx1][0]), int(kp_array[idx1][1]))
                         pt2 = (int(kp_array[idx2][0]), int(kp_array[idx2][1]))
                         cv2.line(frame, pt1, pt2, color, 2)
@@ -189,7 +212,9 @@ class Visualizer:
 
         return frame
 
-    def _draw_rally_state(self, frame: np.ndarray, rally_state: Optional[str]) -> np.ndarray:
+    def _draw_rally_state(
+        self, frame: np.ndarray, rally_state: Optional[str]
+    ) -> np.ndarray:
         """Draw rally state on frame."""
         if rally_state is None:
             return frame
@@ -208,6 +233,43 @@ class Visualizer:
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (255, 255, 255),
+            2,
+        )
+
+        return frame
+
+    def _draw_stroke_types(
+        self, frame: np.ndarray, player1: PlayerData, player2: PlayerData
+    ) -> np.ndarray:
+        """Draw stroke types for both players."""
+        # Draw semi-transparent background for text
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (10, 60), (350, 130), (0, 0, 0), -1)
+        frame = cv2.addWeighted(overlay, 0.5, frame, 0.5, 0)
+
+        # Draw Player 1 stroke type
+        p1_color = self.player_colors.get(1, (255, 255, 255))
+        p1_text = f"P1 Stroke: {player1.stroke_type}"
+        cv2.putText(
+            frame,
+            p1_text,
+            (20, 85),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            p1_color,
+            2,
+        )
+
+        # Draw Player 2 stroke type
+        p2_color = self.player_colors.get(2, (255, 255, 255))
+        p2_text = f"P2 Stroke: {player2.stroke_type}"
+        cv2.putText(
+            frame,
+            p2_text,
+            (20, 115),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            p2_color,
             2,
         )
 

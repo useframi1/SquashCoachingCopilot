@@ -47,7 +47,11 @@ class PlayerTracker:
         self.detector = YOLO(model_path, verbose=False)
 
         # Check if model supports pose estimation
-        self.has_pose = hasattr(self.detector.model, 'kpt_shape') if hasattr(self.detector, 'model') else False
+        self.has_pose = (
+            hasattr(self.detector.model, "kpt_shape")
+            if hasattr(self.detector, "model")
+            else False
+        )
 
         # Load ResNet50 and modify on CPU first, then move to device
         self.reid_model = resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -116,9 +120,13 @@ class PlayerTracker:
                 "bbox": bbox.tolist(),
                 "confidence": float(confidence),
                 "keypoints": {
-                    "xy": kp['xy'].tolist() if kp is not None else None,
-                    "conf": kp['conf'].tolist() if kp is not None and kp['conf'] is not None else None
-                } if kp is not None else None,
+                    "xy": kp["xy"].tolist() if kp is not None else None,
+                    "conf": (
+                        kp["conf"].tolist()
+                        if kp is not None and kp["conf"] is not None
+                        else None
+                    ),
+                },
             }
 
             # Update position history
@@ -145,8 +153,12 @@ class PlayerTracker:
         keypoints_data = None
         if self.has_pose and results.keypoints is not None:
             keypoints_data = {
-                'xy': results.keypoints.xy.cpu().numpy(),
-                'conf': results.keypoints.conf.cpu().numpy() if hasattr(results.keypoints, 'conf') else None
+                "xy": results.keypoints.xy.cpu().numpy(),
+                "conf": (
+                    results.keypoints.conf.cpu().numpy()
+                    if hasattr(results.keypoints, "conf")
+                    else None
+                ),
             }
 
         # Filter for person class (class 0) and get top 2
@@ -158,10 +170,18 @@ class PlayerTracker:
         if keypoints_data is not None:
             for i in range(len(person_dets)):
                 # Find original index in detections
-                det_idx = next(j for j, det in enumerate(detections) if np.array_equal(det, person_dets[i]))
+                det_idx = next(
+                    j
+                    for j, det in enumerate(detections)
+                    if np.array_equal(det, person_dets[i])
+                )
                 kp = {
-                    'xy': keypoints_data['xy'][det_idx],
-                    'conf': keypoints_data['conf'][det_idx] if keypoints_data['conf'] is not None else None
+                    "xy": keypoints_data["xy"][det_idx],
+                    "conf": (
+                        keypoints_data["conf"][det_idx]
+                        if keypoints_data["conf"] is not None
+                        else None
+                    ),
                 }
                 person_keypoints.append(kp)
         else:

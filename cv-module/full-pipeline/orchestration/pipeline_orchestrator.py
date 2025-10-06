@@ -44,6 +44,7 @@ class PipelineOrchestrator:
         self.player_tracker = None  # Initialized after court calibration
         self.rally_state_detector = RallyStateDetector()
         self.ball_tracker = BallTracker()
+        self.stroke_detector = StrokeDetector()
 
         # Data management and visualization
         self.data_collector = data_collector or DataCollector()
@@ -147,6 +148,10 @@ class PipelineOrchestrator:
         real_coordinates = self._get_real_coordinates(player_results)
         rally_state = self.rally_state_detector.process_frame(real_coordinates)
 
+        # 5. Stroke Detection
+        player_keypoints = self._get_player_keypoints(player_results)
+        stroke_data = self.stroke_detector.process_frame(player_keypoints)
+
         # 5. Collect and process data through DataCollector
         court_data = {
             "homographies": self.homographies,
@@ -161,6 +166,7 @@ class PipelineOrchestrator:
             player_results=player_results,
             ball_position=(ball_x, ball_y),
             rally_state=rally_state,
+            stroke_data=stroke_data,
         )
 
         return frame_data
@@ -170,6 +176,13 @@ class PipelineOrchestrator:
         return {
             1: player_results[1]["real_position"],
             2: player_results[2]["real_position"],
+        }
+
+    def _get_player_keypoints(self, player_results: dict) -> dict:
+        """Extract player keypoints from player results."""
+        return {
+            1: player_results[1]["keypoints"]["xy"],
+            2: player_results[2]["keypoints"]["xy"],
         }
 
     def get_collected_data(self):

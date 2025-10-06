@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="stroke_detection_pipeline",
-    version="0.1.0",
+    version="0.1.1",
     description="A package for detecting the strokes in squash videos",
     author="Youssef Elhagg",
     author_email="yousseframi@aucegypt.edu",

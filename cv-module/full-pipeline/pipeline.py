@@ -58,6 +58,7 @@ class Pipeline:
             show_player_bbox=self.config.visualizer.show_player_bbox,
             show_ball=self.config.visualizer.show_ball,
             show_rally_state=self.config.visualizer.show_rally_state,
+            show_stroke_type=self.config.visualizer.show_stroke_type,
             keypoint_confidence_threshold=self.config.visualizer.keypoint_confidence_threshold,
         )
 

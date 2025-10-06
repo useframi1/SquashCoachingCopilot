@@ -164,19 +164,23 @@ class StrokeDetector:
 
         for player_id, keypoints_data in player_keypoints.items():
             try:
-                # Extract relevant keypoints
-                keypoints = extract_keypoints(
-                    keypoints_data, self.relevant_indices, self.relevant_names
-                )
-
-                # Normalize keypoints
-                normalized_keypoints = normalize_keypoints(
-                    keypoints, self.relevant_names, self.min_torso_length
-                )
-
                 # Initialize buffer for new player
                 if player_id not in self.player_buffers:
                     self.player_buffers[player_id] = []
+
+                if keypoints_data is not None:
+                    # Extract relevant keypoints
+                    keypoints = extract_keypoints(
+                        keypoints_data, self.relevant_indices, self.relevant_names
+                    )
+
+                    # Normalize keypoints
+                    normalized_keypoints = normalize_keypoints(
+                        keypoints, self.relevant_names, self.min_torso_length
+                    )
+                else:
+                    # No keypoints detected, use zero array
+                    normalized_keypoints = self.player_buffers.get(player_id)[-1]
 
                 # Add to buffer
                 self.player_buffers[player_id].append(normalized_keypoints)

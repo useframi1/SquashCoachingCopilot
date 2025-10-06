@@ -38,6 +38,7 @@ class PlayerData:
     bbox: Optional[Tuple[float, float, float, float]] = None
     confidence: Optional[float] = None
     keypoints: Optional[Dict[str, List]] = None
+    stroke_type: str = field(default="neither")
 
     def is_valid(self) -> bool:
         """Check if player data is valid (has position and bbox)."""
@@ -72,6 +73,25 @@ class BallData:
             "position": self.position,
             "confidence": self.confidence,
         }
+
+
+# @dataclass
+# class StrokeData:
+#     """Stroke detection data."""
+
+#     player_id: int
+#     stroke_type: Optional[str] = None
+
+#     def is_valid(self) -> bool:
+#         """Check if stroke data is valid."""
+#         return self.stroke_type is not None and self.player_id is not None
+
+#     def to_dict(self) -> dict:
+#         """Convert to dictionary representation."""
+#         return {
+#             "player_id": self.player_id,
+#             "stroke_type": self.stroke_type,
+#         }
 
 
 @dataclass
