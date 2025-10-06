@@ -1,64 +1,53 @@
 {
   "match_info": {
-    "total_frames": 2858,
-    "duration": 47.63333333333333,
+    "total_frames": 461,
+    "duration": 7.683333333333334,
     "fps": 60.0
   },
   "movement_analysis": {
     "player1": {
-      "total_distance": 68.44300448003058,
+      "total_distance": 15.494172615910372,
       "average_position": [
-        "3.3037977",
-        "6.9078403"
+        "1.8812289",
+        "7.696772"
       ],
-      "court_coverage": 8.0,
-      "max_speed": 47.574516611909644,
-      "average_speed": 1.4490403206781335,
-      "max_acceleration": 2764.0323711745878,
-      "direction_changes": 332,
-      "trajectory_length": 2835
+      "court_coverage": 4.0,
+      "max_speed": 25.867075713520073,
+      "average_speed": 2.0209790368578746,
+      "max_acceleration": 1276.3609992990575,
+      "direction_changes": 58,
+      "trajectory_length": 461
     },
     "player2": {
-      "total_distance": 67.01122832243473,
+      "total_distance": 13.670072965437962,
       "average_position": [
-        "2.6645064",
-        "7.0195417"
+        "2.6808932",
+        "6.83648"
       ],
-      "court_coverage": 17.0,
-      "max_speed": 143.97488317535976,
-      "average_speed": 1.4272892081455766,
-      "max_acceleration": 8577.486203314533,
-      "direction_changes": 344,
-      "trajectory_length": 2818
+      "court_coverage": 6.0,
+      "max_speed": 26.091957959144892,
+      "average_speed": 1.7869376425409116,
+      "max_acceleration": 1291.0695002699695,
+      "direction_changes": 36,
+      "trajectory_length": 460
     }
   },
   "rally_statistics": {
-    "total_rallies": 1,
-    "average_duration": 16.216666666666665,
-    "max_duration": 16.216666666666665,
-    "min_duration": 16.216666666666665,
-    "total_play_time": 16.216666666666665,
-    "player1_avg_distance": 30.2535202156353,
-    "player2_avg_distance": 32.98209043562316,
-    "player1_avg_intensity": 1.8655819249107073,
-    "player2_avg_intensity": 2.033839081333391,
-    "average_shots_per_rally": 94.0
+    "total_rallies": 0,
+    "average_duration": 0.0,
+    "max_duration": 0.0,
+    "min_duration": 0.0,
+    "total_play_time": 0.0,
+    "player1_avg_distance": 0.0,
+    "player2_avg_distance": 0.0,
+    "player1_avg_intensity": 0.0,
+    "player2_avg_intensity": 0.0,
+    "average_shots_per_rally": 0.0
   },
-  "rallies": [
-    {
-      "start_frame": 98,
-      "end_frame": 1070,
-      "duration": 16.216666666666665,
-      "player1_distance": 30.2535202156353,
-      "player2_distance": 32.98209043562316,
-      "player1_intensity": 1.8655819249107073,
-      "player2_intensity": 2.033839081333391,
-      "shot_count": 94
-    }
-  ],
+  "rallies": [],
   "coaching_insights": [
     "Player 1: Low court coverage. Consider improving movement to cover more court area.",
     "Player 2: Low court coverage. Consider improving movement to cover more court area.",
-    "Long rally duration indicates good fitness and defensive play."
+    "Short rallies suggest aggressive play or quick errors."
   ]
 }

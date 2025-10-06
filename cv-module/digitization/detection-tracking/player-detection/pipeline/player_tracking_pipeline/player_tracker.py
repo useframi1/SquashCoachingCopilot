@@ -88,14 +88,14 @@ class PlayerTracker:
                 "real_position": None,
                 "bbox": None,
                 "confidence": None,
-                "keypoints": None,
+                "keypoints": {"xy": None, "conf": None},
             },
             2: {
                 "position": None,
                 "real_position": None,
                 "bbox": None,
                 "confidence": None,
-                "keypoints": None,
+                "keypoints": {"xy": None, "conf": None},
             },
         }
 
