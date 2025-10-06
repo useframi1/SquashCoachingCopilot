@@ -10,6 +10,7 @@ from orchestration import PipelineOrchestrator, Visualizer
 from video_io import VideoHandler
 from data import DataCollector
 from analysis import CoachingAnalyzer
+from data import DataPlotter
 from config import PipelineConfig, DEFAULT_CONFIG
 
 
@@ -133,6 +134,13 @@ class Pipeline:
                 frame_data_list=frames,
             )
             self.video_handler.write_video(annotated_frames)
+
+        # Generate diagnostic plots
+        plotter = DataPlotter(output_dir="output/plots")
+        plotter.compare_before_after(
+            raw_frames=self.data_collector.raw_frame_history,
+            processed_frames=self.data_collector.processed_frame_history,
+        )
 
         # Step 5: Perform analysis
         print("\nPerforming coaching analysis...")

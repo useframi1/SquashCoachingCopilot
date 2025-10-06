@@ -12,6 +12,7 @@ from .data_models import (
     FrameData,
 )
 from .data_collector import DataCollector
+from .data_plotter import DataPlotter
 
 __all__ = [
     "CourtData",
@@ -19,4 +20,5 @@ __all__ = [
     "BallData",
     "FrameData",
     "DataCollector",
+    "DataPlotter",
 ]
