@@ -19,7 +19,7 @@ class DataCollectorConfig:
     # Validation options
     enable_validation: bool = True
     min_confidence: float = 0.3
-    max_position_change: float = 200.0
+    max_position_change: float = 25.0
 
     # Missing data handling
     handle_missing_data: bool = True

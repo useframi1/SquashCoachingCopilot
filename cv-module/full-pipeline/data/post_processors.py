@@ -3,20 +3,37 @@
 from collections import deque
 from typing import Optional, Tuple, List
 import numpy as np
+from scipy.signal import medfilt, savgol_filter
 from .data_models import PlayerData, BallData
 
 
 class TemporalSmoother:
     """Applies temporal smoothing to tracking data (supports both streaming and batch modes)."""
 
-    def __init__(self, window_size: int = 5):
+    def __init__(
+        self,
+        window_size: int = 5,
+        median_window: int = 5,
+        savgol_window: int = 11,
+        savgol_poly: int = 3,
+    ):
         """
         Initialize temporal smoother.
 
         Args:
             window_size: Number of frames to use for smoothing
+            median_window: Window size for median filter (must be odd)
+            savgol_window: Window length for Savitzky-Golay filter (must be odd)
+            savgol_poly: Polynomial order for Savitzky-Golay filter
         """
         self.window_size = window_size
+        self.median_window = (
+            median_window if median_window % 2 == 1 else median_window + 1
+        )
+        self.savgol_window = (
+            savgol_window if savgol_window % 2 == 1 else savgol_window + 1
+        )
+        self.savgol_poly = savgol_poly
         self.player_position_history = {
             1: deque(maxlen=window_size),
             2: deque(maxlen=window_size),
@@ -75,6 +92,7 @@ class TemporalSmoother:
                     bbox=player_data.bbox,
                     confidence=player_data.confidence,
                     keypoints=player_data.keypoints,
+                    stroke_type=player_data.stroke_type,
                 )
             else:
                 smoothed_player = PlayerData(player_id=player_id)
@@ -85,7 +103,7 @@ class TemporalSmoother:
 
     def smooth_ball_positions(self, ball_data_list: List[BallData]) -> List[BallData]:
         """
-        Smooth ball positions across all frames using centered windows (batch mode).
+        Smooth ball positions using median filter followed by Savitzky-Golay filter (batch mode).
 
         Args:
             ball_data_list: List of BallData for all frames
@@ -93,32 +111,54 @@ class TemporalSmoother:
         Returns:
             List of BallData with smoothed positions
         """
+        # Extract positions
+        ball_positions = []
+        for ball_data in ball_data_list:
+            if ball_data and ball_data.is_valid() and ball_data.position:
+                ball_positions.append(ball_data.position)
+            else:
+                ball_positions.append((None, None))
+
+        # Separate x and y coordinates
+        x_coords = np.array(
+            [pos[0] if pos[0] is not None else np.nan for pos in ball_positions]
+        )
+        y_coords = np.array(
+            [pos[1] if pos[1] is not None else np.nan for pos in ball_positions]
+        )
+
+        # Check if we have enough valid data to smooth
+        valid_count = np.sum(~np.isnan(x_coords))
+        if valid_count < max(self.median_window, self.savgol_window):
+            # Not enough data to smooth, return original
+            return ball_data_list
+
+        # Stage 1: Apply median filter to remove outlier spikes
+        x_median = medfilt(x_coords, kernel_size=self.median_window)
+        y_median = medfilt(y_coords, kernel_size=self.median_window)
+
+        # Stage 2: Apply Savitzky-Golay filter for smooth curves
+        x_smoothed = savgol_filter(
+            x_median, window_length=self.savgol_window, polyorder=self.savgol_poly
+        )
+        y_smoothed = savgol_filter(
+            y_median, window_length=self.savgol_window, polyorder=self.savgol_poly
+        )
+
+        # Create BallData list with smoothed positions
         smoothed = []
-        half_window = self.window_size // 2
-
         for i, ball_data in enumerate(ball_data_list):
-            # Define centered window
-            start = max(0, i - half_window)
-            end = min(len(ball_data_list), i + half_window + 1)
-            window = ball_data_list[start:end]
-
-            # Collect valid positions in window
-            positions = []
-            for b in window:
-                if b and b.is_valid():
-                    positions.append(b.position)
-
-            # Calculate smoothed position
-            if positions:
-                avg_pos = tuple(np.mean(positions, axis=0).astype(int))
-                smoothed_ball = BallData(
-                    position=avg_pos,
-                    confidence=ball_data.confidence if ball_data else None,
+            if not np.isnan(x_smoothed[i]) and not np.isnan(y_smoothed[i]):
+                smoothed_pos = (int(x_smoothed[i]), int(y_smoothed[i]))
+                smoothed.append(
+                    BallData(
+                        position=smoothed_pos,
+                        confidence=ball_data.confidence if ball_data else None,
+                    )
                 )
             else:
-                smoothed_ball = ball_data if ball_data else BallData()
-
-            smoothed.append(smoothed_ball)
+                # Keep original if smoothing failed
+                smoothed.append(ball_data if ball_data else BallData())
 
         return smoothed
 
@@ -186,7 +226,7 @@ class MissingDataHandler:
         self, ball_data_list: List[BallData], validation_results: List[bool]
     ) -> List[BallData]:
         """
-        Interpolate missing ball positions using bidirectional search (batch mode).
+        Interpolate missing ball positions using numpy interpolation (batch mode).
 
         Args:
             ball_data_list: List of BallData for all frames
@@ -195,22 +235,58 @@ class MissingDataHandler:
         Returns:
             List of BallData with interpolated positions
         """
-        interpolated = []
-
-        for i, (ball_data, is_valid) in enumerate(
-            zip(ball_data_list, validation_results)
-        ):
-            if is_valid:
-                interpolated.append(ball_data)
+        # Extract positions, using None for invalid entries
+        ball_positions = []
+        for ball_data, is_valid in zip(ball_data_list, validation_results):
+            if is_valid and ball_data and ball_data.position:
+                ball_positions.append(ball_data.position)
             else:
-                # Find nearest valid frames (bidirectional)
-                before_idx = self._find_valid_ball_before(ball_data_list, i)
-                after_idx = self._find_valid_ball_after(ball_data_list, i)
+                ball_positions.append((None, None))
 
-                interp_ball = self._interpolate_ball(
-                    ball_data_list, i, before_idx, after_idx, ball_data
+        # Separate x and y coordinates
+        x_coords = np.array(
+            [pos[0] if pos[0] is not None else np.nan for pos in ball_positions]
+        )
+        y_coords = np.array(
+            [pos[1] if pos[1] is not None else np.nan for pos in ball_positions]
+        )
+
+        # Interpolate missing values (NaNs)
+        valid_x_indices = ~np.isnan(x_coords)
+        valid_y_indices = ~np.isnan(y_coords)
+
+        if np.sum(valid_x_indices) > 1:
+            x_coords_interp = np.interp(
+                np.arange(len(x_coords)),
+                np.where(valid_x_indices)[0],
+                x_coords[valid_x_indices],
+            )
+        else:
+            x_coords_interp = x_coords
+
+        if np.sum(valid_y_indices) > 1:
+            y_coords_interp = np.interp(
+                np.arange(len(y_coords)),
+                np.where(valid_y_indices)[0],
+                y_coords[valid_y_indices],
+            )
+        else:
+            y_coords_interp = y_coords
+
+        # Create BallData list with interpolated positions
+        interpolated = []
+        for i, ball_data in enumerate(ball_data_list):
+            if not np.isnan(x_coords_interp[i]) and not np.isnan(y_coords_interp[i]):
+                interp_pos = (int(x_coords_interp[i]), int(y_coords_interp[i]))
+                interpolated.append(
+                    BallData(
+                        position=interp_pos,
+                        confidence=ball_data.confidence if ball_data else None,
+                    )
                 )
-                interpolated.append(interp_ball)
+            else:
+                # Keep original if interpolation failed
+                interpolated.append(ball_data if ball_data else BallData())
 
         return interpolated
 
@@ -236,31 +312,6 @@ class MissingDataHandler:
             min(len(player_data_list), current_idx + self.max_interpolation_frames + 1),
         ):
             if player_data_list[i] and player_data_list[i].is_valid():
-                return i
-        return None
-
-    def _find_valid_ball_before(
-        self, ball_data_list: List[BallData], current_idx: int
-    ) -> Optional[int]:
-        """Find nearest valid ball frame before current index."""
-        for i in range(
-            current_idx - 1,
-            max(-1, current_idx - self.max_interpolation_frames - 1),
-            -1,
-        ):
-            if ball_data_list[i] and ball_data_list[i].is_valid():
-                return i
-        return None
-
-    def _find_valid_ball_after(
-        self, ball_data_list: List[BallData], current_idx: int
-    ) -> Optional[int]:
-        """Find nearest valid ball frame after current index."""
-        for i in range(
-            current_idx + 1,
-            min(len(ball_data_list), current_idx + self.max_interpolation_frames + 1),
-        ):
-            if ball_data_list[i] and ball_data_list[i].is_valid():
                 return i
         return None
 
@@ -293,45 +344,12 @@ class MissingDataHandler:
                 bbox=current_data.bbox,
                 confidence=current_data.confidence,
                 keypoints=current_data.keypoints,
+                stroke_type=current_data.stroke_type,
             )
         elif before_idx is not None:
             return player_data_list[before_idx]
         elif after_idx is not None:
             return player_data_list[after_idx]
-        else:
-            return current_data
-
-    def _interpolate_ball(
-        self,
-        ball_data_list: List[BallData],
-        current_idx: int,
-        before_idx: Optional[int],
-        after_idx: Optional[int],
-        current_data: BallData,
-    ) -> BallData:
-        """Interpolate ball data between valid frames."""
-        if before_idx is not None and after_idx is not None:
-            # Linear interpolation
-            before_ball = ball_data_list[before_idx]
-            after_ball = ball_data_list[after_idx]
-
-            t = (current_idx - before_idx) / (after_idx - before_idx)
-            interp_pos = (
-                int(
-                    before_ball.position[0]
-                    + t * (after_ball.position[0] - before_ball.position[0])
-                ),
-                int(
-                    before_ball.position[1]
-                    + t * (after_ball.position[1] - before_ball.position[1])
-                ),
-            )
-
-            return BallData(position=interp_pos, confidence=None)
-        elif before_idx is not None:
-            return ball_data_list[before_idx]
-        elif after_idx is not None:
-            return ball_data_list[after_idx]
         else:
             return current_data
 

@@ -10,6 +10,7 @@ from .data_models import (
     PlayerData,
     BallData,
     FrameData,
+    RallyData,
 )
 from .data_collector import DataCollector
 from .data_plotter import DataPlotter
@@ -19,6 +20,7 @@ __all__ = [
     "PlayerData",
     "BallData",
     "FrameData",
+    "RallyData",
     "DataCollector",
     "DataPlotter",
 ]

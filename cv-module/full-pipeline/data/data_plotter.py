@@ -48,12 +48,23 @@ class DataPlotter:
             print("⚠️ No ball data found, skipping ball trajectory plot.")
             return
 
-        plt.figure(figsize=(10, 6))
-        plt.plot(xs, ys, marker="o", markersize=3, linewidth=1)
-        plt.title("Ball Trajectory (X-Y Path)")
-        plt.xlabel("X Position (pixels)")
-        plt.ylabel("Y Position (pixels)")
-        plt.grid(True)
+        # Create figure with two subplots (x and y coordinates)
+        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+
+        # Plot X coordinates over time
+        ax1.plot(timestamps, xs, marker="o", markersize=3, linewidth=1)
+        ax1.set_title("Ball X Coordinate Over Time")
+        ax1.set_xlabel("Time (s)")
+        ax1.set_ylabel("X Position (pixels)")
+        ax1.grid(True)
+
+        # Plot Y coordinates over time
+        ax2.plot(timestamps, ys, marker="o", markersize=3, linewidth=1)
+        ax2.set_title("Ball Y Coordinate Over Time")
+        ax2.set_xlabel("Time (s)")
+        ax2.set_ylabel("Y Position (pixels)")
+        ax2.grid(True)
+
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, "ball_trajectory.png"))
         plt.close()
@@ -76,14 +87,27 @@ class DataPlotter:
                 p2x.append(None)
                 p2y.append(None)
 
-        plt.figure(figsize=(10, 6))
-        sns.lineplot(x=p1x, y=p1y, label="Player 1", linewidth=2)
-        sns.lineplot(x=p2x, y=p2y, label="Player 2", linewidth=2)
-        plt.title("Player Trajectories on Court")
-        plt.xlabel("X Position (pixels)")
-        plt.ylabel("Y Position (pixels)")
-        plt.legend()
-        plt.grid(True)
+        # Create figure with two subplots (x and y coordinates)
+        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+
+        # Plot X coordinates over time
+        ax1.plot(timestamps, p1x, label="Player 1", linewidth=2, marker="o", markersize=3)
+        ax1.plot(timestamps, p2x, label="Player 2", linewidth=2, marker="o", markersize=3)
+        ax1.set_title("Player X Coordinates Over Time")
+        ax1.set_xlabel("Time (s)")
+        ax1.set_ylabel("X Position (pixels)")
+        ax1.legend()
+        ax1.grid(True)
+
+        # Plot Y coordinates over time
+        ax2.plot(timestamps, p1y, label="Player 1", linewidth=2, marker="o", markersize=3)
+        ax2.plot(timestamps, p2y, label="Player 2", linewidth=2, marker="o", markersize=3)
+        ax2.set_title("Player Y Coordinates Over Time")
+        ax2.set_xlabel("Time (s)")
+        ax2.set_ylabel("Y Position (pixels)")
+        ax2.legend()
+        ax2.grid(True)
+
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, "player_positions.png"))
         plt.close()
@@ -115,15 +139,27 @@ class DataPlotter:
         p1_vals = [stroke_map.get(s, None) for s in p1_strokes]
         p2_vals = [stroke_map.get(s, None) for s in p2_strokes]
 
-        plt.figure(figsize=(12, 4))
-        plt.scatter(timestamps, p1_vals, s=30, label="Player 1", alpha=0.7)
-        plt.scatter(timestamps, p2_vals, s=30, label="Player 2", alpha=0.7)
-        plt.yticks(list(stroke_map.values()), list(stroke_map.keys()))
-        plt.title("Stroke Types Over Time")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Stroke Type")
-        plt.legend()
-        plt.grid(True)
+        # Create figure with two subplots (one for each player)
+        _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+
+        # Plot Player 1 strokes
+        ax1.step(timestamps, p1_vals, where="post", linewidth=2)
+        ax1.set_yticks(list(stroke_map.values()))
+        ax1.set_yticklabels(list(stroke_map.keys()))
+        ax1.set_title("Player 1 Stroke Types Over Time")
+        ax1.set_xlabel("Time (s)")
+        ax1.set_ylabel("Stroke Type")
+        ax1.grid(True)
+
+        # Plot Player 2 strokes
+        ax2.step(timestamps, p2_vals, where="post", linewidth=2)
+        ax2.set_yticks(list(stroke_map.values()))
+        ax2.set_yticklabels(list(stroke_map.keys()))
+        ax2.set_title("Player 2 Stroke Types Over Time")
+        ax2.set_xlabel("Time (s)")
+        ax2.set_ylabel("Stroke Type")
+        ax2.grid(True)
+
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, "stroke_timeline.png"))
         plt.close()

@@ -62,7 +62,9 @@ class VideoHandler:
         self.metadata = reader.get_metadata()
         reader.release()
 
-    def read_video(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
+    def read_video(
+        self, start_frame: int = None, end_frame: int = None
+    ) -> Generator[Tuple[int, float, np.ndarray], None, None]:
         """
         Read video frames as a generator.
 
@@ -74,7 +76,9 @@ class VideoHandler:
         """
         try:
             with VideoReader(self.input_path) as reader:
-                for frame_number, timestamp, frame in reader.frames():
+                for frame_number, timestamp, frame in reader.frames(
+                    start_frame, end_frame
+                ):
                     yield frame_number, timestamp, frame
         except Exception as e:
             raise ValueError(f"Error reading video {self.input_path}: {str(e)}")

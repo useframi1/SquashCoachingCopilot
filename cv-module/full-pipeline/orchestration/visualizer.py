@@ -292,11 +292,15 @@ class Visualizer:
             Annotated frames
         """
         print("\nRendering post-processed frames...")
+
+        # Create a mapping from frame_number to frame_data for fast lookup
+        frame_data_map = {fd.frame_number: fd for fd in frame_data_list}
+
         with tqdm(total=len(frame_data_list), desc="Rendering frames", unit="frame") as pbar:
             for frame_number, _, frame in frames:
-                # Get the post-processed frame data for this frame
-                if frame_number < len(frame_data_list):
-                    frame_data = frame_data_list[frame_number]
+                # Get the post-processed frame data for this frame number
+                if frame_number in frame_data_map:
+                    frame_data = frame_data_map[frame_number]
 
                     # Render frame with post-processed data
                     annotated_frame = self.render_frame(frame, frame_data)

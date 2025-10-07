@@ -134,3 +134,16 @@ class FrameData:
     def has_valid_ball(self) -> bool:
         """Check if ball is valid."""
         return self.ball.is_valid()
+
+
+@dataclass
+class RallyData:
+    """Rally data."""
+
+    rally_frames: List[FrameData]
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary representation."""
+        return {
+            "rally": [frame.to_dict() for frame in self.rally_frames],
+        }

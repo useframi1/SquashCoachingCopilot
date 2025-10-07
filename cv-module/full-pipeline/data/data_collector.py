@@ -2,7 +2,7 @@
 
 from typing import Optional, List
 import numpy as np
-from .data_models import FrameData, PlayerData, BallData, CourtData
+from .data_models import FrameData, PlayerData, BallData, CourtData, RallyData
 from .validators import DataValidator
 from .post_processors import TemporalSmoother, MissingDataHandler
 
@@ -185,37 +185,70 @@ class DataCollector:
         It applies smoothing and missing data handling to the entire dataset.
 
         Returns:
-            List of processed FrameData objects
+            List of processed RallyData objects
         """
-        print("Post-processing collected data...")
+        rallies = self._segment_rallies()
+        processed_rallies = []
+        for rally in rallies:
+            processed = self._post_process_rally(rally.rally_frames)
+            processed_rallies.append(processed)
 
-        # Start with raw data
-        processed_frames = [frame for frame in self.raw_frame_history]
+        # Flatten processed rallies into a single list of frames
+        self.processed_frame_history = [
+            frame for rally in processed_rallies for frame in rally
+        ]
+        self.is_post_processed = True
+        return self.processed_frame_history
+
+    def _post_process_rally(self, rally_frames: List[FrameData]) -> List[FrameData]:
+        """Post-process a single rally (subset of frames)."""
+        processed_frames = [frame for frame in rally_frames]
 
         # 1. Validate all frames
         if self.enable_validation and self.validator:
-            print(f"  Validating {len(processed_frames)} frames...")
             validation_results = self._validate_all_frames(processed_frames)
         else:
             validation_results = None
 
         # 2. Handle missing data through interpolation
         if self.handle_missing_data and validation_results:
-            print(f"  Interpolating missing data...")
             processed_frames = self._handle_missing_values(
                 processed_frames, validation_results
             )
 
         # 3. Apply temporal smoothing
         if self.enable_smoothing:
-            print(f"  Applying temporal smoothing (window={self.smoothing_window})...")
             processed_frames = self._smooth_all_frames(processed_frames)
 
-        self.processed_frame_history = processed_frames
-        self.is_post_processed = True
-        print(f"Post-processing complete!")
-
         return processed_frames
+
+    def _segment_rallies(self) -> List[RallyData]:
+        """Segment frames into rallies based on rally state."""
+        rallies = []
+        current_rally = []
+        in_rally = False
+
+        for frame in self.raw_frame_history:
+            if frame.rally_state == "start" and not in_rally:
+                in_rally = True
+                current_rally = [frame]
+            elif frame.rally_state == "active" and in_rally:
+                current_rally.append(frame)
+            elif frame.rally_state == "end" and in_rally:
+                current_rally.append(frame)
+                rally = RallyData(rally_frames=current_rally)
+                rallies.append(rally)
+                in_rally = False
+                current_rally = []
+            else:
+                if in_rally:
+                    current_rally.append(frame)
+
+        if in_rally and current_rally:
+            rally = RallyData(rally_frames=current_rally)
+            rallies.append(rally)
+
+        return rallies
 
     def _validate_all_frames(self, frames: List[FrameData]) -> List[dict]:
         """Validate all frames and return validation results."""

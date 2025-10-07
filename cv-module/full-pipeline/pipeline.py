@@ -130,7 +130,10 @@ class Pipeline:
         # Step 4: Render and write output video if output path is specified
         if output_path:
             annotated_frames = self.visualizer.render_frames(
-                frames=self.video_handler.read_video(),
+                frames=self.video_handler.read_video(
+                    start_frame=frames[0].frame_number,
+                    end_frame=frames[-1].frame_number,
+                ),
                 frame_data_list=frames,
             )
             self.video_handler.write_video(annotated_frames)

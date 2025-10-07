@@ -96,7 +96,9 @@ class VideoReader:
         """
         return self.metadata
 
-    def frames(self) -> Generator[Tuple[int, float, np.ndarray], None, None]:
+    def frames(
+        self, start_frame: int = None, end_frame: int = None
+    ) -> Generator[Tuple[int, float, np.ndarray], None, None]:
         """
         Generate frames from the video.
 
@@ -105,7 +107,12 @@ class VideoReader:
         """
         frame_count = 0
 
-        while self.cap.isOpened():
+        # Set starting frame if specified
+        if start_frame is not None:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            frame_count = start_frame
+
+        while self.cap.isOpened() and (end_frame is None or frame_count <= end_frame):
             ret, frame = self.cap.read()
             if not ret:
                 break
