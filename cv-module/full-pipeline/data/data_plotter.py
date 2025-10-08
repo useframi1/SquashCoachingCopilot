@@ -1,5 +1,11 @@
 import os
 import seaborn as sns
+import matplotlib
+
+# Automatically use Agg backend if no display is available
+if os.environ.get("DISPLAY", "") == "":
+    print("No display found. Using non-interactive Agg backend")
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
@@ -91,8 +97,12 @@ class DataPlotter:
         _, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
 
         # Plot X coordinates over time
-        ax1.plot(timestamps, p1x, label="Player 1", linewidth=2, marker="o", markersize=3)
-        ax1.plot(timestamps, p2x, label="Player 2", linewidth=2, marker="o", markersize=3)
+        ax1.plot(
+            timestamps, p1x, label="Player 1", linewidth=2, marker="o", markersize=3
+        )
+        ax1.plot(
+            timestamps, p2x, label="Player 2", linewidth=2, marker="o", markersize=3
+        )
         ax1.set_title("Player X Coordinates Over Time")
         ax1.set_xlabel("Time (s)")
         ax1.set_ylabel("X Position (pixels)")
@@ -100,8 +110,12 @@ class DataPlotter:
         ax1.grid(True)
 
         # Plot Y coordinates over time
-        ax2.plot(timestamps, p1y, label="Player 1", linewidth=2, marker="o", markersize=3)
-        ax2.plot(timestamps, p2y, label="Player 2", linewidth=2, marker="o", markersize=3)
+        ax2.plot(
+            timestamps, p1y, label="Player 1", linewidth=2, marker="o", markersize=3
+        )
+        ax2.plot(
+            timestamps, p2y, label="Player 2", linewidth=2, marker="o", markersize=3
+        )
         ax2.set_title("Player Y Coordinates Over Time")
         ax2.set_xlabel("Time (s)")
         ax2.set_ylabel("Y Position (pixels)")

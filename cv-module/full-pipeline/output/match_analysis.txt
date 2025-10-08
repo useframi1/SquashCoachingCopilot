@@ -4,34 +4,32 @@ SQUASH MATCH ANALYSIS SUMMARY
 
 MATCH INFORMATION
 ------------------------------------------------------------
-Duration: 4.2 seconds
-Total Frames: 251
+Duration: 45.4 seconds
+Total Frames: 2724
 
 RALLY STATISTICS
 ------------------------------------------------------------
-Total Rallies: 0
-Average Duration: 0.00s
-Average Shots/Rally: 0.0
+Total Rallies: 3
+Average Duration: 11.54s
+Average Shots/Rally: 25.0
 
 MOVEMENT ANALYSIS
 ------------------------------------------------------------
 
 Player 1:
-  Total Distance: 6.48m
-  Average Speed: 1.56m/s
-  Court Coverage: 2.0%
-  Direction Changes: 22
+  Total Distance: 70.58m
+  Average Speed: 1.57m/s
+  Court Coverage: 8.0%
+  Direction Changes: 303
 
 Player 2:
-  Total Distance: 8.11m
-  Average Speed: 1.95m/s
-  Court Coverage: 5.0%
-  Direction Changes: 24
+  Total Distance: 67.08m
+  Average Speed: 1.50m/s
+  Court Coverage: 17.0%
+  Direction Changes: 330
 
 ============================================================
 COACHING INSIGHTS
 ============================================================
 1. Player 1: Low court coverage. Consider improving movement to cover more court area.
 2. Player 2: Low court coverage. Consider improving movement to cover more court area.
-3. Player 2 is significantly more active, potentially dominating rallies.
-4. Short rallies suggest aggressive play or quick errors.
