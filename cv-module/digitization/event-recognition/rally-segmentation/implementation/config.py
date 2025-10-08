@@ -2,7 +2,7 @@
 
 CONFIG = {
     "window_size": 50,  # Frames per aggregation window
-    "active_model": "ml_based",
+    "active_model": "rule_based",
     "annotations": {
         "data_path": "data/annotations",  # Path to CSV files with base metrics
         "video_path": "videos/video-3.mp4",  # Path to video for annotation
@@ -23,11 +23,11 @@ CONFIG = {
         "rule_based": {
             "lookback_frames": 2,
             "start_state": {
-                "distance_min": 2.0,  # meters
-                "distance_max": 3.0,  # meters
+                "distance_min": 3.0,  # meters
+                "distance_max": 4.0,  # meters
             },
             "active_state": {
-                "distance_max": 2.5,  # meters - below this threshold
+                "distance_max": 3.5,  # meters - below this threshold
             },
             "end_state": {
                 "distance_min": 3.5,  # meters - above this threshold
