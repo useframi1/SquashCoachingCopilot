@@ -1,90 +1,47 @@
-import torch
-import cv2
-import json
-import numpy as np
-from collections import deque
-from model import BallTrackerNet
-from general import postprocess, load_config
+from general import load_config
+from tracknet_tracker import TrackNetTracker
+from rf_tracker import RFTracker
 
 
 class BallTracker:
-    """Real-time ball tracker using TrackNet model.
+    """Wrapper class for ball tracking that selects between different tracker implementations.
 
-    This class maintains a buffer of the last 3 frames and uses the TrackNet model
-    to detect the ball position in each new frame.
+    This class acts as a facade that delegates to either TrackNetTracker or RFTracker
+    based on the configuration. It maintains the same interface so the evaluator
+    doesn't need to change.
     """
 
     def __init__(self, config: dict = None):
-        """Initialize the ball tracker.
+        """Initialize the ball tracker wrapper.
 
         Args:
-            config_path: Path to configuration JSON file
+            config: Configuration dictionary. If None, loads from config.json
         """
         # Load configuration
         if config is None:
             config = load_config("config.json")
 
-        self.config = config["model"]
+        self.config = config
 
-        # Setup device
-        device = self.config.get("device", "auto")
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Determine which tracker to use
+        tracker_type = self.config.get("tracker", {}).get("type", "tracknet")
+
+        # Initialize the appropriate tracker
+        if tracker_type == "tracknet":
+            self.tracker = TrackNetTracker(config=config)
+        elif tracker_type == "rf":
+            self.tracker = RFTracker(config=config)
         else:
-            self.device = torch.device(device)
+            raise ValueError(
+                f"Unknown tracker type: {tracker_type}. Must be 'tracknet' or 'rf'"
+            )
 
-        # Load model
-        model_path = self.config["model_path"]
-        self.model = BallTrackerNet()
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-        self.model = self.model.to(self.device)
-        self.model.eval()
-
-        # Model input dimensions
-        self.model_width = self.config.get("model_width", 640)
-        self.model_height = self.config.get("model_height", 360)
-
-        # Frame buffer (need 3 consecutive frames for inference)
-        self.frame_buffer = deque(maxlen=3)
-
-        # Track number of frames processed
-        self.frame_count = 0
+        # Expose the device attribute for compatibility with evaluator
+        self.device = getattr(self.tracker, "device", "N/A")
 
     def reset(self):
-        """Reset the tracker state (clears frame buffer)."""
-        self.frame_buffer.clear()
-        self.frame_count = 0
-
-    def _get_scaled_coordinates(self, x, y, original_width, original_height):
-        """Scale coordinates from model space to original frame resolution.
-
-        Args:
-            x: X coordinate from process_frame
-            y: Y coordinate from process_frame
-            original_width: Width of the original frame
-            original_height: Height of the original frame
-
-        Returns:
-            tuple: (x_scaled, y_scaled) in original frame coordinates, or (None, None)
-        """
-        if x is None or y is None:
-            return None, None
-
-        # Account for postprocess scale factor (2x)
-        postprocess_scale = 2
-
-        # Calculate scaling factors
-        scale_x = (original_width / self.model_width) / postprocess_scale
-        scale_y = (original_height / self.model_height) / postprocess_scale
-
-        x_scaled = int(x * scale_x)
-        y_scaled = int(y * scale_y)
-
-        # Ensure coordinates are within bounds
-        x_scaled = max(0, min(x_scaled, original_width - 1))
-        y_scaled = max(0, min(y_scaled, original_height - 1))
-
-        return x_scaled, y_scaled
+        """Reset the tracker state."""
+        self.tracker.reset()
 
     def process_frame(self, frame):
         """Process a single frame and return ball coordinates.
@@ -94,41 +51,5 @@ class BallTracker:
 
         Returns:
             tuple: (x, y) coordinates of the ball, or (None, None) if not detected.
-                   Coordinates are in the coordinate system of the model (640x360 scaled by 2).
         """
-        # Resize frame to model dimensions
-        frame_resized = cv2.resize(frame, (self.model_width, self.model_height))
-
-        # Add frame to buffer
-        self.frame_buffer.append(frame_resized)
-        self.frame_count += 1
-
-        # Need at least 3 frames for inference
-        if len(self.frame_buffer) < 3:
-            return None, None
-
-        # Prepare input: concatenate 3 frames along channel dimension
-        # Order: current, previous, pre-previous
-        frames_list = list(self.frame_buffer)
-        img = frames_list[2]  # current
-        img_prev = frames_list[1]  # previous
-        img_preprev = frames_list[0]  # pre-previous
-
-        imgs = np.concatenate((img, img_prev, img_preprev), axis=2)
-        imgs = imgs.astype(np.float32) / 255.0
-        imgs = np.rollaxis(imgs, 2, 0)
-        inp = np.expand_dims(imgs, axis=0)
-
-        # Run inference
-        with torch.no_grad():
-            out = self.model(torch.from_numpy(inp).float().to(self.device))
-            output = out.argmax(dim=1).detach().cpu().numpy()
-
-        # Postprocess to get (x, y) coordinates
-        x_pred, y_pred = postprocess(output)
-
-        x, y = self._get_scaled_coordinates(
-            x_pred, y_pred, frame.shape[1], frame.shape[0]
-        )
-
-        return x, y
+        return self.tracker.process_frame(frame)

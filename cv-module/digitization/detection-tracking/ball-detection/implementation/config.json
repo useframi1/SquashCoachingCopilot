@@ -1,9 +1,16 @@
 {
+    "tracker": {
+        "type": "rf"
+    },
     "model": {
         "model_path": "model_best.pt",
         "device": "auto",
         "model_width": 640,
         "model_height": 360
+    },
+    "rf_model": {
+        "model_id": "squash-ball-detection-1lbti/1",
+        "api_key": "56e6SM7rfayFBoIrsIFz"
     },
     "video": {
         "input_path": "video-5.mp4",
