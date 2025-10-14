@@ -1,0 +1,7 @@
+metric,value
+total_frames,1000
+detected_frames,1000
+detection_rate_percent,100.0
+avg_velocity_pixels_per_sec,1375.43
+max_velocity_pixels_per_sec,11655.45
+min_velocity_pixels_per_sec,60.0

@@ -2,8 +2,8 @@
     "tracker": {
         "type": "rf"
     },
-    "model": {
-        "model_path": "model_best.pt",
+    "tracknet_model": {
+        "model_path": "models/tracknet/weights/model_best.pt",
         "device": "auto",
         "model_width": 640,
         "model_height": 360
@@ -13,13 +13,32 @@
         "api_key": "56e6SM7rfayFBoIrsIFz"
     },
     "video": {
-        "input_path": "video-5.mp4",
-        "max_frames": 500
+        "input_path": "tests/video-1.mp4",
+        "max_frames": 1000
     },
     "tracking": {
-        "trace_length": 7,
+        "trace_length": 1,
         "trace_color": [0, 0, 255],
         "trace_thickness": 10
+    },
+    "postprocessing": {
+        "enabled": true,
+        "outlier_detection": {
+            "window": 10,
+            "threshold": 2
+        },
+        "smoothing": {
+            "enabled": true,
+            "method": "savgol",
+            "window": 11,
+            "poly": 3
+        }
+    },
+    "wall_hit_detection": {
+        "enabled": true,
+        "prominence": 50.0,
+        "width": 10,
+        "min_distance": 50
     },
     "output": {
         "output_dir": "tracking_results",

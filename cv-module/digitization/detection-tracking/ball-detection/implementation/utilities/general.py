@@ -4,6 +4,7 @@ import numpy as np
 import torch.nn as nn
 import cv2
 from scipy.spatial import distance
+from scipy.signal import medfilt, savgol_filter
 
 
 def load_config(config_path="config.json"):
@@ -126,3 +127,69 @@ def postprocess(feature_map, scale=2):
             x = circles[0][0][0] * scale
             y = circles[0][0][1] * scale
     return x, y
+
+
+def smooth_positions(ball_positions, median_window=5, savgol_window=9, savgol_poly=3):
+    """Apply two-stage smoothing to ball positions.
+
+    Stage 1: Median filter to remove outlier spikes
+    Stage 2: Savitzky-Golay filter for smooth curves
+
+    Args:
+        ball_positions: List of (x, y) tuples representing ball positions
+        median_window: Window size for median filter (must be odd)
+        savgol_window: Window size for Savitzky-Golay filter (must be odd)
+        savgol_poly: Polynomial order for Savitzky-Golay filter
+
+    Returns:
+        List of smoothed (x, y) tuples
+    """
+    if len(ball_positions) < savgol_window:
+        return ball_positions
+
+    # Separate x and y coordinates
+    x_coords = np.array(
+        [pos[0] if pos[0] is not None else np.nan for pos in ball_positions]
+    )
+    y_coords = np.array(
+        [pos[1] if pos[1] is not None else np.nan for pos in ball_positions]
+    )
+
+    # Interpolate missing values (NaNs)
+    valid_x_indices = ~np.isnan(x_coords)
+    valid_y_indices = ~np.isnan(y_coords)
+
+    if np.sum(valid_x_indices) > 1:
+        x_coords_interp = np.interp(
+            np.arange(len(x_coords)),
+            np.where(valid_x_indices)[0],
+            x_coords[valid_x_indices],
+        )
+    else:
+        x_coords_interp = x_coords
+
+    if np.sum(valid_y_indices) > 1:
+        y_coords_interp = np.interp(
+            np.arange(len(y_coords)),
+            np.where(valid_y_indices)[0],
+            y_coords[valid_y_indices],
+        )
+    else:
+        y_coords_interp = y_coords
+
+    # Stage 1: Apply median filter to remove outlier spikes
+    x_median = medfilt(x_coords_interp, kernel_size=median_window)
+    y_median = medfilt(y_coords_interp, kernel_size=median_window)
+
+    # Stage 2: Apply Savitzky-Golay filter for smooth curves
+    x_smoothed = savgol_filter(
+        x_median, window_length=savgol_window, polyorder=savgol_poly
+    )
+    y_smoothed = savgol_filter(
+        y_median, window_length=savgol_window, polyorder=savgol_poly
+    )
+
+    # Convert back to list of tuples
+    smoothed_positions = [(int(x), int(y)) for x, y in zip(x_smoothed, y_smoothed)]
+
+    return smoothed_positions

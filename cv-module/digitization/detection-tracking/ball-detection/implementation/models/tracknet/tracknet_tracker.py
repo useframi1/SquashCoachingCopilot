@@ -3,8 +3,8 @@ import cv2
 import json
 import numpy as np
 from collections import deque
-from model import BallTrackerNet
-from general import postprocess, load_config
+from models.tracknet.model import BallTrackerNet
+from utilities.general import postprocess, load_config
 
 
 class TrackNetTracker:
@@ -24,7 +24,7 @@ class TrackNetTracker:
         if config is None:
             config = load_config("config.json")
 
-        self.config = config["model"]
+        self.config = config["tracknet_model"]
 
         # Setup device
         device = self.config.get("device", "auto")

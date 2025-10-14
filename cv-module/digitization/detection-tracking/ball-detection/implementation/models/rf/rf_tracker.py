@@ -2,7 +2,7 @@ from inference import get_model
 import supervision as sv
 import cv2
 import numpy as np
-from general import load_config
+from utilities.general import load_config
 
 
 class RFTracker:

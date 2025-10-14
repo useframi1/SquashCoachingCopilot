@@ -1,6 +1,6 @@
-from general import load_config
-from tracknet_tracker import TrackNetTracker
-from rf_tracker import RFTracker
+from utilities.general import load_config
+from models.tracknet.tracknet_tracker import TrackNetTracker
+from models.rf.rf_tracker import RFTracker
 
 
 class BallTracker:
