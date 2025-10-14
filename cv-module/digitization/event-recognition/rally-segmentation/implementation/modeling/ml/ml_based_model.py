@@ -279,7 +279,7 @@ class MLBasedModel(BaseModel):
                 median_player1_y, median_player2_x, median_player2_y)
 
         Returns:
-            DataFrame with 'predicted_state' column added
+            DataFrame with 'predicted_state' and 'prediction_confidence' columns added
         """
         if not self.is_trained:
             self.load_trained_model()
@@ -296,7 +296,14 @@ class MLBasedModel(BaseModel):
         y_pred = self.model.predict(X)
         predictions = self.label_encoder.inverse_transform(y_pred)
 
+        # Get prediction probabilities
+        y_proba = self.model.predict_proba(X)
+
+        # Extract confidence (probability of the predicted class)
+        confidence = np.max(y_proba, axis=1)
+
         df["predicted_state"] = predictions
+        df["prediction_confidence"] = confidence
 
         return df
 

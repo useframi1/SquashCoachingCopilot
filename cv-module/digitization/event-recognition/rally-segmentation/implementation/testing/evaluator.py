@@ -11,6 +11,7 @@ import glob
 
 from modeling.predictor import StatePredictor
 from config import CONFIG
+from utilities.general import postprocess_predictions, apply_tolerance_to_predictions
 
 
 class ModelEvaluator:
@@ -87,35 +88,65 @@ class ModelEvaluator:
         # Make predictions using the predictor
         df_pred = self.predictor.predict_batch(df)
 
+        # Apply postprocessing with minimum duration filtering
+        print("Applying minimum duration postprocessing...")
+        df_pred["postprocessed_state"] = postprocess_predictions(
+            predictions=df_pred["predicted_state"],
+            min_duration=CONFIG["evaluator"]["min_duration"],
+        )
+
         # Extract ground truth and predictions
-        y_true = df_pred["state"].values
-        y_pred = df_pred["predicted_state"].values
+        y_true = df_pred["state"]
+        y_pred = df_pred["postprocessed_state"]
 
-        # Calculate metrics
-        accuracy = accuracy_score(y_true, y_pred)
+        # Calculate strict frame-level metrics (no tolerance)
+        accuracy_strict = accuracy_score(y_true, y_pred)
 
-        # Classification report
         target_names = ["start", "active", "end"]
-        report = classification_report(
+        report_strict = classification_report(
             y_true, y_pred, target_names=target_names, output_dict=True
         )
 
-        # Confusion matrix
-        cm = confusion_matrix(y_true, y_pred, labels=target_names)
+        cm_strict = confusion_matrix(y_true, y_pred, labels=target_names)
+
+        # Calculate frame-level metrics WITH tolerance
+        print("Calculating frame-level metrics with tolerance...")
+
+        y_pred_tolerant = apply_tolerance_to_predictions(
+            y_true=y_true,
+            y_pred=y_pred,
+            tolerance_frames=CONFIG["evaluator"]["tolerance_frames"],
+        )
+
+        accuracy_tolerant = accuracy_score(y_true, y_pred_tolerant)
+        report_tolerant = classification_report(
+            y_true, y_pred_tolerant, target_names=target_names, output_dict=True
+        )
+        cm_tolerant = confusion_matrix(y_true, y_pred_tolerant, labels=target_names)
 
         return {
-            "accuracy": accuracy,
-            "classification_report": report,
-            "confusion_matrix": cm,
-            "y_true": y_true,
-            "y_pred": y_pred,
+            "accuracy": accuracy_strict,
+            "classification_report": report_strict,
+            "confusion_matrix": cm_strict,
+            "accuracy_tolerant": accuracy_tolerant,
+            "classification_report_tolerant": report_tolerant,
+            "confusion_matrix_tolerant": cm_tolerant,
+            "y_true": y_true.values,
+            "y_pred": y_pred.values,
+            "y_pred_tolerant": y_pred_tolerant.values,
             "predictions_df": df_pred,
+            "tolerance_frames": CONFIG["evaluator"]["tolerance_frames"],
         }
 
     def print_results(self, results: dict):
         """Print evaluation results."""
         print("\n" + "=" * 60)
         print("EVALUATION RESULTS")
+        print("=" * 60)
+
+        # Frame-level metrics (STRICT)
+        print("\n" + "=" * 60)
+        print("FRAME-LEVEL METRICS (Strict - No Tolerance)")
         print("=" * 60)
 
         print(f"\nOverall Accuracy: {results['accuracy']:.4f}")
@@ -135,6 +166,34 @@ class ModelEvaluator:
         print("\nConfusion Matrix:")
         print("(Rows: True, Columns: Predicted)")
         cm = results["confusion_matrix"]
+        print(f"{'':>10} {'Start':<10} {'Active':<10} {'End':<10}")
+        for i, state in enumerate(["Start", "Active", "End"]):
+            print(f"{state:>10} {cm[i][0]:<10} {cm[i][1]:<10} {cm[i][2]:<10}")
+
+        # Frame-level metrics (WITH TOLERANCE)
+        print("\n" + "=" * 60)
+        print(
+            f"FRAME-LEVEL METRICS (With ±{results['tolerance_frames']} frames tolerance)"
+        )
+        print("=" * 60)
+
+        print(f"\nOverall Accuracy: {results['accuracy_tolerant']:.4f}")
+
+        print("\nPer-Class Metrics:")
+        print(f"{'Class':<10} {'Precision':<12} {'Recall':<12} {'F1-Score':<12}")
+        print("-" * 46)
+
+        for class_name in ["start", "active", "end"]:
+            if class_name in results["classification_report_tolerant"]:
+                metrics = results["classification_report_tolerant"][class_name]
+                print(
+                    f"{class_name:<10} {metrics['precision']:.3f}        "
+                    f"{metrics['recall']:.3f}        {metrics['f1-score']:.3f}"
+                )
+
+        print("\nConfusion Matrix:")
+        print("(Rows: True, Columns: Predicted)")
+        cm = results["confusion_matrix_tolerant"]
         print(f"{'':>10} {'Start':<10} {'Active':<10} {'End':<10}")
         for i, state in enumerate(["Start", "Active", "End"]):
             print(f"{state:>10} {cm[i][0]:<10} {cm[i][1]:<10} {cm[i][2]:<10}")
@@ -160,21 +219,9 @@ class ModelEvaluator:
 
         fig, axes = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
 
-        # Plot 1: Distance over time
-        axes[0].plot(
-            df_plot["frame_number"],
-            df_plot["mean_distance"],
-            "b-",
-            alpha=0.7,
-            linewidth=2,
-        )
-        axes[0].set_ylabel("Mean Distance")
-        axes[0].set_title("Distance Over Time")
-        axes[0].grid(True, alpha=0.3)
-
-        # Plot 2: Ground truth states
+        # Plot 1: Ground truth states
         y_true_numeric = [state_map[state] for state in df_plot["state"]]
-        axes[1].fill_between(
+        axes[0].fill_between(
             df_plot["frame_number"],
             0,
             y_true_numeric,
@@ -182,14 +229,31 @@ class ModelEvaluator:
             step="post",
             label="Ground Truth",
         )
+        axes[0].set_ylabel("State")
+        axes[0].set_yticks([0, 1, 2])
+        axes[0].set_yticklabels(["Start", "Active", "End"])
+        axes[0].set_title("Ground Truth States")
+        axes[0].grid(True, alpha=0.3)
+
+        # Plot 2: Raw Predicted states (before postprocessing)
+        y_pred_raw_numeric = [state_map[state] for state in df_plot["predicted_state"]]
+        axes[1].fill_between(
+            df_plot["frame_number"],
+            0,
+            y_pred_raw_numeric,
+            alpha=0.7,
+            step="post",
+            color="orange",
+            label="Raw Predictions",
+        )
         axes[1].set_ylabel("State")
         axes[1].set_yticks([0, 1, 2])
         axes[1].set_yticklabels(["Start", "Active", "End"])
-        axes[1].set_title("Ground Truth States")
+        axes[1].set_title("Raw Predicted States (Before Postprocessing)")
         axes[1].grid(True, alpha=0.3)
 
-        # Plot 3: Predicted states
-        y_pred_numeric = [state_map[state] for state in df_plot["predicted_state"]]
+        # Plot 3: Postprocessed Predicted states
+        y_pred_numeric = [state_map[state] for state in df_plot["postprocessed_state"]]
         axes[2].fill_between(
             df_plot["frame_number"],
             0,
@@ -197,13 +261,15 @@ class ModelEvaluator:
             alpha=0.7,
             step="post",
             color="green",
-            label="Predicted",
+            label="Postprocessed",
         )
         axes[2].set_ylabel("State")
         axes[2].set_yticks([0, 1, 2])
         axes[2].set_yticklabels(["Start", "Active", "End"])
         axes[2].set_xlabel("Frame Number")
-        axes[2].set_title("Predicted States")
+        axes[2].set_title(
+            "Postprocessed Predicted States (After Minimum Duration Filtering)"
+        )
         axes[2].grid(True, alpha=0.3)
 
         plt.tight_layout()
@@ -251,7 +317,7 @@ class ModelEvaluator:
 
         # Plot results
         print("\nGenerating visualization...")
-        self.plot_predictions(results, end_idx=min(200, len(df)))
+        self.plot_predictions(results, start_idx=0, end_idx=min(700, len(df)))
 
         return results
 

@@ -2,7 +2,7 @@
 
 CONFIG = {
     "window_size": 50,  # Frames per aggregation window
-    "active_model": "rule_based",
+    "active_model": "ml_based",
     "annotations": {
         "data_path": "data/annotations",  # Path to CSV files with base metrics
         "video_path": "videos/video-3.mp4",  # Path to video for annotation
@@ -45,6 +45,12 @@ CONFIG = {
     "evaluator": {
         "video_filter": "video-2",
         "plot_output_path": "testing/evaluation_results/predictions_plot.png",
+        "min_duration": {
+            "start": 1,
+            "active": 4,
+            "end": 2,
+        },
+        "tolerance_frames": 2,
     },
     "inference": {
         "video_path": "videos/video-2.mp4",

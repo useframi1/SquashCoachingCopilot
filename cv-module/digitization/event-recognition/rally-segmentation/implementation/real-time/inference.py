@@ -85,6 +85,7 @@ class VideoInferencePipeline:
         # Process frames
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         frame_num = start_frame
+        window_end_frame = start_frame
         current_prediction = "start"
 
         while frame_num < end_frame:
@@ -104,20 +105,16 @@ class VideoInferencePipeline:
                     # Make prediction
                     prediction = self.predictor.predict_single(base_metrics)
                     current_prediction = prediction
+                    window_end_frame = frame_num
 
-                    # Store results
-                    self.predictions.append(
-                        {
-                            "frame_number": frame_num,
-                            "window_end_frame": frame_num,
-                            "predicted_state": prediction,
-                            **base_metrics,
-                        }
-                    )
-
-                    print(
-                        f"Frame {frame_num}: {prediction} (distance: {base_metrics['mean_distance']:.2f})"
-                    )
+            # Store results
+            self.predictions.append(
+                {
+                    "frame_number": frame_num,
+                    "window_end_frame": window_end_frame,
+                    "predicted_state": current_prediction,
+                }
+            )
 
             # Save frame with prediction overlay if requested
             if writer:
