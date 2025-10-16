@@ -1,83 +1,66 @@
 {
   "match_info": {
-    "total_frames": 2724,
-    "duration": 45.4,
-    "fps": 60.0
+    "total_frames": 101,
+    "duration": 1.685210850805591,
+    "fps": 59.93315314325112
   },
   "movement_analysis": {
     "player1": {
-      "total_distance": 70.58093211063942,
+      "total_distance": "1.5981879",
       "average_position": [
-        "3.1221213",
-        "6.8957424"
+        "1.6236656",
+        "7.473507"
       ],
-      "court_coverage": 8.0,
-      "max_speed": 71.66349548769217,
-      "average_speed": 1.5684651580142077,
-      "max_acceleration": 4269.945799315649,
-      "direction_changes": 303,
-      "trajectory_length": 2701
+      "court_coverage": 2.0,
+      "max_speed": "2.7938986",
+      "average_speed": "0.9578444",
+      "max_acceleration": "66.16116",
+      "direction_changes": 5,
+      "trajectory_length": 101
     },
     "player2": {
-      "total_distance": 67.08003690465411,
+      "total_distance": "3.0680587",
       "average_position": [
-        "2.6533406",
-        "6.9190736"
+        "4.0841994",
+        "6.205209"
       ],
-      "court_coverage": 17.0,
-      "max_speed": 143.97488317535976,
-      "average_speed": 1.5001126404320695,
-      "max_acceleration": 8577.486203314533,
-      "direction_changes": 330,
-      "trajectory_length": 2684
+      "court_coverage": 3.0,
+      "max_speed": "3.461581",
+      "average_speed": "1.8387837",
+      "max_acceleration": "79.18621",
+      "direction_changes": 8,
+      "trajectory_length": 101
     }
   },
   "rally_statistics": {
-    "total_rallies": 3,
-    "average_duration": 11.538888888888886,
-    "max_duration": 18.366666666666667,
-    "min_duration": 0.03333333333333333,
-    "total_play_time": 34.61666666666667,
-    "player1_avg_distance": 21.363302224544707,
-    "player2_avg_distance": 19.831020571005396,
-    "player1_avg_intensity": 1.389119321368102,
-    "player2_avg_intensity": 1.2366831044824955,
-    "average_shots_per_rally": 25.0
+    "total_rallies": 1,
+    "average_duration": 0.8676333093256509,
+    "max_duration": 0.8676333093256509,
+    "min_duration": 0.8676333093256509,
+    "total_play_time": 0.8676333093256509,
+    "player1_avg_distance": "1.0221521",
+    "player2_avg_distance": "1.5042372",
+    "player1_avg_intensity": "1.1780922",
+    "player2_avg_intensity": "1.7337246",
+    "average_shots_per_rally": 0.0
   },
   "rallies": [
     {
       "start_frame": 49,
-      "end_frame": 1021,
-      "duration": 16.216666666666665,
-      "player1_distance": 30.24947337534296,
-      "player2_distance": 32.979427818226675,
-      "player1_intensity": 1.8653323766912413,
-      "player2_intensity": 2.0336748911547797,
-      "shot_count": 38
-    },
-    {
-      "start_frame": 1571,
-      "end_frame": 2672,
-      "duration": 18.366666666666667,
-      "player1_distance": 33.82508765588414,
-      "player2_distance": 26.50585975601135,
-      "player1_intensity": 1.8416563152024032,
-      "player2_intensity": 1.4431502589479863,
-      "shot_count": 37
-    },
-    {
-      "start_frame": 2722,
-      "end_frame": 2723,
-      "duration": 0.03333333333333333,
-      "player1_distance": 0.015345642407022042,
-      "player2_distance": 0.0077741387781573605,
-      "player1_intensity": 0.46036927221066126,
-      "player2_intensity": 0.23322416334472082,
+      "end_frame": 100,
+      "duration": 0.8676333093256509,
+      "player1_distance": "1.0221521",
+      "player2_distance": "1.5042372",
+      "player1_intensity": "1.1780922",
+      "player2_intensity": "1.7337246",
       "shot_count": 0
     }
   ],
   "coaching_insights": [
     "Player 1: Low court coverage. Consider improving movement to cover more court area.",
-    "Player 2: Low court coverage. Consider improving movement to cover more court area."
+    "Player 2: Low court coverage. Consider improving movement to cover more court area.",
+    "Player 2 is significantly more active, potentially dominating rallies.",
+    "Short rallies suggest aggressive play or quick errors.",
+    "Player 2 shows higher movement intensity during rallies."
   ]
 }

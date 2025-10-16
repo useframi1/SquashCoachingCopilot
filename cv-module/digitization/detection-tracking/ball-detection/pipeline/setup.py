@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="ball_detection_pipeline",
-    version="0.1.6",
+    version="0.2.1",
     description="A package for detecting the ball in squash videos",
     author="Youssef Elhagg",
     author_email="yousseframi@aucegypt.edu",

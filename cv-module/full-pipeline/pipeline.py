@@ -45,11 +45,17 @@ class Pipeline:
         self.data_collector = DataCollector(
             enable_smoothing=self.config.data_collector.enable_smoothing,
             smoothing_window=self.config.data_collector.smoothing_window,
+            median_window=self.config.data_collector.median_window,
+            savgol_window=self.config.data_collector.savgol_window,
+            savgol_poly=self.config.data_collector.savgol_poly,
             enable_validation=self.config.data_collector.enable_validation,
             min_confidence=self.config.data_collector.min_confidence,
             max_position_change=self.config.data_collector.max_position_change,
             handle_missing_data=self.config.data_collector.handle_missing_data,
             max_interpolation_frames=self.config.data_collector.max_interpolation_frames,
+            prominence=self.config.data_collector.prominence,
+            width=self.config.data_collector.width,
+            min_distance=self.config.data_collector.min_distance,
         )
 
         # Initialize Visualizer with its config

@@ -4,7 +4,6 @@
     },
     "tracknet_model": {
         "model_path": "models/tracknet/weights/model_best.pt",
-        "device": "auto",
         "model_width": 640,
         "model_height": 360
     },

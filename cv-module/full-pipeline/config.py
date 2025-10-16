@@ -15,6 +15,9 @@ class DataCollectorConfig:
     # Smoothing options
     enable_smoothing: bool = True
     smoothing_window: int = 5
+    median_window: int = 5
+    savgol_window: int = 11
+    savgol_poly: int = 3
 
     # Validation options
     enable_validation: bool = True
@@ -24,6 +27,11 @@ class DataCollectorConfig:
     # Missing data handling
     handle_missing_data: bool = True
     max_interpolation_frames: int = 10
+
+    # Ball hit options
+    prominence: float = 50.0
+    width: int = 3
+    min_distance: int = 20
 
 
 @dataclass
@@ -52,10 +60,10 @@ class PipelineConfig:
     """Main pipeline configuration combining all component configs."""
 
     # Video processing options
-    video_path: str = "tests/video-5.mp4"
+    video_path: str = "tests/video-3.mp4"
     display: bool = False
     output_path: Optional[str] = "output/output_video.mp4"
-    output_codec: str = "mp4v"  # Video codec for output (H.264)
+    output_codec: str = "avc1"  # Video codec for output (H.264)
     analysis_output_path: Optional[str] = "output/match_analysis"
 
     # Component configurations
@@ -104,11 +112,17 @@ class PipelineConfig:
             "data_collector": {
                 "enable_smoothing": self.data_collector.enable_smoothing,
                 "smoothing_window": self.data_collector.smoothing_window,
+                "median_window": self.data_collector.median_window,
+                "savgol_window": self.data_collector.savgol_window,
+                "savgol_poly": self.data_collector.savgol_poly,
                 "enable_validation": self.data_collector.enable_validation,
                 "min_confidence": self.data_collector.min_confidence,
                 "max_position_change": self.data_collector.max_position_change,
                 "handle_missing_data": self.data_collector.handle_missing_data,
                 "max_interpolation_frames": self.data_collector.max_interpolation_frames,
+                "prominence": self.data_collector.prominence,
+                "width": self.data_collector.width,
+                "min_distance": self.data_collector.min_distance,
             },
             "visualizer": {
                 "show_court_keypoints": self.visualizer.show_court_keypoints,

@@ -154,6 +154,7 @@ class TemporalSmoother:
                     BallData(
                         position=smoothed_pos,
                         confidence=ball_data.confidence if ball_data else None,
+                        is_wall_hit=ball_data.is_wall_hit if ball_data else False,
                     )
                 )
             else:
@@ -282,6 +283,7 @@ class MissingDataHandler:
                     BallData(
                         position=interp_pos,
                         confidence=ball_data.confidence if ball_data else None,
+                        is_wall_hit=ball_data.is_wall_hit if ball_data else False,
                     )
                 )
             else:

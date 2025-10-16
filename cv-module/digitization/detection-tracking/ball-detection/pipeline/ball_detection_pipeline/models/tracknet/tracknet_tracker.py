@@ -1,10 +1,9 @@
 import torch
 import cv2
-import json
 import numpy as np
 from collections import deque
-from models.tracknet.model import BallTrackerNet
-from utilities.general import postprocess, load_config
+from ball_detection_pipeline.models.tracknet.model import BallTrackerNet
+from ball_detection_pipeline.utils import postprocess
 
 
 class TrackNetTracker:
@@ -14,24 +13,20 @@ class TrackNetTracker:
     to detect the ball position in each new frame.
     """
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict):
         """Initialize the ball tracker.
 
         Args:
             config_path: Path to configuration JSON file
         """
         # Load configuration
-        if config is None:
-            config = load_config("config.json")
+        self.config = config
 
         self.config = config["tracknet_model"]
 
         # Setup device
-        device = self.config.get("device", "auto")
-        if device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
 
         # Load model
         model_path = self.config["model_path"]

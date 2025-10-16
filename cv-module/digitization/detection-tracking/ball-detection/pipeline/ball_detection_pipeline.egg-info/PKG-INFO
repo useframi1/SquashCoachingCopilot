@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ball_detection_pipeline
-Version: 0.1.6
+Version: 0.2.1
 Summary: A package for detecting the ball in squash videos
 Author: Youssef Elhagg
 Author-email: yousseframi@aucegypt.edu

@@ -63,6 +63,7 @@ class BallData:
 
     position: Optional[Tuple[int, int]] = None
     confidence: Optional[float] = None
+    is_wall_hit: bool = False
 
     def is_valid(self) -> bool:
         """Check if ball data is valid."""
@@ -73,6 +74,7 @@ class BallData:
         return {
             "position": self.position,
             "confidence": self.confidence,
+            "is_wall_hit": self.is_wall_hit,
         }
 
 

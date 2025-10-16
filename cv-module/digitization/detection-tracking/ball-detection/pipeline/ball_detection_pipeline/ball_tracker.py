@@ -25,16 +25,13 @@ class BallTracker:
 
         # Initialize the appropriate tracker
         if tracker_type == "tracknet":
-            self.tracker = TrackNetTracker(config=config)
+            self.tracker = TrackNetTracker(config=self.config)
         elif tracker_type == "rf":
-            self.tracker = RFTracker(config=config)
+            self.tracker = RFTracker(config=self.config)
         else:
             raise ValueError(
                 f"Unknown tracker type: {tracker_type}. Must be 'tracknet' or 'rf'"
             )
-
-        # Expose the device attribute for compatibility with evaluator
-        self.device = getattr(self.tracker, "device", "N/A")
 
     def reset(self):
         """Reset the tracker state."""
