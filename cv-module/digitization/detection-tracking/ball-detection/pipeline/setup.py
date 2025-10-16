@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="ball_detection_pipeline",
-    version="0.1.4",
+    version="0.1.6",
     description="A package for detecting the ball in squash videos",
     author="Youssef Elhagg",
     author_email="yousseframi@aucegypt.edu",
@@ -13,13 +13,15 @@ setup(
     package_data={
         "ball_detection_pipeline": [
             "config.json",
-            "model/weights/*.pt",
+            "models/tracknet/weights/*.pt",
         ],
     },
     install_requires=[
         "numpy",
         "opencv-python",
         "torch",
+        "inference",
+        "supervision",
     ],
     python_requires=">=3.7",
     classifiers=[

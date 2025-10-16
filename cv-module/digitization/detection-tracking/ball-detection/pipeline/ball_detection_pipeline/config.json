@@ -1,5 +1,15 @@
 {
-    "model_path": "model/weights/model_best.pt",
-    "model_width": 640,
-    "model_height": 360
+    "tracker": {
+        "type": "rf"
+    },
+    "tracknet_model": {
+        "model_path": "models/tracknet/weights/model_best.pt",
+        "device": "auto",
+        "model_width": 640,
+        "model_height": 360
+    },
+    "rf_model": {
+        "model_id": "squash-ball-detection-1lbti/1",
+        "api_key": "56e6SM7rfayFBoIrsIFz"
+    }
 }

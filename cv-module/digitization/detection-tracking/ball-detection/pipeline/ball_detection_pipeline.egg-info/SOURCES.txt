@@ -9,6 +9,10 @@ ball_detection_pipeline.egg-info/SOURCES.txt
 ball_detection_pipeline.egg-info/dependency_links.txt
 ball_detection_pipeline.egg-info/requires.txt
 ball_detection_pipeline.egg-info/top_level.txt
-ball_detection_pipeline/model/__init__.py
-ball_detection_pipeline/model/model.py
-ball_detection_pipeline/model/weights/model_best.pt
+ball_detection_pipeline/models/__init__.py
+ball_detection_pipeline/models/rf/__init__.py
+ball_detection_pipeline/models/rf/rf_tracker.py
+ball_detection_pipeline/models/tracknet/__init__.py
+ball_detection_pipeline/models/tracknet/model.py
+ball_detection_pipeline/models/tracknet/tracknet_tracker.py
+ball_detection_pipeline/models/tracknet/weights/model_best.pt
