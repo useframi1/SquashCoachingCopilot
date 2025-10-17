@@ -3,6 +3,7 @@
 from typing import Optional, List
 import numpy as np
 from scipy.signal import find_peaks
+from copy import deepcopy
 from .data_models import FrameData, PlayerData, BallData, CourtData, RallyData
 from .validators import DataValidator
 from .post_processors import TemporalSmoother, MissingDataHandler
@@ -36,6 +37,7 @@ class DataCollector:
         prominence: float = 50.0,
         width: int = 3,
         min_distance: int = 20,
+        min_states_duration: dict = {},
     ):
         """
         Initialize data collector.
@@ -51,6 +53,10 @@ class DataCollector:
             max_position_change: Maximum position change between frames
             handle_missing_data: Whether to handle missing data (post-processing)
             max_interpolation_frames: Maximum frames to interpolate
+            prominence: Minimum prominence for peak detection
+            width: Minimum width for peak detection
+            min_distance: Minimum distance between peaks
+            min_states_duration: Minimum duration for each rally state
         """
         self.enable_smoothing = enable_smoothing
         self.smoothing_window = smoothing_window
@@ -65,6 +71,7 @@ class DataCollector:
         self.prominence = prominence
         self.width = width
         self.min_distance = min_distance
+        self.min_states_duration = min_states_duration
 
         # Initialize validator (used during collection)
         self.validator = (
@@ -74,6 +81,18 @@ class DataCollector:
             )
             if enable_validation
             else None
+        )
+
+        self.smoother = TemporalSmoother(
+            window_size=self.smoothing_window,
+            median_window=self.median_window,
+            savgol_window=self.savgol_window,
+            savgol_poly=self.savgol_poly,
+            min_states_duration=self.min_states_duration,
+        )
+
+        self.interpolator = MissingDataHandler(
+            max_interpolation_frames=self.max_interpolation_frames
         )
 
         # Storage
@@ -203,10 +222,28 @@ class DataCollector:
         Returns:
             List of processed RallyData objects
         """
-        rallies = self._segment_rallies()
+        # Deep copy to avoid modifying raw_frame_history during post-processing
+        raw_frames = deepcopy(self.raw_frame_history)
+        rally_states = [f.rally_state for f in raw_frames]
+        rally_states_smoothed = self.smoother.smooth_rally_states(rally_states)
+
+        for i, frame in enumerate(raw_frames):
+            frame.rally_state = rally_states_smoothed[i]
+
+        rallies = self._segment_rallies(raw_frames)
         processed_rallies = []
         for rally in rallies:
             processed = self._post_process_rally(rally.rally_frames)
+            for frame in processed:
+                if (
+                    frame.player2.position is None
+                    or frame.player2.bbox is None
+                    or frame.player2.keypoints is None
+                    or frame.player2.real_position is None
+                ):
+                    print(
+                        f"Player 2 data missing for frame {frame.frame_number}, data: {frame.player2}"
+                    )
             processed_rallies.append(processed)
 
         # Flatten processed rallies into a single list of frames
@@ -246,13 +283,13 @@ class DataCollector:
 
         return rally_frames
 
-    def _segment_rallies(self) -> List[RallyData]:
+    def _segment_rallies(self, frames: List[FrameData]) -> List[RallyData]:
         """Segment frames into rallies based on rally state."""
         rallies = []
         current_rally = []
         in_rally = False
 
-        for frame in self.raw_frame_history:
+        for frame in frames:
             if frame.rally_state == "start" and not in_rally:
                 in_rally = True
                 current_rally = [frame]
@@ -294,11 +331,6 @@ class DataCollector:
             frames: List of frames to interpolate (modified in-place)
             validation_results: Validation results for each frame
         """
-        # Create interpolator
-        interpolator = MissingDataHandler(
-            max_interpolation_frames=self.max_interpolation_frames
-        )
-
         # Extract player and ball data
         p1_data = [f.player1 for f in frames]
         p2_data = [f.player2 for f in frames]
@@ -309,13 +341,13 @@ class DataCollector:
         ball_valid = [v["ball_valid"] for v in validation_results]
 
         # Interpolate each dataset
-        p1_interpolated = interpolator.handle_missing_player(
+        p1_interpolated = self.interpolator.handle_missing_player(
             p1_data, player_id=1, validation_results=p1_valid
         )
-        p2_interpolated = interpolator.handle_missing_player(
+        p2_interpolated = self.interpolator.handle_missing_player(
             p2_data, player_id=2, validation_results=p2_valid
         )
-        ball_interpolated = interpolator.handle_missing_ball(
+        ball_interpolated = self.interpolator.handle_missing_ball(
             ball_data, validation_results=ball_valid
         )
 
@@ -333,23 +365,15 @@ class DataCollector:
         Args:
             frames: List of frames to smooth (modified in-place)
         """
-        # Create smoother
-        smoother = TemporalSmoother(
-            window_size=self.smoothing_window,
-            median_window=self.median_window,
-            savgol_window=self.savgol_window,
-            savgol_poly=self.savgol_poly,
-        )
-
         # Extract player and ball data
         p1_data = [f.player1 for f in frames]
         p2_data = [f.player2 for f in frames]
         ball_data = [f.ball for f in frames]
 
         # Smooth each dataset
-        p1_smoothed = smoother.smooth_player_positions(p1_data, player_id=1)
-        p2_smoothed = smoother.smooth_player_positions(p2_data, player_id=2)
-        ball_smoothed = smoother.smooth_ball_positions(ball_data)
+        p1_smoothed = self.smoother.smooth_player_positions(p1_data, player_id=1)
+        p2_smoothed = self.smoother.smooth_player_positions(p2_data, player_id=2)
+        ball_smoothed = self.smoother.smooth_ball_positions(ball_data)
 
         # Update frames in-place
         for i, frame in enumerate(frames):

@@ -56,6 +56,7 @@ class Pipeline:
             prominence=self.config.data_collector.prominence,
             width=self.config.data_collector.width,
             min_distance=self.config.data_collector.min_distance,
+            min_states_duration=self.config.data_collector.min_states_duration,
         )
 
         # Initialize Visualizer with its config

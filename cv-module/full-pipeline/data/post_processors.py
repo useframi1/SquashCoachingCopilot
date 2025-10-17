@@ -4,7 +4,7 @@ from collections import deque
 from typing import Optional, Tuple, List
 import numpy as np
 from scipy.signal import medfilt, savgol_filter
-from .data_models import PlayerData, BallData
+from .data_models import FrameData, PlayerData, BallData
 
 
 class TemporalSmoother:
@@ -16,6 +16,7 @@ class TemporalSmoother:
         median_window: int = 5,
         savgol_window: int = 11,
         savgol_poly: int = 3,
+        min_states_duration: dict = {},
     ):
         """
         Initialize temporal smoother.
@@ -25,6 +26,7 @@ class TemporalSmoother:
             median_window: Window size for median filter (must be odd)
             savgol_window: Window length for Savitzky-Golay filter (must be odd)
             savgol_poly: Polynomial order for Savitzky-Golay filter
+            min_states_duration: Minimum duration for each rally state
         """
         self.window_size = window_size
         self.median_window = (
@@ -39,6 +41,7 @@ class TemporalSmoother:
             2: deque(maxlen=window_size),
         }
         self.ball_position_history = deque(maxlen=window_size)
+        self.min_states_duration = min_states_duration
 
     def smooth_player_positions(
         self, player_data_list: List[PlayerData], player_id: int
@@ -162,6 +165,59 @@ class TemporalSmoother:
                 smoothed.append(ball_data if ball_data else BallData())
 
         return smoothed
+
+    def smooth_rally_states(self, rally_states: List[str]) -> List[str]:
+        postprocessed = rally_states.copy()
+
+        valid_transitions = {
+            "start": ["start", "active"],
+            "active": ["active", "end"],
+            "end": ["end", "start"],
+        }
+
+        # Always start with "start" state
+        current_committed_state = postprocessed[0]
+        print(f"Starting with state: {current_committed_state}")
+
+        i = 1
+        while i < len(rally_states):
+            candidate_state = rally_states[i]
+
+            # Check if this is a valid transition
+            if candidate_state not in valid_transitions[current_committed_state]:
+                # Invalid transition - replace with current committed state
+                postprocessed[i] = current_committed_state
+                i += 1
+                continue
+
+            # If same state as current, just continue
+            if candidate_state == current_committed_state:
+                postprocessed[i] = current_committed_state
+                i += 1
+                continue
+
+            # Valid new state - check if it persists long enough
+            # Count consecutive occurrences of this candidate state
+            count = 1
+            j = i + 1
+            while j < len(rally_states) and rally_states[j] == candidate_state:
+                count += 1
+                j += 1
+
+            # Check if candidate state meets minimum duration requirement
+            if count >= self.min_states_duration.get(candidate_state, 3):
+                # Real transition - commit it
+                for k in range(i, j):
+                    postprocessed[k] = candidate_state
+                current_committed_state = candidate_state
+                i = j
+            else:
+                # Fluctuation - reject it and replace with current committed state
+                for k in range(i, j):
+                    postprocessed[k] = current_committed_state
+                i = j
+
+        return postprocessed
 
     def reset(self):
         """Reset smoothing history."""
@@ -338,22 +394,28 @@ class MissingDataHandler:
                 before_player.position[1]
                 + t * (after_player.position[1] - before_player.position[1]),
             )
+            interp_real_pos = (
+                before_player.real_position[0]
+                + t * (after_player.real_position[0] - before_player.real_position[0]),
+                before_player.real_position[1]
+                + t * (after_player.real_position[1] - before_player.real_position[1]),
+            )
 
             return PlayerData(
                 player_id=current_data.player_id,
                 position=interp_pos,
-                real_position=current_data.real_position,
-                bbox=current_data.bbox,
-                confidence=current_data.confidence,
-                keypoints=current_data.keypoints,
-                stroke_type=current_data.stroke_type,
+                real_position=interp_real_pos,
+                bbox=before_player.bbox,
+                confidence=before_player.confidence,
+                keypoints=before_player.keypoints,
+                stroke_type=before_player.stroke_type,
             )
         elif before_idx is not None:
+            # Use last valid position as fallback
             return player_data_list[before_idx]
         elif after_idx is not None:
+            # Use next valid position as fallback
             return player_data_list[after_idx]
-        else:
-            return current_data
 
     def reset(self):
         """Reset handler state."""

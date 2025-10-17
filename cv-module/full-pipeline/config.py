@@ -4,7 +4,7 @@ Pipeline configuration settings.
 This module centralizes all configurable parameters for the video processing pipeline.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -18,6 +18,13 @@ class DataCollectorConfig:
     median_window: int = 5
     savgol_window: int = 11
     savgol_poly: int = 3
+    min_states_duration: dict = field(
+        default_factory=lambda: {
+            "start": 50,
+            "active": 200,
+            "end": 200,
+        }
+    )
 
     # Validation options
     enable_validation: bool = True
@@ -26,7 +33,7 @@ class DataCollectorConfig:
 
     # Missing data handling
     handle_missing_data: bool = True
-    max_interpolation_frames: int = 10
+    max_interpolation_frames: int = 20
 
     # Ball hit options
     prominence: float = 50.0
