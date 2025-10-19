@@ -1,8 +1,34 @@
 """Data models for representing pipeline outputs."""
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any
 import numpy as np
+
+
+def convert_numpy_types(obj: Any) -> Any:
+    """
+    Recursively convert numpy types to native Python types for JSON serialization.
+
+    Args:
+        obj: Object to convert
+
+    Returns:
+        Object with numpy types converted to Python types
+    """
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.integer, np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return type(obj)(convert_numpy_types(item) for item in obj)
+    else:
+        return obj
 
 
 @dataclass
@@ -47,12 +73,12 @@ class PlayerData:
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
         return {
-            "player_id": self.player_id,
-            "position": self.position,
-            "real_position": self.real_position,
-            "bbox": self.bbox,
-            "confidence": self.confidence,
-            "keypoints": self.keypoints,
+            "player_id": convert_numpy_types(self.player_id),
+            "position": convert_numpy_types(self.position),
+            "real_position": convert_numpy_types(self.real_position),
+            "bbox": convert_numpy_types(self.bbox),
+            "confidence": convert_numpy_types(self.confidence),
+            "keypoints": convert_numpy_types(self.keypoints),
             "stroke_type": self.stroke_type,
         }
 
@@ -63,6 +89,7 @@ class BallData:
 
     position: Optional[Tuple[int, int]] = None
     confidence: Optional[float] = None
+    is_wall_hit: bool = False
 
     def is_valid(self) -> bool:
         """Check if ball data is valid."""
@@ -71,8 +98,9 @@ class BallData:
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
         return {
-            "position": self.position,
-            "confidence": self.confidence,
+            "position": convert_numpy_types(self.position),
+            "confidence": convert_numpy_types(self.confidence),
+            "is_wall_hit": self.is_wall_hit,
         }
 
 
@@ -91,8 +119,8 @@ class FrameData:
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
         return {
-            "frame_number": self.frame_number,
-            "timestamp": self.timestamp,
+            "frame_number": convert_numpy_types(self.frame_number),
+            "timestamp": convert_numpy_types(self.timestamp),
             "court": self.court.to_dict(),
             "player1": self.player1.to_dict(),
             "player2": self.player2.to_dict(),
@@ -128,7 +156,7 @@ class RallyData:
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
         return {
-            "rally": [frame.to_dict() for frame in self.rally_frames],
-            "start_frame": self.start_frame,
-            "end_frame": self.end_frame,
+            "rally_frames": [frame.to_dict() for frame in self.rally_frames],
+            "start_frame": convert_numpy_types(self.start_frame),
+            "end_frame": convert_numpy_types(self.end_frame),
         }

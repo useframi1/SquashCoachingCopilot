@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from typing import Generator, Tuple, Optional
 from .video_reader import VideoReader, VideoMetadata
+from .video_writer import VideoWriter
 
 
 class VideoHandler:
@@ -17,7 +18,7 @@ class VideoHandler:
     - Handle errors related to video I/O
     """
 
-    def __init__(self, input_path: str):
+    def __init__(self, input_path: str, base_output_path: str, codec: str = "avc1"):
         """
         Initialize video handler.
 
@@ -31,6 +32,8 @@ class VideoHandler:
             ValueError: If video cannot be opened
         """
         self.input_path = input_path
+        self.base_output_path = base_output_path
+        self.codec = codec
         self.metadata: Optional[VideoMetadata] = None
 
         # Validate input video exists and can be opened
@@ -93,3 +96,39 @@ class VideoHandler:
         if self.metadata is None:
             raise ValueError("Metadata not available. Video hasn't been validated.")
         return self.metadata
+
+    def write_video(
+        self,
+        frames: Generator[np.ndarray, None, None],
+        output_path: Optional[str] = None,
+    ):
+        """
+        Write frames to output video file.
+
+        Args:
+            frames: Generator yielding frames to write
+
+        Raises:
+            ValueError: If video writer cannot be created
+            IOError: If there are disk space or permission issues
+        """
+        if self.metadata is None:
+            raise ValueError("Cannot write video: metadata not available")
+
+        output_path = self.base_output_path + "/" + output_path + ".mp4"
+
+        try:
+            with VideoWriter(output_path, self.metadata, self.codec) as writer:
+                frame_count = 0
+                for frame in frames:
+                    writer.write(frame)
+                    frame_count += 1
+
+                print(f"Successfully wrote {frame_count} frames to {output_path}")
+
+        except PermissionError as e:
+            raise IOError(f"Permission denied writing to {output_path}: {str(e)}")
+        except OSError as e:
+            raise IOError(f"Error writing video (disk space?): {str(e)}")
+        except Exception as e:
+            raise ValueError(f"Error writing video {output_path}: {str(e)}")

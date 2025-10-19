@@ -1,14 +1,13 @@
 """Pipeline orchestrator for coordinating sub-pipelines and video processing."""
 
-import cv2
 import numpy as np
-from typing import Optional, Dict, List
-from tqdm import tqdm
+from typing import Optional
 from court_detection_pipeline import CourtCalibrator
 from player_tracking_pipeline import PlayerTracker
 from rally_state_pipeline import RallyStateDetector
 from ball_detection_pipeline import BallTracker
 from stroke_detection_pipeline import StrokeDetector
+from data import DataCollector
 
 
 class PipelineOrchestrator:
@@ -24,9 +23,13 @@ class PipelineOrchestrator:
     - Does NOT: Process data, compute metrics, or handle visualization details
     """
 
-    def __init__(self):
+    def __init__(self, data_collector: Optional[DataCollector] = None):
         """
         Initialize pipeline orchestrator.
+
+        Args:
+            data_collector: DataCollector instance (creates default if None)
+            visualizer: Visualizer instance (creates default if None)
         """
         # Sub-pipelines
         self.court_calibrator = CourtCalibrator()
@@ -35,12 +38,15 @@ class PipelineOrchestrator:
         self.ball_tracker = BallTracker()
         self.stroke_detector = StrokeDetector()
 
+        # Data management and visualization
+        self.data_collector = data_collector or DataCollector()
+
         # State
         self.is_calibrated = False
         self.homographies = None
         self.keypoints = None
 
-    def process_frames(self, frames_iterator) -> List[Dict]:
+    def process_frames(self, frames_iterator):
         """
         Process frames from an iterator through all pipelines.
         Only processes and visualizes frames without writing.
@@ -48,20 +54,16 @@ class PipelineOrchestrator:
         Args:
             frames_iterator: Iterator yielding (frame_number, timestamp, frame) tuples
         """
-
-        raw_frame_data = []
-
-        # Wrap iterator with tqdm for progress tracking
         for frame_number, timestamp, frame in frames_iterator:
             # Process frame through all pipelines and collect data
-            frame_data = self.process_frame(frame, frame_number, timestamp)
-            raw_frame_data.append(frame_data)
+            raw_frame_data = self.process_frame(frame, frame_number, timestamp)
 
-        return raw_frame_data
+            # Pass data to DataCollector for aggregation and cleaning
+            self.data_collector.collect_frame_data(**raw_frame_data)
 
     def process_frame(
         self, frame: np.ndarray, frame_number: int, timestamp: float
-    ) -> Dict:
+    ) -> dict:
         """
         Process a single frame through all pipelines.
 
@@ -104,7 +106,7 @@ class PipelineOrchestrator:
             "is_calibrated": self.is_calibrated,
         }
 
-        return {
+        raw_frame_data = {
             "frame_number": frame_number,
             "timestamp": timestamp,
             "court_data": court_data,
@@ -113,6 +115,8 @@ class PipelineOrchestrator:
             "rally_state": rally_state,
             "stroke_data": stroke_data,
         }
+
+        return raw_frame_data
 
     def _get_real_coordinates(self, player_results: dict) -> dict:
         """Extract real-world coordinates from player results."""
@@ -134,6 +138,7 @@ class PipelineOrchestrator:
         self.homographies = None
         self.keypoints = None
         self.player_tracker = None
+        self.data_collector.reset()
 
         # Reset sub-pipelines if they have reset methods
         if hasattr(self.rally_state_detector, "reset"):

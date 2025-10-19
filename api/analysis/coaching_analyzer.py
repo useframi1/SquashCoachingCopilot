@@ -1,16 +1,20 @@
-"""Simplified coaching analysis for rally count and player positioning."""
+"""High-level coaching analysis combining all metrics."""
 
-from typing import List, Dict
-from data.data_models import RallyData
+from typing import List, Dict, Optional
+import json
+import os
+from data.data_models import RallyData, convert_numpy_types
 
 
 class CoachingAnalyzer:
     """
-    Simplified analyzer for basic coaching insights.
+    High-level analyzer for coaching insights.
 
     Responsibilities:
-    - Count rallies in a match
-    - Calculate average positioning for players
+    - Combine movement and rally analyses
+    - Generate coaching recommendations
+    - Provide performance comparisons
+    - Export analysis results for coaching app
     """
 
     def __init__(self, fps: float):
@@ -24,46 +28,24 @@ class CoachingAnalyzer:
 
     def analyze_match(self, rallies: List[RallyData]) -> Dict:
         """
-        Perform simplified match analysis.
+        Perform comprehensive match analysis.
 
         Args:
             rallies: List of rally data from entire match
 
         Returns:
-            Dictionary with rally count and average positioning
+            Dictionary with complete match analysis
         """
-        # Count rallies
-        rally_count = len(rallies)
+        # Calculate average rally duration
+        avg_rally_duration = sum(
+            [(r.end_frame - r.start_frame) / self.fps for r in rallies]
+        ) / len(rallies)
 
-        # Calculate average positioning for both players
-        player1_positions = []
-        player2_positions = []
-
-        for rally in rallies:
-            for frame in rally.rally_frames:
-                if frame.player1.real_position:
-                    player1_positions.append(frame.player1.real_position)
-
-                if frame.player2.real_position:
-                    player2_positions.append(frame.player2.real_position)
-
-        # Calculate averages
-        avg_player1_position = None
-        if player1_positions:
-            avg_x = sum(pos[0] for pos in player1_positions) / len(player1_positions)
-            avg_y = sum(pos[1] for pos in player1_positions) / len(player1_positions)
-            avg_player1_position = {"x": avg_x, "y": avg_y}
-
-        avg_player2_position = None
-        if player2_positions:
-            avg_x = sum(pos[0] for pos in player2_positions) / len(player2_positions)
-            avg_y = sum(pos[1] for pos in player2_positions) / len(player2_positions)
-            avg_player2_position = {"x": avg_x, "y": avg_y}
-
-        return {
-            "rally_count": rally_count,
-            "average_positioning": {
-                "player1": avg_player1_position,
-                "player2": avg_player2_position,
-            },
+        # Combine all analyses
+        analysis = {
+            "total_rallies": len(rallies),
+            "avg_rally_duration": convert_numpy_types(avg_rally_duration),
+            "rallies": [r.to_dict() for r in rallies],
         }
+
+        return analysis
