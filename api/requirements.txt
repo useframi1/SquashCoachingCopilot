@@ -1,0 +1,24 @@
+# FastAPI and web server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# Data validation
+pydantic==2.5.0
+
+# Video processing and ML dependencies
+opencv-python==4.8.1.78
+numpy==1.24.3
+scipy==1.11.4
+
+# Local packages (install from packages/ folder)
+# These will be installed via: pip install packages/*.whl
+# - ball_detection_pipeline-0.1.4
+# - court_detection_pipeline-0.1.2
+# - player_tracking_pipeline-0.2.2
+# - rally_state_pipeline-0.1.12
+# - stroke_detection_pipeline-0.1.1

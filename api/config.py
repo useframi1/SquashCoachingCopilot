@@ -67,9 +67,9 @@ class PipelineConfig:
     """Main pipeline configuration combining all component configs."""
 
     # Video processing options
-    video_path: str = "tests/video-5.mp4"
+    video_path: str = "tests/video-5.mp4"  # Default for testing, override in API
     display: bool = False
-    base_output_path: Optional[str] = "output"
+    base_output_path: Optional[str] = "output"  # Default for testing, override in API
     output_codec: str = "avc1"  # Video codec for output (H.264)
 
     # Component configurations

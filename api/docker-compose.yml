@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: squash-postgres
+    environment:
+      POSTGRES_USER: squash
+      POSTGRES_PASSWORD: squash
+      POSTGRES_DB: squash_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U squash"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - squash-network
+
+  # FastAPI application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: squash-api
+    environment:
+      DATABASE_URL: postgresql://squash:squash@postgres:5432/squash_db
+      VIDEOS_DIR: /app/volumes/videos
+      OUTPUT_DIR: /app/volumes/output
+    volumes:
+      - ./volumes/videos:/app/volumes/videos
+      - ./volumes/output:/app/volumes/output
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks:
+      - squash-network
+
+  # Background worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: squash-worker
+    environment:
+      DATABASE_URL: postgresql://squash:squash@postgres:5432/squash_db
+      VIDEOS_DIR: /app/volumes/videos
+      OUTPUT_DIR: /app/volumes/output
+      WORKER_POLL_INTERVAL: 5
+    volumes:
+      - ./volumes/videos:/app/volumes/videos
+      - ./volumes/output:/app/volumes/output
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "worker.py"]
+    networks:
+      - squash-network
+
+volumes:
+  postgres-data:
+    driver: local
+
+networks:
+  squash-network:
+    driver: bridge
