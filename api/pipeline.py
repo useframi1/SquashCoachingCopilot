@@ -115,9 +115,7 @@ class Pipeline:
                 ),
                 frame_data_list=rallies[i].rally_frames,
             )
-            video_name = video_path.split("/")[-1]
-            video_name = video_name.split(".")[0]
-            output_path = f"{video_name}/rally_{i+1}"
+            output_path = f"rally_{i+1}"
             self.video_handler.write_video(
                 frames=annotated_frames, output_path=output_path
             )

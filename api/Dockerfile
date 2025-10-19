@@ -12,17 +12,20 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libglib2.0-0 \
+    build-essential \
+    cmake \
+    g++ \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy and install local packages
+# Copy and install local packages FIRST to get their dependency versions
 COPY packages/*.whl /tmp/packages/
 RUN pip install --no-cache-dir /tmp/packages/*.whl && rm -rf /tmp/packages
+
+# Copy requirements and install additional dependencies
+# This will use already-installed versions from wheels and add any missing ones
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .

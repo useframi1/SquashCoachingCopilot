@@ -2,6 +2,7 @@
 
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -13,11 +14,28 @@ from sqlalchemy.orm import Session
 
 from models import Job, get_db, init_db
 
+# Configure paths
+VIDEOS_DIR = Path(os.getenv("VIDEOS_DIR", "/app/volumes/videos"))
+OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/app/volumes/output"))
+
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    """Lifespan event handler for startup and shutdown."""
+    # Startup
+    VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    init_db()
+    yield
+    # Shutdown (add cleanup code here if needed)
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Squash Coaching API",
     description="API for analyzing squash match videos",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware for frontend
@@ -28,20 +46,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure paths
-VIDEOS_DIR = Path(os.getenv("VIDEOS_DIR", "/app/volumes/videos"))
-OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/app/volumes/output"))
-
-# Ensure directories exist
-VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    init_db()
 
 
 @app.get("/")
@@ -232,10 +236,7 @@ async def get_rally_video(job_id: str, rally_num: int, db: Session = Depends(get
         )
 
     # Construct video path
-    video_filename = job.video_filename.split(".")[0]
-    rally_path = (
-        OUTPUT_DIR / str(job.job_id) / video_filename / f"rally_{rally_num}.mp4"
-    )
+    rally_path = OUTPUT_DIR / str(job.job_id) / f"rally_{rally_num}.mp4"
 
     # Check if video exists
     if not rally_path.exists():

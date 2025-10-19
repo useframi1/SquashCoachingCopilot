@@ -48,7 +48,7 @@ def process_job(job: Job, db: Session):
         config = PipelineConfig(
             video_path=video_path,
             base_output_path=output_path,
-            output_codec="avc1",
+            output_codec="mp4v",  # Use software codec for Docker compatibility
         )
 
         print(f"[Worker] Running pipeline for {job.video_filename}...")

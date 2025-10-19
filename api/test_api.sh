@@ -28,7 +28,7 @@ curl -s $API_URL/ | jq .
 
 # 2. Upload video
 echo -e "\n2. Uploading video..."
-UPLOAD_RESPONSE=$(curl -s -X POST $API_URL/upload -F "file=@$VIDEO_PATH")
+UPLOAD_RESPONSE=$(curl -s -X POST $API_URL/upload -F "file=@$VIDEO_PATH;type=video/mp4")
 echo $UPLOAD_RESPONSE | jq .
 
 JOB_ID=$(echo $UPLOAD_RESPONSE | jq -r '.job_id')

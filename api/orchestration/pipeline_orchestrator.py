@@ -61,6 +61,9 @@ class PipelineOrchestrator:
             # Pass data to DataCollector for aggregation and cleaning
             self.data_collector.collect_frame_data(**raw_frame_data)
 
+            if frame_number % 10 == 0:
+                print(f"Processed frame {frame_number}")
+
     def process_frame(
         self, frame: np.ndarray, frame_number: int, timestamp: float
     ) -> dict:
