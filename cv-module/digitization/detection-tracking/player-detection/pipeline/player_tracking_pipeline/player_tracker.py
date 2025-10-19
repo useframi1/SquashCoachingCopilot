@@ -15,18 +15,35 @@ class PlayerTracker:
     Returns the bottom-center position of each player's bounding box.
     """
 
-    def __init__(self, config: dict = None, homography: np.ndarray = None):
+    def __init__(
+        self,
+        config: dict = None,
+        homography: np.ndarray = None,
+        court_points: np.ndarray = None,
+        roi_expansion: int = 50,
+    ):
         """
         Initialize the player tracker.
         Args:
             config (dict): Configuration dictionary. If None, loads from 'config.json'.
             homography (np.ndarray): 3x3 homography matrix for court coordinate transformation.
+            court_points (np.ndarray): Court corner points. If None, will be calculated from homography.
+            roi_expansion (int): Pixels to expand ROI beyond court boundaries.
         """
+
         self.config = config if config else load_config()
         self.homography = homography
         self.max_history = self.config["tracker"]["max_history"]
         self.reid_threshold = self.config["tracker"]["reid_threshold"]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.court_mask = None
+        self.roi_expansion = roi_expansion
+
+        # Calculate court points from homography if not provided
+        if court_points is None and homography is not None:
+            self.court_points = self._get_court_from_homography(homography)
+        else:
+            self.court_points = court_points
 
         # Player state
         self.player_positions = {
@@ -62,6 +79,27 @@ class PlayerTracker:
         # Move entire model to device and set to eval mode
         self.reid_model = self.reid_model.to(self.device)
         self.reid_model.eval()
+
+    def _get_court_from_homography(self, homography):
+        """
+        Get full court boundaries using existing T-box homography.
+
+        Args:
+            homography: 3x3 homography matrix (pixels -> real coords)
+
+        Returns:
+            Full court corner points in pixel coordinates
+        """
+        # Full court in real coordinates
+        court_real = np.array(
+            [[0, 0], [6.4, 0], [6.4, 9.75], [0, 9.75]], dtype=np.float32
+        )
+
+        # Inverse transform to get pixel coordinates
+        H_inv = np.linalg.inv(homography)
+        court_pixels = cv2.perspectiveTransform(court_real.reshape(-1, 1, 2), H_inv)
+
+        return court_pixels.reshape(-1, 2)
 
     def process_frame(self, frame):
         """
@@ -134,16 +172,41 @@ class PlayerTracker:
 
         return results
 
-    def _detect_people(self, frame):
-        """
-        Detect people in the frame using YOLO.
+    def _create_court_mask(self, frame_shape):
+        """Create expanded court mask to filter out audience."""
+        h, w = frame_shape[:2]
+        mask = np.zeros((h, w), dtype=np.uint8)
 
-        Returns:
-            tuple: (detections, keypoints)
-                - detections: list of top 2 person detections sorted by confidence
-                - keypoints: list of keypoint arrays (None if pose not supported)
-        """
-        results = self.detector(frame, verbose=False)[0]
+        if self.court_points is None:
+            return None
+
+        # Expand court boundaries
+        centroid = np.mean(self.court_points, axis=0)
+        expanded_points = []
+        for point in self.court_points:
+            direction = point - centroid
+            direction = direction / (np.linalg.norm(direction) + 1e-6)
+            expanded = point + direction * self.roi_expansion
+            expanded_points.append(expanded)
+
+        # Create mask
+        expanded_points = np.array(expanded_points, dtype=np.int32)
+        cv2.fillPoly(mask, [expanded_points], 255)
+
+        return mask
+
+    def _detect_people(self, frame):
+        """Detect people using masked frame to exclude audience."""
+        # Create mask on first frame
+        if self.court_mask is None and self.court_points is not None:
+            self.court_mask = self._create_court_mask(frame.shape)
+
+        # Apply mask before detection
+        detection_frame = frame
+        if self.court_mask is not None:
+            detection_frame = cv2.bitwise_and(frame, frame, mask=self.court_mask)
+
+        results = self.detector(detection_frame, verbose=False)[0]
         detections = results.boxes.xyxy.cpu().numpy()
         confidences = results.boxes.conf.cpu().numpy()
         classes = results.boxes.cls.cpu().numpy()
