@@ -409,7 +409,7 @@ class DataCollector:
             frames[peak_idx].ball.is_wall_hit = True
             frames[peak_idx].ball.ball_hit_real_position = cv2.perspectiveTransform(
                 np.array([[positions[peak_idx]]], dtype=np.float32),
-                frames[peak_idx].court.homographies["wall"],
+                frames[peak_idx].court.homographies["front-wall-down"],
             )[0][0]
 
     def reset(self):

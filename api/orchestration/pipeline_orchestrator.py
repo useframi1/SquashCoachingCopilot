@@ -84,7 +84,7 @@ class PipelineOrchestrator:
                 frame
             )
             self.player_tracker = PlayerTracker(
-                homography=self.court_calibrator.get_homography("t-boxes")
+                homography=self.court_calibrator.get_homography("right-square")
             )
             self.is_calibrated = True
 
