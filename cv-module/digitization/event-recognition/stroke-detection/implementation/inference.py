@@ -14,7 +14,7 @@ class LSTMClassifier(nn.Module):
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_size, num_classes)
-    
+
     def forward(self, x):
         lstm_out, (hidden, cell) = self.lstm(x)
         last_hidden = hidden[-1]
@@ -39,20 +39,21 @@ class StrokePredictor:
         # Load your trained model
         if model_path.endswith(".h5") or model_path.endswith(".keras"):
             from tensorflow import keras
+
             self.model = keras.models.load_model(model_path)
             self.is_pytorch = False
         elif model_path.endswith(".pth") or model_path.endswith(".pt"):
-            checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-            config = checkpoint['model_config']
+            checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
+            config = checkpoint["model_config"]
             self.model = LSTMClassifier(
-                input_size=config['input_size'],
-                hidden_size=config['hidden_size'],
-                num_classes=config['num_classes'],
-                dropout=config['dropout']
+                input_size=config["input_size"],
+                hidden_size=config["hidden_size"],
+                num_classes=config["num_classes"],
+                dropout=config["dropout"],
             )
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.load_state_dict(checkpoint["model_state_dict"])
             self.model.eval()
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.model.to(self.device)
             self.is_pytorch = True
         else:
@@ -81,7 +82,7 @@ class StrokePredictor:
         # Buffers for each tracked player (stores ALL keypoints, not just window_size)
         self.player_buffers = {}
         self.last_predictions = {}
-        
+
         # Track prediction cooldown to avoid spam
         self.prediction_cooldown = {}
         self.cooldown_frames = 5  # Don't predict same stroke again for 5 frames
@@ -151,7 +152,7 @@ class StrokePredictor:
             return None, None
 
         # SLIDING WINDOW: Take the LAST window_size frames (most recent)
-        sequence = keypoints_sequence[-self.window_size:]
+        sequence = keypoints_sequence[-self.window_size :]
 
         # Convert to feature array
         coord_cols = [
@@ -163,7 +164,7 @@ class StrokePredictor:
 
         # Reshape for LSTM (1, window_size, num_features)
         features = features.reshape(1, self.window_size, -1)
-        
+
         # Get prediction
         if self.is_pytorch:
             with torch.no_grad():
@@ -172,7 +173,7 @@ class StrokePredictor:
                 probabilities = torch.softmax(outputs, dim=1)[0].cpu().numpy()
         else:
             probabilities = self.model.predict(features, verbose=0)[0]
-        
+
         prediction = np.argmax(probabilities)
         confidence = probabilities[prediction]
 
@@ -181,7 +182,10 @@ class StrokePredictor:
         # Check cooldown to avoid repetitive predictions
         if player_id in self.prediction_cooldown:
             last_frame, last_stroke = self.prediction_cooldown[player_id]
-            if current_frame - last_frame < self.cooldown_frames and stroke_type == last_stroke:
+            if (
+                current_frame - last_frame < self.cooldown_frames
+                and stroke_type == last_stroke
+            ):
                 return None, None
 
         # Only report if not "neither" and confidence > threshold
@@ -229,9 +233,7 @@ class StrokePredictor:
                 # Predict on EVERY frame once we have enough data (sliding window)
                 if len(self.player_buffers[current_id]) >= self.window_size:
                     stroke, confidence = self.predict_stroke(
-                        current_id, 
-                        self.player_buffers[current_id],
-                        frame_idx
+                        current_id, self.player_buffers[current_id], frame_idx
                     )
 
                     # Report new predictions
@@ -342,7 +344,7 @@ def run_inference(video_path, model_path, output_path=None):
 if __name__ == "__main__":
     # Example usage
     video_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/video-2.mp4"
-    model_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/pytorch_lstm_model.pth"  # .h5, .keras, .pth, or .pt
+    model_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/lstm_model.pt"  # .h5, .keras, .pth, or .pt
     output_path = "/home/g03-s2025/Desktop/SquashCoachingCopilot/cv-module/digitization/event-recognition/stroke-detection/implementation/Videos/output_video.mp4"  # Optional
 
     run_inference(video_path, model_path, output_path)
