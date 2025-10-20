@@ -10,8 +10,7 @@ class CourtCalibrator:
         """Initialize the court calibrator with Roboflow model."""
         self.config = config if config else load_config()
         self.model = get_model(
-            model_id=self.config["model_id"],
-            api_key=self.config["api_key"]
+            model_id=self.config["model_id"], api_key=self.config["api_key"]
         )
         self.homographies = {}
 
@@ -120,6 +119,8 @@ class CourtCalibrator:
 
         for prediction in predictions:
             class_name = prediction.class_name
+            if class_name in ["tin", "left-square"]:
+                continue
 
             # Filter by confidence threshold
             if prediction.confidence < conf_threshold:
@@ -130,13 +131,12 @@ class CourtCalibrator:
                 continue
 
             # Check if prediction has polygon points
-            if not hasattr(prediction, 'points') or not prediction.points:
+            if not hasattr(prediction, "points") or not prediction.points:
                 continue
 
             # Get the 4 corners using polygon approximation
             corners = self._get_quadrilateral_corners(
-                prediction.points,
-                epsilon_factor=epsilon_factor
+                prediction.points, epsilon_factor=epsilon_factor
             )
 
             # Order corners consistently (TL, TR, BR, BL)

@@ -3,12 +3,7 @@
     "api_key": "8ztE8wKb3wAhHf8BARWy",
     "conf": 0.5,
     "epsilon_factor": 0.02,
-    "target_classes": [
-        "tin",
-        "left-square",
-        "right-square",
-        "front-wall-down"
-    ],
+    "target_classes": ["tin", "left-square", "right-square", "front-wall-down"],
     "class_mapping": {
         "tin": "real_tin_coords",
         "left-square": "real_left_square_coords",
@@ -22,16 +17,16 @@
         [0, 0]
     ],
     "real_left_square_coords": [
+        [0, 5.44],
         [1.6, 5.44],
-        [3.2, 5.44],
-        [3.2, 7.04],
-        [1.6, 7.04]
+        [1.6, 7.04],
+        [0, 7.04]
     ],
     "real_right_square_coords": [
-        [3.2, 5.44],
         [4.8, 5.44],
-        [4.8, 7.04],
-        [3.2, 7.04]
+        [6.4, 5.44],
+        [6.4, 7.04],
+        [4.8, 7.04]
     ],
     "real_front_wall_coords": [
         [0, 1.78],
