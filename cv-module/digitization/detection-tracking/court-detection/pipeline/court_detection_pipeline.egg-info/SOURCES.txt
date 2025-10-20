@@ -9,5 +9,3 @@ court_detection_pipeline.egg-info/SOURCES.txt
 court_detection_pipeline.egg-info/dependency_links.txt
 court_detection_pipeline.egg-info/requires.txt
 court_detection_pipeline.egg-info/top_level.txt
-court_detection_pipeline/model/__init__.py
-court_detection_pipeline/model/weights/best.pt

@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="court_detection_pipeline",
-    version="0.1.2",
+    version="0.1.4",
     description="A package for detecting and calibrating the court in squash videos",
     author="Youssef Elhagg",
     author_email="yousseframi@aucegypt.edu",
@@ -18,9 +18,8 @@ setup(
     },
     install_requires=[
         "numpy",
+        "inference",
         "opencv-python",
-        "torch",
-        "ultralytics",
     ],
     python_requires=">=3.7",
     classifiers=[
