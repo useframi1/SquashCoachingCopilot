@@ -51,6 +51,7 @@ class VisualizerConfig:
     show_ball: bool = True
     show_rally_state: bool = True
     show_stroke_type: bool = True
+    show_wall_hits: bool = True
     keypoint_confidence_threshold: float = 0.5
 
 

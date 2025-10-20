@@ -24,6 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: squash-api:latest
     container_name: squash-api
     environment:
       DATABASE_URL: postgresql://squash:squash@postgres:5432/squash_db
@@ -46,6 +47,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: squash-worker:latest
     container_name: squash-worker
     environment:
       DATABASE_URL: postgresql://squash:squash@postgres:5432/squash_db

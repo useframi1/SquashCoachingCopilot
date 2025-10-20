@@ -2,6 +2,7 @@
 
 from typing import Optional, List
 import numpy as np
+import cv2
 from scipy.signal import find_peaks
 from copy import deepcopy
 from .data_models import FrameData, PlayerData, BallData, CourtData, RallyData
@@ -389,7 +390,6 @@ class DataCollector:
 
         # Extract Y coordinates
         y_coords = np.array([p[1] for p in positions])
-        x_coords = np.array([p[0] for p in positions])
 
         # Invert Y to find minima as peaks
         # (find_peaks finds maxima, so we negate to find minima)
@@ -407,6 +407,10 @@ class DataCollector:
         for peak_idx in peaks:
             # Set is_wall_hit flag on the corresponding frame
             frames[peak_idx].ball.is_wall_hit = True
+            frames[peak_idx].ball.ball_hit_real_position = cv2.perspectiveTransform(
+                np.array([[positions[peak_idx]]], dtype=np.float32),
+                frames[peak_idx].court.homographies["wall"],
+            )[0][0]
 
     def reset(self):
         """Reset collector state."""

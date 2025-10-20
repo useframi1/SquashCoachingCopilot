@@ -45,6 +45,7 @@ class Visualizer:
         show_ball: bool = True,
         show_rally_state: bool = True,
         show_stroke_type: bool = True,
+        show_wall_hits: bool = True,
         keypoint_confidence_threshold: float = 0.5,
     ):
         """
@@ -57,6 +58,7 @@ class Visualizer:
             show_ball: Whether to display ball position
             show_rally_state: Whether to display rally state
             show_stroke_type: Whether to display stroke type for both players
+            show_wall_hits: Whether to display wall hit indicators
             keypoint_confidence_threshold: Minimum confidence for displaying keypoints
         """
         self.show_court_keypoints = show_court_keypoints
@@ -65,6 +67,7 @@ class Visualizer:
         self.show_ball = show_ball
         self.show_rally_state = show_rally_state
         self.show_stroke_type = show_stroke_type
+        self.show_wall_hits = show_wall_hits
         self.keypoint_confidence_threshold = keypoint_confidence_threshold
 
         # Colors
@@ -74,6 +77,7 @@ class Visualizer:
         }
         self.ball_color = (0, 0, 255)  # Red for ball
         self.court_color = (0, 255, 255)  # Yellow for court
+        self.wall_hit_color = (255, 0, 255)  # Magenta for wall hits
 
     def render_frame(self, frame: np.ndarray, frame_data: FrameData) -> np.ndarray:
         """
@@ -199,16 +203,36 @@ class Visualizer:
             return frame
 
         ball_x, ball_y = ball_data.position
-        cv2.circle(frame, (ball_x, ball_y), 5, self.ball_color, -1)
-        cv2.putText(
-            frame,
-            "Ball",
-            (ball_x + 10, ball_y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            self.ball_color,
-            2,
-        )
+
+        # If ball is hitting wall, draw a larger circle and different color
+        if self.show_wall_hits and ball_data.is_wall_hit:
+            # Draw outer glow effect for wall hit
+            cv2.circle(frame, (ball_x, ball_y), 15, self.wall_hit_color, 2)
+            cv2.circle(frame, (ball_x, ball_y), 10, self.wall_hit_color, 2)
+            # Draw filled inner circle
+            cv2.circle(frame, (ball_x, ball_y), 5, self.wall_hit_color, -1)
+            # Draw wall hit text
+            cv2.putText(
+                frame,
+                "WALL HIT",
+                (ball_x + 10, ball_y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                self.wall_hit_color,
+                2,
+            )
+        else:
+            # Normal ball visualization
+            cv2.circle(frame, (ball_x, ball_y), 5, self.ball_color, -1)
+            cv2.putText(
+                frame,
+                "Ball",
+                (ball_x + 10, ball_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                self.ball_color,
+                2,
+            )
 
         return frame
 
