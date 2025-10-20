@@ -1,17 +1,42 @@
 {
-    "model_path": "model/weights/best.pt",
-    "imgsz": 640,
-    "real_t_coords": [
-        [1.6, 5.44],
-        [4.8, 5.44],
-        [4.8, 7.04],
-        [1.6, 7.04]
+    "model_id": "court-detection-pdgxs/1",
+    "api_key": "8ztE8wKb3wAhHf8BARWy",
+    "conf": 0.5,
+    "epsilon_factor": 0.02,
+    "target_classes": [
+        "tin",
+        "left-square",
+        "right-square",
+        "front-wall-down"
     ],
-    "real_wall_coords": [
-        [0, 1.78],
-        [6.4, 1.78],
+    "class_mapping": {
+        "tin": "real_tin_coords",
+        "left-square": "real_left_square_coords",
+        "right-square": "real_right_square_coords",
+        "front-wall-down": "real_front_wall_coords"
+    },
+    "real_tin_coords": [
+        [0, 0.48],
+        [6.4, 0.48],
         [6.4, 0],
         [0, 0]
     ],
-    "conf": 0.5
+    "real_left_square_coords": [
+        [1.6, 5.44],
+        [3.2, 5.44],
+        [3.2, 7.04],
+        [1.6, 7.04]
+    ],
+    "real_right_square_coords": [
+        [3.2, 5.44],
+        [4.8, 5.44],
+        [4.8, 7.04],
+        [3.2, 7.04]
+    ],
+    "real_front_wall_coords": [
+        [0, 1.78],
+        [6.4, 1.78],
+        [6.4, 0.48],
+        [0, 0.48]
+    ]
 }

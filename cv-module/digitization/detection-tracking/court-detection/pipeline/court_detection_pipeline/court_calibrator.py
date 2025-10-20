@@ -1,75 +1,151 @@
-from ultralytics import YOLO
+from inference import get_model
 import cv2
 import numpy as np
-import torch
-import os
 
-from court_detection_pipeline.utils import load_config, get_package_dir
+from court_detection_pipeline.utils import load_config
 
 
 class CourtCalibrator:
     def __init__(self, config: dict = None):
-        """Initialize the court calibrator with YOLO model."""
+        """Initialize the court calibrator with Roboflow model."""
         self.config = config if config else load_config()
-        model_path = os.path.join(get_package_dir(), self.config["model_path"])
-        self.model = YOLO(model_path, verbose=False)
-        self.model.to("cuda" if torch.cuda.is_available() else "cpu")
-        self.imgsz = self.config["imgsz"]
+        self.model = get_model(
+            model_id=self.config["model_id"],
+            api_key=self.config["api_key"]
+        )
         self.homographies = {}
 
+    @staticmethod
+    def _get_quadrilateral_corners(points, epsilon_factor=0.02):
+        """
+        Approximate segmentation to exactly 4 corners using polygon approximation
+
+        Args:
+            points: List of Point objects from Roboflow prediction
+            epsilon_factor: Controls approximation accuracy (lower = more precise to original shape)
+
+        Returns:
+            numpy array of shape (4, 2) containing [x, y] coordinates of corners
+        """
+        # Convert to numpy array
+        coords = np.array([[p.x, p.y] for p in points], dtype=np.float32)
+
+        # Calculate perimeter
+        perimeter = cv2.arcLength(coords, True)
+
+        # Approximate polygon - try to get exactly 4 points
+        # Start with a reasonable epsilon
+        epsilon = epsilon_factor * perimeter
+        approx = cv2.approxPolyDP(coords, epsilon, True)
+
+        # If we don't get 4 points, adjust epsilon
+        attempts = 0
+        while len(approx) != 4 and attempts < 20:
+            if len(approx) > 4:
+                # Too many points, increase epsilon (more aggressive approximation)
+                epsilon_factor *= 1.2
+            else:
+                # Too few points, decrease epsilon (less aggressive approximation)
+                epsilon_factor *= 0.8
+
+            epsilon = epsilon_factor * perimeter
+            approx = cv2.approxPolyDP(coords, epsilon, True)
+            attempts += 1
+
+        # If we still don't have 4 points, fall back to convex hull or rotated rect
+        if len(approx) != 4:
+            # Try convex hull first
+            hull = cv2.convexHull(coords)
+            approx = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True)
+
+            # If still not 4 points, use rotated rectangle as fallback
+            if len(approx) != 4:
+                rect = cv2.minAreaRect(coords)
+                approx = cv2.boxPoints(rect).reshape(-1, 1, 2).astype(np.float32)
+
+        return approx.reshape(4, 2).astype(np.int32)
+
+    @staticmethod
+    def _order_corners(corners):
+        """
+        Order corners as: top-left, top-right, bottom-right, bottom-left
+        """
+        # Sort by y-coordinate
+        corners = sorted(corners, key=lambda x: x[1])
+
+        # Top two points (sorted left to right)
+        top = sorted(corners[:2], key=lambda x: x[0])
+        # Bottom two points (sorted left to right)
+        bottom = sorted(corners[2:], key=lambda x: x[0])
+
+        return np.array([top[0], top[1], bottom[1], bottom[0]])
+
     def _get_real_coords(self, class_name):
-        """Return real-world coordinates for tbox or wall in meters."""
-        if class_name == "t-boxes":
-            return np.array(
-                self.config["real_t_coords"],
-                dtype=np.float32,
-            )
-        elif class_name == "wall":
-            return np.array(
-                self.config["real_wall_coords"],
-                dtype=np.float32,
-            )
-        else:
-            raise ValueError(f"Unknown class '{class_name}'")
+        """Return real-world coordinates for court elements in meters."""
+        # Map class names to config keys
+        class_mapping = self.config.get("class_mapping", {})
+
+        if class_name in class_mapping:
+            config_key = class_mapping[class_name]
+            if config_key in self.config:
+                return np.array(self.config[config_key], dtype=np.float32)
+
+        raise ValueError(f"Unknown class '{class_name}' or missing real coordinates")
 
     def detect_keypoints(self, frame):
         """
-        Detect keypoints from frame.
+        Detect keypoints from frame using Roboflow segmentation model.
 
         Args:
-            frame: Input frame (original size)
+            frame: Input frame (BGR format from cv2)
 
         Returns:
             Dictionary mapping class_name to numpy array of keypoints (4, 2)
         """
-        # Let YOLO handle resizing internally - it maintains aspect ratio
-        results = self.model(frame, imgsz=self.imgsz, verbose=False)[0]
+        # Run inference with Roboflow model
+        results = self.model.infer(frame)
 
-        if results.keypoints is None or not hasattr(results.keypoints, "data"):
-            raise ValueError("No keypoints detected")
+        if not results or len(results) == 0:
+            raise ValueError("No predictions returned from model")
 
-        keypoints_array = results.keypoints.data.cpu().numpy()
-        class_ids = results.boxes.cls.cpu().numpy().astype(int)
+        predictions = results[0].predictions
+
+        if not predictions:
+            raise ValueError("No court elements detected")
 
         keypoints_per_class = {}
+        epsilon_factor = self.config.get("epsilon_factor", 0.02)
+        conf_threshold = self.config.get("conf", 0.5)
+        target_classes = self.config.get("target_classes", [])
 
-        for cls_id, kp_set in zip(class_ids, keypoints_array):
-            class_name = self.model.names[cls_id]
-            keypoints_dict = {}
+        for prediction in predictions:
+            class_name = prediction.class_name
 
-            for idx, (x, y, conf) in enumerate(kp_set):
-                if conf > self.config["conf"]:
-                    # Keypoints are already in original frame coordinates
-                    keypoints_dict[idx] = (x, y)
+            # Filter by confidence threshold
+            if prediction.confidence < conf_threshold:
+                continue
 
-            if len(keypoints_dict) == 4:
-                keypoints_per_class[class_name] = np.array(
-                    [keypoints_dict[i] for i in range(4)], dtype=np.float32
-                )
-            else:
-                raise ValueError(
-                    f"{class_name}: Did not detect 4 keypoints (found {len(keypoints_dict)})"
-                )
+            # Filter for target classes if specified
+            if target_classes and class_name not in target_classes:
+                continue
+
+            # Check if prediction has polygon points
+            if not hasattr(prediction, 'points') or not prediction.points:
+                continue
+
+            # Get the 4 corners using polygon approximation
+            corners = self._get_quadrilateral_corners(
+                prediction.points,
+                epsilon_factor=epsilon_factor
+            )
+
+            # Order corners consistently (TL, TR, BR, BL)
+            ordered_corners = self._order_corners(corners)
+
+            keypoints_per_class[class_name] = ordered_corners.astype(np.float32)
+
+        if not keypoints_per_class:
+            raise ValueError("No valid court elements detected after filtering")
 
         return keypoints_per_class
 
