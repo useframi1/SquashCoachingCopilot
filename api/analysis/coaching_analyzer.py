@@ -43,6 +43,7 @@ class CoachingAnalyzer:
 
         # Combine all analyses
         analysis = {
+            "fps": self.fps,
             "total_rallies": len(rallies),
             "avg_rally_duration": convert_numpy_types(avg_rally_duration),
             "rallies": [r.to_dict() for r in rallies],

@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [results, setResults] = useState<ResultsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'player' | 'rally'>('overview');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     async function fetchResults() {
@@ -54,33 +55,53 @@ export default function Dashboard() {
 
   const { results: analysisData } = results;
 
+  // Tab titles and descriptions mapping
+  const tabTitles = {
+    overview: 'Match Overview',
+    player: 'Player Analysis',
+    rally: 'Rally-by-Rally Breakdown'
+  };
+
+  const tabDescriptions = {
+    overview: 'Match Summary',
+    player: 'Positioning & Tactics',
+    rally: 'Detailed Breakdown'
+  };
+
   return (
-    <div className="min-h-screen bg-cream p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-2 text-black/60 hover:text-black transition-colors mb-6"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span>Back to Home</span>
-          </button>
-          <h1 className="text-5xl font-bold text-black mb-2">
-            Match Analysis Dashboard
-          </h1>
-          <p className="text-xl text-black/70">
-            {results.video_filename}
-          </p>
+    <div className="min-h-screen bg-cream">
+      {/* Sidebar Navigation */}
+      <TabNavigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onCollapseChange={setSidebarCollapsed}
+      />
+
+      {/* Main Content - Adjust margin to account for sidebar */}
+      <div className={`transition-all duration-300 p-8 ${sidebarCollapsed ? 'ml-16' : 'ml-64'}`}>
+        <div className="max-w-7xl mx-auto">
+          {/* Header */}
+          <div className="mb-8">
+            <button
+              onClick={() => router.push('/')}
+              className="flex items-center gap-2 text-black/60 hover:text-black transition-colors mb-6"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              <span>Back to Home</span>
+            </button>
+            <h1 className="text-5xl font-bold text-black mb-2">
+              {tabTitles[activeTab]}
+            </h1>
+            <p className="text-xl text-black/70">
+              {tabDescriptions[activeTab]}
+            </p>
+          </div>
+
+          {/* Tab Content */}
+          {activeTab === 'overview' && <OverviewTab results={analysisData} />}
+          {activeTab === 'player' && <PlayerAnalysisTab results={analysisData} />}
+          {activeTab === 'rally' && <RallyByRallyTab results={analysisData} jobId={jobId} />}
         </div>
-
-        {/* Tab Navigation */}
-        <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
-
-        {/* Tab Content */}
-        {activeTab === 'overview' && <OverviewTab results={analysisData} />}
-        {activeTab === 'player' && <PlayerAnalysisTab results={analysisData} />}
-        {activeTab === 'rally' && <RallyByRallyTab results={analysisData} />}
       </div>
     </div>
   );

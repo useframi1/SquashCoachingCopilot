@@ -8,13 +8,14 @@ import StatCard from './StatCard';
 import CourtHeatmap from './CourtHeatmap';
 import {
   extractAllPlayerPositions,
+  extractAllPlayerPositionsWithTime,
   calculateTDominance,
   calculateAggressiveness,
   calculateCourtCoverage,
   getZoneDistribution,
   createHeatmapData,
-  getTDominanceTimeline,
-  getAggressivenessTimeline,
+  getTDominanceTimelineWithTime,
+  getAggressivenessTimelineWithTime,
 } from '@/lib/courtMetrics';
 
 interface PlayerAnalysisTabProps {
@@ -34,7 +35,18 @@ export default function PlayerAnalysisTab({ results }: PlayerAnalysisTabProps) {
     [results.rallies]
   );
 
+  // Extract positions with timestamps for timeline charts
+  const player1PositionsWithTime = useMemo(
+    () => extractAllPlayerPositionsWithTime(results.rallies, 1),
+    [results.rallies]
+  );
+  const player2PositionsWithTime = useMemo(
+    () => extractAllPlayerPositionsWithTime(results.rallies, 2),
+    [results.rallies]
+  );
+
   const currentPlayerPositions = selectedPlayer === 1 ? player1Positions : player2Positions;
+  const currentPlayerPositionsWithTime = selectedPlayer === 1 ? player1PositionsWithTime : player2PositionsWithTime;
 
   // Calculate metrics for selected player
   const tDominance = useMemo(
@@ -63,17 +75,6 @@ export default function PlayerAnalysisTab({ results }: PlayerAnalysisTabProps) {
     [currentPlayerPositions]
   );
 
-  // Get timelines
-  const tDominanceTimeline = useMemo(
-    () => getTDominanceTimeline(currentPlayerPositions),
-    [currentPlayerPositions]
-  );
-
-  const aggressivenessTimeline = useMemo(
-    () => getAggressivenessTimeline(currentPlayerPositions),
-    [currentPlayerPositions]
-  );
-
   // Prepare chart data
   const zoneData = [
     { zone: 'Front Court', percentage: zoneDistribution.front },
@@ -81,27 +82,28 @@ export default function PlayerAnalysisTab({ results }: PlayerAnalysisTabProps) {
     { zone: 'Back Court', percentage: zoneDistribution.back },
   ];
 
-  // Sample timeline data (grouped by intervals for better visualization)
+  // Get timeline data with time in seconds
+  const tDominanceTimelineData = useMemo(
+    () => getTDominanceTimelineWithTime(currentPlayerPositionsWithTime, 2.0, 1.0),
+    [currentPlayerPositionsWithTime]
+  );
+
+  const aggressivenessTimelineData = useMemo(
+    () => getAggressivenessTimelineWithTime(currentPlayerPositionsWithTime, 1.0),
+    [currentPlayerPositionsWithTime]
+  );
+
+  // Combine timeline data for charts
   const timelineData = useMemo(() => {
-    const groupSize = Math.ceil(tDominanceTimeline.length / 50); // Show ~50 points
-    const grouped = [];
+    // Merge T-dominance and aggressiveness data by time
+    const combined = tDominanceTimelineData.map((item, index) => ({
+      time: item.time,
+      tDominance: item.tDominance,
+      aggressiveness: aggressivenessTimelineData[index]?.aggressiveness || 0,
+    }));
 
-    for (let i = 0; i < tDominanceTimeline.length; i += groupSize) {
-      const tSlice = tDominanceTimeline.slice(i, i + groupSize);
-      const aSlice = aggressivenessTimeline.slice(i, i + groupSize);
-
-      const tAvg = (tSlice.reduce((a, b) => a + b, 0) / tSlice.length) * 100;
-      const aAvg = (aSlice.reduce((a, b) => a + b, 0) / aSlice.length) * 100;
-
-      grouped.push({
-        index: Math.floor(i / groupSize),
-        tDominance: tAvg,
-        aggressiveness: aAvg,
-      });
-    }
-
-    return grouped;
-  }, [tDominanceTimeline, aggressivenessTimeline]);
+    return combined;
+  }, [tDominanceTimelineData, aggressivenessTimelineData]);
 
   return (
     <div className="space-y-8">
@@ -208,10 +210,10 @@ export default function PlayerAnalysisTab({ results }: PlayerAnalysisTabProps) {
             <AreaChart data={timelineData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#00000010" />
               <XAxis
-                dataKey="index"
+                dataKey="time"
                 stroke="#000000"
                 tick={{ fill: '#000000' }}
-                label={{ value: 'Match Progression', position: 'insideBottom', offset: -5 }}
+                label={{ value: 'Time (seconds)', position: 'insideBottom', offset: -5 }}
               />
               <YAxis
                 stroke="#000000"
@@ -225,6 +227,7 @@ export default function PlayerAnalysisTab({ results }: PlayerAnalysisTabProps) {
                   borderRadius: '8px',
                 }}
                 formatter={(value: number) => `${value.toFixed(1)}%`}
+                labelFormatter={(value: number) => `${value.toFixed(1)}s`}
               />
               <Area
                 type="monotone"
@@ -245,10 +248,10 @@ export default function PlayerAnalysisTab({ results }: PlayerAnalysisTabProps) {
             <AreaChart data={timelineData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#00000010" />
               <XAxis
-                dataKey="index"
+                dataKey="time"
                 stroke="#000000"
                 tick={{ fill: '#000000' }}
-                label={{ value: 'Match Progression', position: 'insideBottom', offset: -5 }}
+                label={{ value: 'Time (seconds)', position: 'insideBottom', offset: -5 }}
               />
               <YAxis
                 stroke="#000000"
@@ -266,6 +269,7 @@ export default function PlayerAnalysisTab({ results }: PlayerAnalysisTabProps) {
                   borderRadius: '8px',
                 }}
                 formatter={(value: number) => `${value.toFixed(1)}%`}
+                labelFormatter={(value: number) => `${value.toFixed(1)}s`}
               />
               <Area
                 type="monotone"
