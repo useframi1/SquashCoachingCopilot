@@ -17,13 +17,13 @@ setup(
         ],
     },
     install_requires=[
-        "numpy==1.26.4",
+        "numpy",
         "opencv-python==4.10.0.84",
         "torch==2.4.0",
         "torchvision==0.19.0",
         "torchaudio==2.4.0",
         "ultralytics==8.3.101",
-        "scipy==1.12.0",
+        "scipy",
     ],
     python_requires=">=3.7",
     classifiers=[

@@ -11,8 +11,12 @@ from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
 from models import Job, get_db, init_db
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure paths
 VIDEOS_DIR = Path(os.getenv("VIDEOS_DIR", "/app/volumes/videos"))

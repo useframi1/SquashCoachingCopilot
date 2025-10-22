@@ -7,10 +7,14 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
 from models import Job, SessionLocal, init_db
 from pipeline import Pipeline
 from config import PipelineConfig
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 # Configure paths
