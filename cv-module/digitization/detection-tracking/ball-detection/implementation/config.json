@@ -10,10 +10,11 @@
     },
     "rf_model": {
         "model_id": "squash-ball-detection-1lbti/1",
-        "api_key": "56e6SM7rfayFBoIrsIFz"
+        "api_key": "56e6SM7rfayFBoIrsIFz",
+        "confidence_threshold": 0.0
     },
     "video": {
-        "input_path": "tests/video-1.mp4",
+        "input_path": "tests/video-2.mp4",
         "max_frames": 1000
     },
     "tracking": {
@@ -23,15 +24,14 @@
     },
     "postprocessing": {
         "enabled": true,
-        "outlier_detection": {
-            "window": 10,
-            "threshold": 2
+        "motion_filter": {
+            "enabled": false,
+            "window": 5,
+            "movement_threshold": 10
         },
-        "smoothing": {
-            "enabled": true,
-            "method": "savgol",
-            "window": 11,
-            "poly": 3
+        "outlier_detection": {
+            "window": 15,
+            "threshold": 20
         }
     },
     "wall_hit_detection": {

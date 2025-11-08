@@ -28,6 +28,7 @@ class RFTracker:
         rf_config = self.config.get("rf_model", {})
         model_id = rf_config.get("model_id", "squash-ball-detection-1lbti/1")
         api_key = rf_config.get("api_key", "56e6SM7rfayFBoIrsIFz")
+        self.confidence_threshold = rf_config.get("confidence_threshold", 0.75)
 
         # Load the Roboflow model
         self.model = get_model(model_id=model_id, api_key=api_key)
@@ -55,14 +56,16 @@ class RFTracker:
             max_confidence_idx = np.argmax(detections.confidence)
             detection = detections[[max_confidence_idx]]
 
-            # Get bounding box coordinates [x1, y1, x2, y2]
-            bbox = detection.xyxy[0]  # First element is the bounding box
-            x1, y1, x2, y2 = bbox
+            # Check if confidence meets threshold
+            if detection.confidence[0] >= self.confidence_threshold:
+                # Get bounding box coordinates [x1, y1, x2, y2]
+                bbox = detection.xyxy[0]  # First element is the bounding box
+                x1, y1, x2, y2 = bbox
 
-            # Calculate center of bounding box
-            x_center = int((x1 + x2) / 2)
-            y_center = int((y1 + y2) / 2)
+                # Calculate center of bounding box
+                x_center = int((x1 + x2) / 2)
+                y_center = int((y1 + y2) / 2)
 
-            return x_center, y_center
+                return x_center, y_center
 
         return None, None

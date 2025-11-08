@@ -97,17 +97,17 @@ class BallTrackingEvaluator:
                 self.ball_positions, self.fps, self.config["postprocessing"]
             )
 
-        # Calculate velocities after postprocessing
-        self.velocities = []
-        for i in range(len(self.ball_positions)):
-            if i >= 1:
-                dist = distance.euclidean(
-                    self.ball_positions[i], self.ball_positions[i - 1]
-                )
-                velocity = dist * self.fps
-            else:
-                velocity = 0
-            self.velocities.append(velocity)
+            # Calculate velocities after postprocessing
+            self.velocities = []
+            for i in range(len(self.ball_positions)):
+                if i >= 1:
+                    dist = distance.euclidean(
+                        self.ball_positions[i], self.ball_positions[i - 1]
+                    )
+                    velocity = dist * self.fps
+                else:
+                    velocity = 0
+                self.velocities.append(velocity)
 
         # Detect wall hits BEFORE creating video (so we can mark them)
         if self.config["wall_hit_detection"]["enabled"]:
