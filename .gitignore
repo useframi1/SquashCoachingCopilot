@@ -4,3 +4,5 @@ __pychache__/
 *.mp4
 .vscode/
 dataset/
+runs/
+*.pt

@@ -1,6 +1,7 @@
 {
     "tracker": {
-        "type": "rf"
+        "type": "tracknet",
+        "is_black_ball": false
     },
     "tracknet_model": {
         "model_path": "models/tracknet/weights/model_best.pt",
@@ -11,10 +12,16 @@
     "rf_model": {
         "model_id": "squash-ball-detection-1lbti/1",
         "api_key": "56e6SM7rfayFBoIrsIFz",
-        "confidence_threshold": 0.0
+        "confidence_threshold": 0.0,
+        "use_sahi": true,
+        "use_motion_filter": false,
+        "history_size": 5,
+        "max_velocity": 2000,
+        "distance_weight": 0.7,
+        "confidence_weight": 0.3
     },
     "video": {
-        "input_path": "tests/video-2.mp4",
+        "input_path": "tests/video-5.mp4",
         "max_frames": 1000
     },
     "tracking": {
@@ -24,14 +31,9 @@
     },
     "postprocessing": {
         "enabled": true,
-        "motion_filter": {
-            "enabled": false,
-            "window": 5,
-            "movement_threshold": 10
-        },
         "outlier_detection": {
             "window": 15,
-            "threshold": 20
+            "threshold": 100
         }
     },
     "wall_hit_detection": {

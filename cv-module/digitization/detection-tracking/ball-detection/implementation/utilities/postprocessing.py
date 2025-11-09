@@ -2,67 +2,13 @@
 Simple postprocessing for ball tracking data.
 
 This module provides:
-1. Motion filter (removes stationary detections - likely false positives)
-2. Outlier removal using rolling window distance check
-3. Linear interpolation for missing values
+1. Outlier removal using rolling window distance check
+2. Linear interpolation for missing values
 """
 
 import numpy as np
 from scipy.signal import savgol_filter, medfilt
 from typing import List, Tuple, Optional
-
-
-def remove_stationary_detections(
-    positions: List[Tuple[Optional[float], Optional[float]]],
-    window: int = 15,
-    movement_threshold: float = 10,
-) -> List[Tuple[Optional[float], Optional[float]]]:
-    """Remove detections that remain stationary (likely false positives).
-
-    If a detection stays in roughly the same position for multiple frames,
-    it's likely a static object being misdetected as a ball (e.g., circle on tin).
-
-    Args:
-        positions: List of (x, y) tuples
-        window: Number of frames to check for movement (default: 15 frames)
-        movement_threshold: Maximum total movement in pixels to be considered stationary (default: 10 pixels)
-
-    Returns:
-        Positions with stationary detections marked as (None, None)
-    """
-    n = len(positions)
-    result = list(positions)
-
-    for i in range(n):
-        if positions[i][0] is None or positions[i][1] is None:
-            continue
-
-        current_x, current_y = positions[i]
-
-        # Get positions in the forward window
-        end = min(n, i + window)
-
-        # Collect valid positions in the window
-        window_positions = []
-        for j in range(i, end):
-            if positions[j][0] is not None and positions[j][1] is not None:
-                window_positions.append(positions[j])
-
-        if len(window_positions) < window // 2:
-            # Not enough frames to make a decision
-            continue
-
-        # Calculate max distance moved from current position
-        max_distance = 0
-        for wx, wy in window_positions:
-            dist = np.sqrt((current_x - wx) ** 2 + (current_y - wy) ** 2)
-            max_distance = max(max_distance, dist)
-
-        # If the detection barely moves, mark it as stationary (false positive)
-        if max_distance <= movement_threshold:
-            result[i] = (None, None)
-
-    return result
 
 
 def remove_outliers(
@@ -161,12 +107,11 @@ def postprocess_positions(
     fps: int,
     config: dict,
 ) -> List[Tuple[float, float]]:
-    """Simple 3-step postprocessing pipeline.
+    """Simple 2-step postprocessing pipeline.
 
     Steps:
-    1. Remove stationary detections (filters false positives like circles on tin)
-    2. Remove outliers using rolling window distance check
-    3. Fill missing values using linear interpolation
+    1. Remove outliers using rolling window distance check
+    2. Fill missing values using linear interpolation
 
     Args:
         positions: Raw position data
@@ -174,7 +119,7 @@ def postprocess_positions(
         config: Configuration with postprocessing settings
 
     Returns:
-        Clean position data with false positives removed and gaps interpolated
+        Clean position data with outliers removed and gaps interpolated
     """
     if not config.get("enabled", True):
         # If postprocessing disabled, just fill missing values
@@ -182,32 +127,18 @@ def postprocess_positions(
 
     print("Postprocessing ball positions...")
 
-    # Step 1: Remove stationary detections (false positives)
-    motion_config = config.get("motion_filter", {})
-    if motion_config.get("enabled", True):
-        filtered = remove_stationary_detections(
-            positions,
-            window=motion_config.get("window", 15),
-            movement_threshold=motion_config.get("movement_threshold", 10),
-        )
-        n_stationary = sum(1 for i, p in enumerate(filtered) if p[0] is None and positions[i][0] is not None)
-        if n_stationary > 0:
-            print(f"  Removed {n_stationary} stationary detections (likely false positives)")
-    else:
-        filtered = positions
-
-    # Step 2: Remove outliers
+    # Step 1: Remove outliers
     outlier_config = config.get("outlier_detection", {})
     cleaned = remove_outliers(
-        filtered,
+        positions,
         window=outlier_config.get("window", 10),
         threshold=outlier_config.get("threshold", 100),
     )
-    n_outliers = sum(1 for i, p in enumerate(cleaned) if p[0] is None and filtered[i][0] is not None)
+    n_outliers = sum(1 for i, p in enumerate(cleaned) if p[0] is None and positions[i][0] is not None)
     if n_outliers > 0:
         print(f"  Removed {n_outliers} outliers")
 
-    # Step 3: Fill missing values with interpolation
+    # Step 2: Fill missing values with interpolation
     imputed = impute_missing(cleaned)
     print(f"  Filled missing values with interpolation")
 

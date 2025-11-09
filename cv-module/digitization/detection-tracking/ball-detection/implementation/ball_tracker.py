@@ -1,3 +1,4 @@
+import cv2
 from utilities.general import load_config
 from models.tracknet.tracknet_tracker import TrackNetTracker
 from models.rf.rf_tracker import RFTracker
@@ -52,4 +53,8 @@ class BallTracker:
         Returns:
             tuple: (x, y) coordinates of the ball, or (None, None) if not detected.
         """
+        if self.config["tracker"].get("is_black_ball", False):
+            # Invert frame colors for black ball detection
+            frame = cv2.bitwise_not(frame)
+
         return self.tracker.process_frame(frame)

@@ -135,7 +135,7 @@ class BallTrackingEvaluator:
             output_video_path = os.path.join(
                 output_dir, f"{self.video_name}_tracked.mp4"
             )
-            fourcc = cv2.VideoWriter_fourcc(*"avc1")
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             out = cv2.VideoWriter(output_video_path, fourcc, self.fps, (width, height))
 
             # Reopen video for second pass
