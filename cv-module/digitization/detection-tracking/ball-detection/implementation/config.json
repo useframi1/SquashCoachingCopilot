@@ -25,15 +25,16 @@
         "max_frames": 1000
     },
     "tracking": {
-        "trace_length": 1,
+        "trace_length": 5,
         "trace_color": [0, 0, 255],
         "trace_thickness": 10
     },
     "postprocessing": {
         "enabled": true,
         "outlier_detection": {
-            "window": 15,
-            "threshold": 100
+            "enabled": true,
+            "window": 20,
+            "threshold": 80
         }
     },
     "wall_hit_detection": {
@@ -41,6 +42,13 @@
         "prominence": 50.0,
         "width": 10,
         "min_distance": 50
+    },
+    "racket_hit_detection": {
+        "enabled": true,
+        "slope_window": 10,
+        "slope_threshold": 3.0,
+        "min_distance": 15,
+        "lookback_frames": 50
     },
     "output": {
         "output_dir": "tracking_results",

@@ -8,10 +8,10 @@ import matplotlib.pyplot as plt
 
 from utilities.general import load_config
 from utilities.postprocessing import postprocess_positions
-from utilities.wall_hit_detection import (
+from utilities.hit_detection import (
     detect_front_wall_hits,
+    detect_racket_hits,
     calculate_hit_statistics,
-    save_wall_hits_csv,
 )
 
 
@@ -34,6 +34,7 @@ class BallTrackingEvaluator:
         self.ball_positions = []
         self.velocities = []
         self.wall_hits = []
+        self.racket_hits = []
         self.video_name = None
         self.fps = None
 
@@ -94,7 +95,7 @@ class BallTrackingEvaluator:
         # Apply postprocessing pipeline if enabled
         if self.config["postprocessing"]["enabled"]:
             self.ball_positions = postprocess_positions(
-                self.ball_positions, self.fps, self.config["postprocessing"]
+                self.ball_positions, self.config["postprocessing"]
             )
 
             # Calculate velocities after postprocessing
@@ -123,6 +124,23 @@ class BallTrackingEvaluator:
         else:
             self.wall_hits = []
 
+        # Detect racket hits BEFORE creating video (so we can mark them)
+        # Note: Racket detection requires wall hits, so we use wall_hits as input
+        if self.config.get("racket_hit_detection", {}).get("enabled", False):
+            print("\nDetecting racket hits...")
+            racket_hit_config = self.config["racket_hit_detection"]
+            self.racket_hits = detect_racket_hits(
+                self.ball_positions,
+                self.wall_hits,  # Pass wall hits directly
+                slope_window=racket_hit_config.get("slope_window", 5),
+                slope_threshold=racket_hit_config.get("slope_threshold", 15.0),
+                min_distance=racket_hit_config.get("min_distance", 15),
+                lookback_frames=racket_hit_config.get("lookback_frames", 20),
+            )
+            print(f"  Detected {len(self.racket_hits)} racket hits")
+        else:
+            self.racket_hits = []
+
         # PASS 2: Create annotated video with smoothed positions and wall hits
         if self.config["output"]["save_video"]:
             print("Pass 2: Creating annotated video with smoothed positions...")
@@ -147,9 +165,12 @@ class BallTrackingEvaluator:
 
             # Create a set of wall hit frames for quick lookup
             wall_hit_frames = {hit["frame"]: hit for hit in self.wall_hits}
-            # Track which wall hits to keep showing (show for 30 frames after impact)
+            racket_hit_frames = {hit["frame"]: hit for hit in self.racket_hits}
+            # Track which hits to keep showing (show for 30 frames after impact)
             wall_hit_display_duration = 30
+            racket_hit_display_duration = 30
             active_wall_hits = []  # List of (hit_info, frames_since_impact)
+            active_racket_hits = []  # List of (hit_info, frames_since_impact)
 
             frame_count = 0
             while cap.isOpened() and frame_count < len(self.ball_positions):
@@ -174,6 +195,10 @@ class BallTrackingEvaluator:
                 # Check if current frame is a wall hit
                 if frame_count in wall_hit_frames:
                     active_wall_hits.append((wall_hit_frames[frame_count], 0))
+
+                # Check if current frame is a racket hit
+                if frame_count in racket_hit_frames:
+                    active_racket_hits.append((racket_hit_frames[frame_count], 0))
 
                 # Draw all active wall hit markers
                 hits_to_remove = []
@@ -226,6 +251,72 @@ class BallTrackingEvaluator:
                 # Remove old wall hits
                 for i in reversed(hits_to_remove):
                     active_wall_hits.pop(i)
+
+                # Draw all active racket hit markers
+                hits_to_remove = []
+                for i, (hit, frames_since) in enumerate(active_racket_hits):
+                    hit_pos = (int(hit["x"]), int(hit["y"]))
+
+                    # Draw impact marker (star/asterisk shape)
+                    marker_size = 20
+                    color = (255, 165, 0)  # Orange
+                    thickness = 3
+
+                    # Draw * (asterisk with 4 lines)
+                    cv2.line(
+                        frame,
+                        (hit_pos[0] - marker_size, hit_pos[1] - marker_size),
+                        (hit_pos[0] + marker_size, hit_pos[1] + marker_size),
+                        color,
+                        thickness,
+                    )
+                    cv2.line(
+                        frame,
+                        (hit_pos[0] + marker_size, hit_pos[1] - marker_size),
+                        (hit_pos[0] - marker_size, hit_pos[1] + marker_size),
+                        color,
+                        thickness,
+                    )
+                    cv2.line(
+                        frame,
+                        (hit_pos[0], hit_pos[1] - marker_size),
+                        (hit_pos[0], hit_pos[1] + marker_size),
+                        color,
+                        thickness,
+                    )
+                    cv2.line(
+                        frame,
+                        (hit_pos[0] - marker_size, hit_pos[1]),
+                        (hit_pos[0] + marker_size, hit_pos[1]),
+                        color,
+                        thickness,
+                    )
+
+                    # Draw circle around it
+                    cv2.circle(frame, hit_pos, marker_size + 5, color, 2)
+
+                    # Add text label
+                    label = f"Racket {len([h for h in self.racket_hits if h['frame'] <= frame_count])}"
+                    cv2.putText(
+                        frame,
+                        label,
+                        (hit_pos[0] + 25, hit_pos[1] + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (255, 165, 0),
+                        2,
+                    )
+
+                    # Update frames since impact
+                    active_racket_hits[i] = (hit, frames_since + 1)
+
+                    # Mark for removal if too old
+                    if frames_since >= racket_hit_display_duration:
+                        hits_to_remove.append(i)
+
+                # Remove old racket hits
+                for i in reversed(hits_to_remove):
+                    active_racket_hits.pop(i)
 
                 out.write(frame)
                 frame_count += 1
@@ -400,13 +491,6 @@ class BallTrackingEvaluator:
                 f"  Impact height range: {stats['min_impact_height']:.1f} - {stats['max_impact_height']:.1f} pixels"
             )
 
-        # Save wall hits to CSV
-        base_output_dir = self.config["output"]["output_dir"]
-        output_dir = os.path.join(base_output_dir, self.video_name)
-        output_path = os.path.join(output_dir, f"{self.video_name}_wall_hits.csv")
-        save_wall_hits_csv(self.wall_hits, output_path)
-        print(f"  Saved wall hits to {output_path}")
-
         # Save wall hits plot
         self.save_wall_hits_plot()
 
@@ -468,6 +552,81 @@ class BallTrackingEvaluator:
         plt.close()
         print(f"  Saved wall hits plot to {output_path}")
 
+    def save_racket_hit_results(self):
+        """Save racket hit detection results."""
+        if not self.racket_hits:
+            return
+
+        print("\nSaving racket hit results...")
+
+        # Calculate and print statistics
+        stats = calculate_hit_statistics(self.racket_hits, self.fps)
+        if stats["total_hits"] > 0:
+            print(
+                f"  Average hit interval: {stats['avg_hit_interval_sec']:.2f} seconds"
+            )
+            print(
+                f"  Impact height range: {stats['min_impact_height']:.1f} - {stats['max_impact_height']:.1f} pixels"
+            )
+
+        # Save racket hits plot
+        self.save_racket_hits_plot()
+
+    def save_racket_hits_plot(self):
+        """Generate and save position plot with racket hits marked."""
+        if not self.config["output"]["save_plots"] or not self.racket_hits:
+            return
+
+        base_output_dir = self.config["output"]["output_dir"]
+        output_dir = os.path.join(base_output_dir, self.video_name)
+        output_path = os.path.join(output_dir, f"{self.video_name}_racket_hits.png")
+        dpi = self.config["output"]["plot_dpi"]
+
+        # Extract all positions
+        frames = list(range(len(self.ball_positions)))
+        x_coords = [p[0] for p in self.ball_positions]
+        y_coords = [p[1] for p in self.ball_positions]
+
+        # Extract racket hit positions
+        hit_frames = [hit["frame"] for hit in self.racket_hits]
+        hit_y = [hit["y"] for hit in self.racket_hits]
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+
+        # Plot X coordinate
+        ax1.plot(frames, x_coords, "b-", linewidth=1.5, label="X position")
+        ax1.set_ylabel("X Coordinate (pixels)", fontsize=12)
+        ax1.grid(True, linestyle="--", alpha=0.7)
+        ax1.set_title(
+            "Ball Position Over Time with Racket Hits",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax1.legend(loc="upper right")
+
+        # Plot Y coordinate with racket hits
+        ax2.plot(frames, y_coords, "r-", linewidth=1.5, label="Y position")
+        ax2.scatter(
+            hit_frames,
+            hit_y,
+            color="orange",
+            s=100,
+            marker="*",
+            zorder=5,
+            label=f"Racket hits ({len(self.racket_hits)})",
+            edgecolors="darkorange",
+            linewidths=2,
+        )
+        ax2.set_xlabel("Frame Number", fontsize=12)
+        ax2.set_ylabel("Y Coordinate (pixels)", fontsize=12)
+        ax2.grid(True, linestyle="--", alpha=0.7)
+        ax2.legend(loc="upper right")
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=dpi, bbox_inches="tight")
+        plt.close()
+        print(f"  Saved racket hits plot to {output_path}")
+
     def evaluate(self):
         """Run full evaluation pipeline.
 
@@ -480,6 +639,10 @@ class BallTrackingEvaluator:
         # Save wall hit results (if any were detected)
         if self.wall_hits:
             self.save_wall_hit_results()
+
+        # Save racket hit results (if any were detected)
+        if self.racket_hits:
+            self.save_racket_hit_results()
 
         # Calculate metrics
         metrics = self.calculate_metrics()

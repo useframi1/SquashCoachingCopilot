@@ -103,9 +103,7 @@ def impute_missing(
 
 
 def postprocess_positions(
-    positions: List[Tuple[Optional[float], Optional[float]]],
-    fps: int,
-    config: dict,
+    positions: List[Tuple[Optional[float], Optional[float]]], config: dict
 ) -> List[Tuple[float, float]]:
     """Simple 2-step postprocessing pipeline.
 
@@ -134,7 +132,9 @@ def postprocess_positions(
         window=outlier_config.get("window", 10),
         threshold=outlier_config.get("threshold", 100),
     )
-    n_outliers = sum(1 for i, p in enumerate(cleaned) if p[0] is None and positions[i][0] is not None)
+    n_outliers = sum(
+        1 for i, p in enumerate(cleaned) if p[0] is None and positions[i][0] is not None
+    )
     if n_outliers > 0:
         print(f"  Removed {n_outliers} outliers")
 
