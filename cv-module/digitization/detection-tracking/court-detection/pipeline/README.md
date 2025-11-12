@@ -12,8 +12,17 @@ This package provides automated court calibration for squash videos by:
 
 ## Installation
 
+### From Source
+
 ```bash
+# Clone or navigate to the repository
+cd /path/to/court-detection/pipeline
+
+# Install in editable mode (for development)
 pip install -e .
+
+# Or install normally
+pip install .
 ```
 
 ### Requirements
@@ -21,8 +30,9 @@ pip install -e .
 -   Python >= 3.7
 -   numpy
 -   opencv-python
--   torch
--   ultralytics
+-   inference
+
+The package uses modern `pyproject.toml` for configuration, following [PEP 621](https://peps.python.org/pep-0621/) standards.
 
 ## Usage
 

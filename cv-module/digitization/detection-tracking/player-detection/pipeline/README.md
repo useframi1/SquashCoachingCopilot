@@ -18,6 +18,12 @@ A Python package for detecting and tracking two squash players in video footage 
 pip install -e .
 ```
 
+### Using pip (if published to PyPI)
+
+```bash
+pip install player-tracking-pipeline
+```
+
 ### Requirements
 
 -   Python >= 3.7
@@ -209,4 +215,21 @@ Youssef Elhagg (yousseframi@aucegypt.edu)
 
 ## Version
 
-0.1.0
+0.2.3
+
+## Building and Publishing
+
+This package uses modern Python packaging with `pyproject.toml`.
+
+### Build the package
+
+```bash
+pip install build
+python -m build
+```
+
+### Install locally for development
+
+```bash
+pip install -e .
+```

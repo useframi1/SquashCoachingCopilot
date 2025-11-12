@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ball_tracking"
+version = "0.1.1"
+description = "A package for detecting and tracking the ball in squash videos"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}
+authors = [
+    {name = "Youssef Elhagg", email = "yousseframi@aucegypt.edu"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "torch",
+    "scipy",
+]
+
+[project.urls]
+Homepage = "https://github.com/useframi1/SquashCoachingCopilot"
+
+[tool.setuptools]
+packages = ["ball_tracking"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["tests*"]
+
+[tool.setuptools.package-data]
+ball_tracking = [
+    "config.json",
+    "models/tracknet/weights/*.pt",
+]

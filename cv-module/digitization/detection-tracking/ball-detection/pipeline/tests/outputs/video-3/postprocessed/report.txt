@@ -1,0 +1,39 @@
+================================================================================
+COMPREHENSIVE BALL TRACKING & SHOT CLASSIFICATION REPORT
+================================================================================
+
+Video: video-3
+Resolution: 1280x720 @ 60.0 fps
+
+TRACKING STATISTICS:
+--------------------------------------------------------------------------------
+Total frames:        300
+Detected frames:     300
+Detection rate:      100.0%
+Wall hits:           2
+Racket hits:         2
+Classified shots:    2
+
+SHOT-BY-SHOT BREAKDOWN:
+--------------------------------------------------------------------------------
+
+Shot 1:
+  Frame:              88
+  Type:               Down Line Drive
+  Direction:          Down The Line
+  Depth:              Long
+  Lateral disp:       -172 px
+  Distance to wall:   332 px
+  Velocity:           12.4 px/frame
+  Time to wall:       29 frames
+
+Shot 2:
+  Frame:              165
+  Type:               Down Line Drive
+  Direction:          Down The Line
+  Depth:              Long
+  Lateral disp:       124 px
+  Distance to wall:   314 px
+  Velocity:           12.4 px/frame
+  Time to wall:       27 frames
+

@@ -1,8 +1,10 @@
-# Rally State Pipeline
+# Rally State Detection
 
 A Python package for detecting rally states in squash videos. This package provides the `RallyStateDetector` class to identify and track rally states (start, active, end) based on player positions and movements.
 
 ## Installation
+
+### From Source (Development Mode)
 
 Install the package in development mode:
 
@@ -10,12 +12,32 @@ Install the package in development mode:
 pip install -e .
 ```
 
+### From Wheel Distribution
+
+Build and install the package:
+
+```bash
+# Build the package
+python -m build
+
+# Install from wheel
+pip install dist/rally_state_detection-0.1.12-py3-none-any.whl
+```
+
+### Prerequisites
+
+Make sure you have `build` installed:
+
+```bash
+pip install build
+```
+
 ## Usage
 
 ### Basic Usage
 
 ```python
-from rally_state_pipeline import RallyStateDetector
+from rally_state_detection import RallyStateDetector
 
 # Initialize the detector
 detector = RallyStateDetector()
@@ -28,7 +50,7 @@ print(f"Current state: {state}")  # Output: 'start', 'active', or 'end'
 ### With Custom Configuration
 
 ```python
-from rally_state_pipeline import RallyStateDetector
+from rally_state_detection import RallyStateDetector
 
 # Provide custom configuration
 config = {
@@ -88,7 +110,7 @@ The package uses a configuration file (`config.json`) that includes:
 ## Package Structure
 
 ```
-rally_state_pipeline/
+rally_state_detection/
     __init__.py              # Package entry point (exports RallyStateDetector only)
     rally_state_detector.py  # Main detector class
     config.json              # Default configuration

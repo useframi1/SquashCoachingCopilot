@@ -1,0 +1,22 @@
+{
+    "video": {
+        "input_path": "data/video-3.mp4",
+        "max_frames": 300
+    },
+    "tracking": {
+        "trace_length": 5,
+        "trace_color": [0, 0, 255],
+        "trace_thickness": 10
+    },
+    "hit_detection": {
+        "wall_hits_enabled": true,
+        "racket_hits_enabled": true
+    },
+    "output": {
+        "output_dir": "outputs",
+        "save_video": true,
+        "save_plots": true,
+        "save_metrics": true,
+        "plot_dpi": 300
+    }
+}
