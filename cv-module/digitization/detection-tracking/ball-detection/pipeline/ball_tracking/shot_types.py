@@ -70,11 +70,12 @@ class Shot:
 
     All spatial measurements are in pixel coordinates.
     All temporal measurements are in frames.
+    Shot spans from one racket hit to the next racket hit (player exchange).
+    Uses vector-based classification: racket→wall and wall→next racket.
     """
 
     # Identification
-    frame: int  # Frame number of racket hit
-    player_id: Optional[int]  # Which player hit (1 or 2, None if unknown)
+    frame: int  # Frame number of racket hit (start of shot)
 
     # Classification results
     direction: ShotDirection
@@ -82,24 +83,24 @@ class Shot:
     shot_type: ShotType
 
     # Position features (pixels)
-    racket_hit_pos: Tuple[float, float]  # (x, y) at racket contact
-    wall_hit_pos: Tuple[float, float]  # (x, y) at wall impact
+    racket_hit_pos: Tuple[float, float]  # (x, y) at initial racket contact
+    next_racket_hit_pos: Tuple[float, float]  # (x, y) at next racket contact
 
-    # Trajectory features (pixels)
-    lateral_displacement: float  # Horizontal displacement (Δx) in pixels
-    distance_to_wall: float  # Euclidean distance from racket to wall in pixels
-    velocity_px_per_frame: float  # Average velocity in pixels/frame
+    # Wall hit information (front wall only, optional)
+    wall_hit_pos: Optional[Tuple[float, float]] = None  # (x, y) on front wall
+    wall_hit_frame: Optional[int] = None  # Frame when ball hit front wall
 
-    # Temporal features (frames)
-    time_to_wall_frames: int  # Number of frames from racket to wall hit
+    # Vector-based features
+    vector_angle_deg: Optional[float] = None  # Angle between attack and rebound vectors
+    rebound_distance: Optional[float] = None  # Length of wall→next racket vector (px)
 
     # Optional metadata
     confidence: float = 1.0  # Classification confidence (0-1)
 
     def __str__(self):
         return (
-            f"Shot(frame={self.frame}, player={self.player_id}, "
-            f"type={self.shot_type}, velocity={self.velocity_px_per_frame:.1f} px/f)"
+            f"Shot(frame={self.frame}, "
+            f"type={self.shot_type}, angle={self.vector_angle_deg:.1f}°)"
         )
 
     def __repr__(self):
@@ -107,14 +108,23 @@ class Shot:
 
     def summary(self) -> str:
         """Return a detailed string summary of the shot"""
-        return (
-            f"Shot at frame {self.frame}\n"
-            f"  Player: {self.player_id if self.player_id else 'Unknown'}\n"
-            f"  Type: {self.shot_type}\n"
-            f"  Direction: {self.direction}\n"
-            f"  Depth: {self.depth}\n"
-            f"  Lateral displacement: {self.lateral_displacement:.0f} px\n"
-            f"  Distance to wall: {self.distance_to_wall:.0f} px\n"
-            f"  Velocity: {self.velocity_px_per_frame:.1f} px/frame\n"
-            f"  Time to wall: {self.time_to_wall_frames} frames"
-        )
+        summary_lines = [
+            f"Shot at frame {self.frame}",
+            f"  Type: {self.shot_type}",
+            f"  Direction: {self.direction}",
+            f"  Depth: {self.depth}",
+            f"  Racket hit: ({self.racket_hit_pos[0]:.0f}, {self.racket_hit_pos[1]:.0f})",
+            f"  Next racket hit: ({self.next_racket_hit_pos[0]:.0f}, {self.next_racket_hit_pos[1]:.0f})",
+        ]
+
+        # Add wall hit information if available
+        if self.wall_hit_pos is not None:
+            summary_lines.extend([
+                f"  Wall hit: ({self.wall_hit_pos[0]:.0f}, {self.wall_hit_pos[1]:.0f}) at frame {self.wall_hit_frame}",
+                f"  Vector angle: {self.vector_angle_deg:.1f}°",
+                f"  Rebound distance: {self.rebound_distance:.0f} px",
+            ])
+
+        summary_lines.append(f"  Confidence: {self.confidence:.2f}")
+
+        return "\n".join(summary_lines)

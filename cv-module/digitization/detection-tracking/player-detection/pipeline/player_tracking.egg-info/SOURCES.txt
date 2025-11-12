@@ -9,5 +9,3 @@ player_tracking.egg-info/SOURCES.txt
 player_tracking.egg-info/dependency_links.txt
 player_tracking.egg-info/requires.txt
 player_tracking.egg-info/top_level.txt
-player_tracking/model/weights/yolov8m-pose.pt
-player_tracking/model/weights/yolov8m.pt

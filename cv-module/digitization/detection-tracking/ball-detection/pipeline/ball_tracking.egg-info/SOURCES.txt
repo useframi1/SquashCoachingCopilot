@@ -4,6 +4,9 @@ ball_tracking/__init__.py
 ball_tracking/ball_tracker.py
 ball_tracking/config.json
 ball_tracking/racket_hit_detector.py
+ball_tracking/shot_classifier.py
+ball_tracking/shot_features.py
+ball_tracking/shot_types.py
 ball_tracking/utils.py
 ball_tracking/wall_hit_detector.py
 ball_tracking.egg-info/PKG-INFO
@@ -11,4 +14,3 @@ ball_tracking.egg-info/SOURCES.txt
 ball_tracking.egg-info/dependency_links.txt
 ball_tracking.egg-info/requires.txt
 ball_tracking.egg-info/top_level.txt
-ball_tracking/models/tracknet/weights/model_best.pt

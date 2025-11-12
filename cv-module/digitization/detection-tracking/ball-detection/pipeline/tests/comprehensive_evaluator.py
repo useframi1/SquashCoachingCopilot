@@ -203,7 +203,6 @@ class ComprehensiveEvaluator:
             ball_positions=ball_positions,
             wall_hits=wall_hits,
             racket_hits=racket_hits,
-            player_positions=None,  # TODO: Integrate player tracking
         )
 
         print(f"✓ Classified {len(shots)} shots")
@@ -259,12 +258,15 @@ class ComprehensiveEvaluator:
                 percentage = (count / stats["total_shots"]) * 100
                 print(f"      {depth.title():25s}: {count:3d} ({percentage:5.1f}%)")
 
-            print(
-                f"\n   Average velocity: {stats['average_velocity']:.1f} pixels/frame"
-            )
-            print(
-                f"   Average time to wall: {stats['average_time_to_wall']:.1f} frames"
-            )
+            # Wall hit detection statistics (if available)
+            if "wall_hit_detection_rate" in stats:
+                print(
+                    f"\n   Wall hit detection rate: {stats['wall_hit_detection_rate']*100:.1f}%"
+                )
+                print(f"   Average vector angle: {stats['average_vector_angle']:.1f}°")
+                print(
+                    f"   Average rebound distance: {stats['average_rebound_distance']:.1f} px"
+                )
 
         return {
             "total_frames": total_frames,
@@ -369,6 +371,9 @@ class ComprehensiveEvaluator:
         )
         axes[1].grid(True, alpha=0.3)
 
+        # Create lookup for next racket hit by finding next hit after current
+        racket_hit_frames = sorted([hit["frame"] for hit in racket_hits])
+
         # Mark shots on both trajectories
         for shot in shots:
             color = shot_type_colors.get(shot.shot_type, "gray")
@@ -377,19 +382,33 @@ class ComprehensiveEvaluator:
             axes[0].axvline(shot.frame, color=color, alpha=0.6, linewidth=2)
             axes[1].axvline(shot.frame, color=color, alpha=0.6, linewidth=2)
 
-            # Draw shot segment
-            wall_frame = shot.frame + shot.time_to_wall_frames
-            segment_frames = range(shot.frame, min(wall_frame + 1, len(frames)))
+            # Find next racket hit frame
+            next_racket_frames = [f for f in racket_hit_frames if f > shot.frame]
+            if next_racket_frames:
+                next_racket_frame = next_racket_frames[0]
 
-            if segment_frames:
-                segment_xs = [xs[f] for f in segment_frames]
-                segment_ys = [ys[f] for f in segment_frames]
-                axes[0].plot(
-                    segment_frames, segment_xs, color=color, linewidth=2.5, alpha=0.8
+                # Draw shot segment (from racket hit to next racket hit)
+                segment_frames = range(
+                    shot.frame, min(next_racket_frame + 1, len(frames))
                 )
-                axes[1].plot(
-                    segment_frames, segment_ys, color=color, linewidth=2.5, alpha=0.8
-                )
+
+                if segment_frames:
+                    segment_xs = [xs[f] for f in segment_frames]
+                    segment_ys = [ys[f] for f in segment_frames]
+                    axes[0].plot(
+                        segment_frames,
+                        segment_xs,
+                        color=color,
+                        linewidth=2.5,
+                        alpha=0.8,
+                    )
+                    axes[1].plot(
+                        segment_frames,
+                        segment_ys,
+                        color=color,
+                        linewidth=2.5,
+                        alpha=0.8,
+                    )
 
         # Plot 3: Shot type timeline
         axes[2].set_ylim(-0.5, 5.5)
@@ -412,18 +431,22 @@ class ComprehensiveEvaluator:
         for shot in shots:
             y_pos = shot_type_index.get(shot.shot_type, 0)
             color = shot_type_colors.get(shot.shot_type, "gray")
-            wall_frame = shot.frame + shot.time_to_wall_frames
 
-            axes[2].barh(
-                y_pos,
-                width=shot.time_to_wall_frames,
-                left=shot.frame,
-                height=0.7,
-                color=color,
-                alpha=0.8,
-                edgecolor="black",
-                linewidth=0.5,
-            )
+            # Find next racket hit frame to calculate width
+            next_racket_frames = [f for f in racket_hit_frames if f > shot.frame]
+            if next_racket_frames:
+                width = next_racket_frames[0] - shot.frame
+
+                axes[2].barh(
+                    y_pos,
+                    width=width,
+                    left=shot.frame,
+                    height=0.7,
+                    color=color,
+                    alpha=0.8,
+                    edgecolor="black",
+                    linewidth=0.5,
+                )
 
         # Set y-axis labels
         axes[2].set_yticks(list(shot_type_index.values()))
@@ -531,13 +554,18 @@ class ComprehensiveEvaluator:
         trace_thickness = self.config["tracking"]["trace_thickness"]
 
         # Create frame-to-shot lookup
+        # First create racket hit frame lookup
+        racket_hit_frames_list = sorted([hit["frame"] for hit in racket_hits])
+
         shot_by_frame = {}
         for shot in shots:
-            for frame_idx in range(
-                shot.frame, shot.frame + shot.time_to_wall_frames + 1
-            ):
-                if frame_idx < len(ball_positions):
-                    shot_by_frame[frame_idx] = shot
+            # Find next racket hit frame
+            next_racket_frames = [f for f in racket_hit_frames_list if f > shot.frame]
+            if next_racket_frames:
+                end_frame = next_racket_frames[0]
+                for frame_idx in range(shot.frame, end_frame + 1):
+                    if frame_idx < len(ball_positions):
+                        shot_by_frame[frame_idx] = shot
 
         # Shot type colors (BGR for OpenCV)
         shot_colors = {
@@ -549,9 +577,24 @@ class ComprehensiveEvaluator:
             ShotType.DOWN_LINE_DROP: (102, 255, 102),  # Light green
         }
 
-        # Create frame-to-hit lookup
-        wall_hit_frames = {hit["frame"]: hit for hit in wall_hits}
-        racket_hit_frames = {hit["frame"]: hit for hit in racket_hits}
+        # Create frame-to-hit lookup (with display duration)
+        hit_display_duration = (
+            30  # Show hit markers for 15 frames (~0.5 seconds at 30fps)
+        )
+
+        wall_hit_frames = {}
+        for hit in wall_hits:
+            for offset in range(hit_display_duration):
+                frame = hit["frame"] + offset
+                if frame < len(ball_positions):
+                    wall_hit_frames[frame] = hit
+
+        racket_hit_frames = {}
+        for hit in racket_hits:
+            for offset in range(hit_display_duration):
+                frame = hit["frame"] + offset
+                if frame < len(ball_positions):
+                    racket_hit_frames[frame] = hit
 
         # Process frames
         max_frames = self.config["video"].get("max_frames", len(ball_positions))
@@ -590,8 +633,10 @@ class ComprehensiveEvaluator:
                         f"Dir: {current_shot.direction.name.replace('_', ' ').title()}"
                     )
                     depth_text = f"Depth: {current_shot.depth.name.title()}"
-                    velocity_text = (
-                        f"Vel: {current_shot.velocity_px_per_frame:.1f} px/f"
+                    angle_text = (
+                        f"Angle: {current_shot.vector_angle_deg:.1f}°"
+                        if current_shot.vector_angle_deg is not None
+                        else "Angle: N/A"
                     )
 
                     # Draw semi-transparent background
@@ -630,7 +675,7 @@ class ComprehensiveEvaluator:
                     )
                     cv2.putText(
                         frame,
-                        velocity_text,
+                        angle_text,
                         (20, 120),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.6,
@@ -748,15 +793,23 @@ class ComprehensiveEvaluator:
                     )
                     f.write(f"  Depth:              {shot.depth.name.title()}\n")
                     f.write(
-                        f"  Lateral disp:       {shot.lateral_displacement:.0f} px\n"
-                    )
-                    f.write(f"  Distance to wall:   {shot.distance_to_wall:.0f} px\n")
-                    f.write(
-                        f"  Velocity:           {shot.velocity_px_per_frame:.1f} px/frame\n"
+                        f"  Racket hit pos:     ({shot.racket_hit_pos[0]:.0f}, {shot.racket_hit_pos[1]:.0f})\n"
                     )
                     f.write(
-                        f"  Time to wall:       {shot.time_to_wall_frames} frames\n"
+                        f"  Next racket pos:    ({shot.next_racket_hit_pos[0]:.0f}, {shot.next_racket_hit_pos[1]:.0f})\n"
                     )
+                    f.write(f"  Confidence:         {shot.confidence:.2f}\n")
+
+                    # Add wall hit information if available
+                    if shot.wall_hit_pos is not None:
+                        f.write(
+                            f"  Wall hit:           ({shot.wall_hit_pos[0]:.0f}, {shot.wall_hit_pos[1]:.0f}) at frame {shot.wall_hit_frame}\n"
+                        )
+                        f.write(f"  Vector angle:       {shot.vector_angle_deg:.1f}°\n")
+                        f.write(
+                            f"  Rebound distance:   {shot.rebound_distance:.0f} px\n"
+                        )
+
                     f.write("\n")
 
         if label:

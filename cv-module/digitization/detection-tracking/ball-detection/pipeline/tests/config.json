@@ -1,7 +1,7 @@
 {
     "video": {
         "input_path": "data/video-3.mp4",
-        "max_frames": 300
+        "max_frames": 1000
     },
     "tracking": {
         "trace_length": 5,

@@ -9,4 +9,3 @@ stroke_detection.egg-info/SOURCES.txt
 stroke_detection.egg-info/dependency_links.txt
 stroke_detection.egg-info/requires.txt
 stroke_detection.egg-info/top_level.txt
-stroke_detection/model/weights/lstm_model.pt

@@ -1,0 +1,169 @@
+================================================================================
+COMPREHENSIVE BALL TRACKING & SHOT CLASSIFICATION REPORT
+================================================================================
+
+Video: video-1
+Resolution: 1280x720 @ 60.0 fps
+
+TRACKING STATISTICS:
+--------------------------------------------------------------------------------
+Total frames:        1000
+Detected frames:     1000
+Detection rate:      100.0%
+Wall hits:           11
+Racket hits:         11
+Classified shots:    10
+
+SHOT-BY-SHOT BREAKDOWN:
+--------------------------------------------------------------------------------
+
+Shot 1:
+  Frame:              43
+  Type:               Down Line Drop
+  Direction:          Down The Line
+  Depth:              Drop
+  Lateral disp:       -429 px
+  Distance to next:   429 px
+  Velocity:           8.9 px/frame
+  Time to next hit:   81 frames
+  Confidence:         1.00
+  Wall hit:           (453, 65) at frame 92
+  Wall height:        65 px
+  Racket to wall:     332 px
+  Wall to next:       315 px
+
+Shot 2:
+  Frame:              124
+  Type:               Down Line Drop
+  Direction:          Down The Line
+  Depth:              Drop
+  Lateral disp:       156 px
+  Distance to next:   271 px
+  Velocity:           8.1 px/frame
+  Time to next hit:   127 frames
+  Confidence:         1.00
+  Wall hit:           (435, 109) at frame 147
+  Wall height:        109 px
+  Racket to wall:     269 px
+  Wall to next:       426 px
+
+Shot 3:
+  Frame:              251
+  Type:               Straight Drive
+  Direction:          Straight
+  Depth:              Long
+  Lateral disp:       140 px
+  Distance to next:   181 px
+  Velocity:           12.1 px/frame
+  Time to next hit:   111 frames
+  Confidence:         1.00
+  Wall hit:           (475, 219) at frame 265
+  Wall height:        219 px
+  Racket to wall:     322 px
+  Wall to next:       217 px
+
+Shot 4:
+  Frame:              362
+  Type:               Straight Drop
+  Direction:          Straight
+  Depth:              Drop
+  Lateral disp:       -336 px
+  Distance to next:   348 px
+  Velocity:           10.6 px/frame
+  Time to next hit:   102 frames
+  Confidence:         1.00
+  Wall hit:           (479, 211) at frame 373
+  Wall height:        211 px
+  Racket to wall:     223 px
+  Wall to next:       397 px
+
+Shot 5:
+  Frame:              464
+  Type:               Cross Court Drop
+  Direction:          Cross Court
+  Depth:              Drop
+  Lateral disp:       658 px
+  Distance to next:   659 px
+  Velocity:           15.3 px/frame
+  Time to next hit:   97 frames
+  Confidence:         1.00
+  Wall hit:           (659, 169) at frame 485
+  Wall height:        169 px
+  Racket to wall:     557 px
+  Wall to next:       438 px
+
+Shot 6:
+  Frame:              561
+  Type:               Straight Drop
+  Direction:          Straight
+  Depth:              Drop
+  Lateral disp:       34 px
+  Distance to next:   57 px
+  Velocity:           8.9 px/frame
+  Time to next hit:   74 frames
+  Confidence:         1.00
+  Wall hit:           (815, 255) at frame 577
+  Wall height:        255 px
+  Racket to wall:     300 px
+  Wall to next:       266 px
+
+Shot 7:
+  Frame:              635
+  Type:               Straight Drop
+  Direction:          Straight
+  Depth:              Drop
+  Lateral disp:       144 px
+  Distance to next:   147 px
+  Velocity:           10.2 px/frame
+  Time to next hit:   71 frames
+  Confidence:         1.00
+  Wall hit:           (837, 247) at frame 647
+  Wall height:        247 px
+  Racket to wall:     266 px
+  Wall to next:       360 px
+
+Shot 8:
+  Frame:              706
+  Type:               Cross Court Drop
+  Direction:          Cross Court
+  Depth:              Drop
+  Lateral disp:       -630 px
+  Distance to next:   630 px
+  Velocity:           14.5 px/frame
+  Time to next hit:   83 frames
+  Confidence:         1.00
+  Wall hit:           (613, 195) at frame 725
+  Wall height:        195 px
+  Racket to wall:     556 px
+  Wall to next:       382 px
+
+Shot 9:
+  Frame:              789
+  Type:               Down Line Drop
+  Direction:          Down The Line
+  Depth:              Drop
+  Lateral disp:       -192 px
+  Distance to next:   194 px
+  Velocity:           11.3 px/frame
+  Time to next hit:   102 frames
+  Confidence:         1.00
+  Wall hit:           (525, 207) at frame 803
+  Wall height:        207 px
+  Racket to wall:     335 px
+  Wall to next:       413 px
+
+Shot 10:
+  Frame:              891
+  Type:               Down Line Drop
+  Direction:          Down The Line
+  Depth:              Drop
+  Lateral disp:       116 px
+  Distance to next:   118 px
+  Velocity:           9.8 px/frame
+  Time to next hit:   65 frames
+  Confidence:         1.00
+  Wall hit:           (467, 247) at frame 907
+  Wall height:        247 px
+  Racket to wall:     344 px
+  Wall to next:       257 px
+

@@ -22,23 +22,11 @@
     },
     "shot_classification": {
         "direction_thresholds": {
-            "straight_max_lateral_px": 80,
-            "cross_court_min_lateral_px": 300
+            "straight_max_angle_deg": 30,
+            "cross_min_angle_deg": 120
         },
         "depth_thresholds": {
-            "drop_max_time_frames": 15,
-            "drop_max_velocity_px_per_frame": 12.0,
-            "long_min_time_frames": 20
-        },
-        "speed_thresholds": {
-            "drive_min_velocity_px_per_frame": 25.0
-        },
-        "player_attribution": {
-            "max_distance_px": 120
-        },
-        "feature_windows": {
-            "velocity_frames": 5,
-            "acceleration_frames": 10
+            "drop_max_rebound_distance_px": 400
         }
     }
 }

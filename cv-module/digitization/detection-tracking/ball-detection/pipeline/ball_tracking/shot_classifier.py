@@ -9,7 +9,6 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional
 
 from .shot_types import Shot, ShotType, ShotDirection, ShotDepth
-from .shot_features import ShotFeatureExtractor
 from .utils import load_config
 
 
@@ -27,25 +26,21 @@ class ShotClassifier:
 
         Args:
             config: Configuration dictionary (loaded from config.json if None)
-            fps: Video frame rate (used for time-based features)
+            fps: Video frame rate (not currently used, kept for compatibility)
         """
         self.config = config if config else load_config()
         self.fps = fps
-        self.feature_extractor = ShotFeatureExtractor(self.config)
 
-        # Load thresholds from config (all in pixels)
+        # Load thresholds from config
         shot_config = self.config.get("shot_classification", {})
         self.dir_thresholds = shot_config.get("direction_thresholds", {})
         self.depth_thresholds = shot_config.get("depth_thresholds", {})
-        self.speed_thresholds = shot_config.get("speed_thresholds", {})
-        self.player_config = shot_config.get("player_attribution", {})
 
     def classify(
         self,
         ball_positions: List[Tuple[float, float]],
         wall_hits: List[Dict],
         racket_hits: List[Dict],
-        player_positions: Optional[Dict[int, List[Tuple[float, float]]]] = None,
     ) -> List[Shot]:
         """
         Main classification method.
@@ -61,185 +56,237 @@ class ShotClassifier:
         """
         shots = []
 
-        # Match racket hits to wall hits
-        shot_segments = self._match_hits(racket_hits, wall_hits)
+        # Match consecutive racket hits (define shot boundaries)
+        shot_segments = self._match_consecutive_racket_hits(racket_hits)
 
-        for racket_hit, wall_hit in shot_segments:
-            # Extract features (all pixel-based)
-            features = self._extract_shot_features(
-                ball_positions, racket_hit, wall_hit, player_positions
+        for start_hit, end_hit in shot_segments:
+            # Find wall hit within this shot's time window
+            wall_hit = self._find_wall_hit_in_shot(
+                wall_hits, start_hit["frame"], end_hit["frame"]
             )
 
-            # Classify direction
-            direction = self._classify_direction(features)
+            # Extract features (includes wall hit if detected)
+            features = self._extract_shot_features(
+                ball_positions, start_hit, end_hit, wall_hit
+            )
 
-            # Classify depth
+            # Classify direction and depth
+            direction = self._classify_direction(features)
             depth = self._classify_depth(features)
 
             # Combine into shot type
             shot_type = self._determine_shot_type(direction, depth, features)
 
+            # Adjust confidence based on whether wall hit was detected
+            confidence = 1.0 if wall_hit is not None else 0.7
+
             # Create Shot object
             shot = Shot(
-                frame=racket_hit["frame"],
-                player_id=features.get("player_id"),
+                frame=start_hit["frame"],
                 direction=direction,
                 depth=depth,
                 shot_type=shot_type,
-                racket_hit_pos=(racket_hit["x"], racket_hit["y"]),
-                wall_hit_pos=(wall_hit["x"], wall_hit["y"]),
-                lateral_displacement=features["lateral_displacement"],
-                distance_to_wall=features["distance_to_wall"],
-                velocity_px_per_frame=features["velocity_px_per_frame"],
-                time_to_wall_frames=features["time_to_wall_frames"],
-                confidence=1.0,  # Rule-based has fixed confidence
+                racket_hit_pos=(start_hit["x"], start_hit["y"]),
+                next_racket_hit_pos=(end_hit["x"], end_hit["y"]),
+                wall_hit_pos=features["wall_hit_pos"],
+                wall_hit_frame=features.get("wall_hit_frame"),
+                vector_angle_deg=features["vector_angle_deg"],
+                rebound_distance=features["rebound_distance"],
+                confidence=confidence,
             )
 
             shots.append(shot)
 
         return shots
 
-    def _match_hits(
-        self, racket_hits: List[Dict], wall_hits: List[Dict]
+    def _match_consecutive_racket_hits(
+        self, racket_hits: List[Dict]
     ) -> List[Tuple[Dict, Dict]]:
         """
-        Match each racket hit to its corresponding wall hit.
+        Match each racket hit to the next consecutive racket hit.
 
         Args:
-            racket_hits: List of racket hit dicts
-            wall_hits: List of wall hit dicts
+            racket_hits: List of racket hit dicts (sorted by frame)
 
         Returns:
-            List of (racket_hit, wall_hit) pairs
+            List of (start_racket_hit, end_racket_hit) pairs
         """
         matched_pairs = []
 
-        for racket_hit in racket_hits:
-            racket_frame = racket_hit["frame"]
-
-            # Find the next wall hit after this racket hit
-            next_wall_hit = None
-            min_frame_diff = float("inf")
-
-            for wall_hit in wall_hits:
-                wall_frame = wall_hit["frame"]
-
-                # Wall hit must be after racket hit
-                if wall_frame > racket_frame:
-                    frame_diff = wall_frame - racket_frame
-
-                    # Take the nearest wall hit
-                    if frame_diff < min_frame_diff:
-                        min_frame_diff = frame_diff
-                        next_wall_hit = wall_hit
-
-            # Only create pair if we found a matching wall hit
-            if next_wall_hit is not None:
-                matched_pairs.append((racket_hit, next_wall_hit))
+        # Pair consecutive racket hits
+        for i in range(len(racket_hits) - 1):
+            start_hit = racket_hits[i]
+            end_hit = racket_hits[i + 1]
+            matched_pairs.append((start_hit, end_hit))
 
         return matched_pairs
+
+    def _find_wall_hit_in_shot(
+        self,
+        wall_hits: List[Dict],
+        start_frame: int,
+        end_frame: int,
+    ) -> Optional[Dict]:
+        """
+        Find the primary (first) wall hit within a shot's time window.
+
+        Args:
+            wall_hits: List of wall hit dicts with {frame, x, y, prominence}
+            start_frame: Start of shot (racket hit frame)
+            end_frame: End of shot (next racket hit frame)
+
+        Returns:
+            First wall hit dict within the time window, or None if not found
+        """
+        candidate_wall_hits = []
+
+        for wall_hit in wall_hits:
+            wall_frame = wall_hit["frame"]
+
+            # Wall hit must be after racket hit and before next racket hit
+            if start_frame < wall_frame < end_frame:
+                candidate_wall_hits.append(wall_hit)
+
+        # Return the first (earliest) wall hit if any exist
+        if candidate_wall_hits:
+            return min(candidate_wall_hits, key=lambda w: w["frame"])
+
+        return None
 
     def _extract_shot_features(
         self,
         positions: List[Tuple[float, float]],
-        racket_hit: Dict,
-        wall_hit: Dict,
-        player_positions: Optional[Dict[int, List[Tuple[float, float]]]],
+        start_hit: Dict,
+        end_hit: Dict,
+        wall_hit: Optional[Dict],
     ) -> Dict:
         """
-        Extract all features for a shot in pixel space.
+        Extract vector-based features for a shot.
+
+        Constructs two vectors:
+        1. Racket → Wall (attack vector)
+        2. Wall → Next Racket (rebound vector)
 
         Args:
             positions: Ball trajectory positions
-            racket_hit: Racket hit dict
-            wall_hit: Wall hit dict
-            player_positions: Optional player position data
+            start_hit: Starting racket hit dict
+            end_hit: Ending racket hit dict (next player's hit)
+            wall_hit: Optional wall hit dict (front wall)
 
         Returns:
-            Dictionary of extracted features
+            Dictionary of extracted features including vectors and angle
         """
-        racket_frame = racket_hit["frame"]
-        wall_frame = wall_hit["frame"]
+        start_pos = np.array([start_hit["x"], start_hit["y"]])
+        end_pos = np.array([end_hit["x"], end_hit["y"]])
 
-        racket_pos = (racket_hit["x"], racket_hit["y"])
-        wall_pos = (wall_hit["x"], wall_hit["y"])
+        # Initialize features
+        features = {
+            "has_wall_hit": False,
+            "vector_angle_deg": None,
+            "rebound_distance": None,
+            "wall_hit_pos": None,
+            "wall_hit_frame": None,
+        }
 
-        # Lateral displacement
-        lateral_disp = self.feature_extractor.get_lateral_displacement(
-            racket_pos, wall_pos
-        )
+        # Extract vector-based features if wall hit detected
+        if wall_hit is not None:
+            wall_pos = np.array([wall_hit["x"], wall_hit["y"]])
 
-        # Distance to wall
-        distance = self.feature_extractor.get_distance(racket_pos, wall_pos)
+            # Vector 1: Racket → Wall (attack)
+            vec_racket_to_wall = wall_pos - start_pos
 
-        # Time to wall (in frames)
-        time_frames = wall_frame - racket_frame
+            # Vector 2: Wall → Next Racket (rebound)
+            vec_wall_to_next = end_pos - wall_pos
 
-        # Velocity (average over the shot segment)
-        velocity = self.feature_extractor.calculate_average_velocity_segment(
-            positions, racket_frame, wall_frame
-        )
+            # Calculate angle between the two vectors (in degrees)
+            # Angle tells us the direction of the shot
+            dot_product = np.dot(vec_racket_to_wall, vec_wall_to_next)
+            mag1 = np.linalg.norm(vec_racket_to_wall)
+            mag2 = np.linalg.norm(vec_wall_to_next)
 
-        # Player attribution
-        player_id = None
-        if player_positions:
-            max_dist = self.player_config.get("max_distance_px", 120)
-            player_id = self.feature_extractor.get_player_at_hit(
-                racket_pos, player_positions, racket_frame, max_distance_px=max_dist
+            if mag1 > 0 and mag2 > 0:
+                cos_angle = dot_product / (mag1 * mag2)
+                # Clamp to [-1, 1] to avoid numerical errors
+                cos_angle = np.clip(cos_angle, -1.0, 1.0)
+                angle_rad = np.arccos(cos_angle)
+                angle_deg = np.degrees(angle_rad)
+            else:
+                angle_deg = 0.0
+
+            # Rebound distance (length of wall → next racket vector)
+            rebound_distance = mag2
+
+            features.update(
+                {
+                    "has_wall_hit": True,
+                    "vector_angle_deg": float(angle_deg),
+                    "rebound_distance": float(rebound_distance),
+                    "wall_hit_pos": (wall_hit["x"], wall_hit["y"]),
+                    "wall_hit_frame": wall_hit["frame"],
+                }
             )
 
-        return {
-            "lateral_displacement": lateral_disp,
-            "distance_to_wall": distance,
-            "time_to_wall_frames": time_frames,
-            "velocity_px_per_frame": velocity,
-            "player_id": player_id,
-        }
+        return features
 
     def _classify_direction(self, features: Dict) -> ShotDirection:
         """
-        Classify shot direction based on lateral displacement.
+        Classify shot direction based on angle between attack and rebound vectors.
+
+        Uses the angle between racket→wall and wall→next racket vectors:
+        - Small angle → Straight shot (ball continues in same direction)
+        - Large angle → Cross-court shot (ball changes direction significantly)
+        - Medium angle → Down-the-line shot
 
         Args:
-            features: Extracted shot features
+            features: Extracted shot features with vector_angle_deg
 
         Returns:
             ShotDirection enum value
         """
-        dx = abs(features["lateral_displacement"])  # Absolute lateral movement
+        # Require wall hit for accurate classification
+        if not features["has_wall_hit"]:
+            return ShotDirection.STRAIGHT  # Default fallback
 
-        straight_max = self.dir_thresholds.get("straight_max_lateral_px", 80)
-        cross_min = self.dir_thresholds.get("cross_court_min_lateral_px", 300)
+        angle = features["vector_angle_deg"]
 
-        if dx < straight_max:
+        # Angle thresholds
+        straight_max = self.dir_thresholds.get("straight_max_angle_deg", 30)
+        cross_min = self.dir_thresholds.get("cross_min_angle_deg", 120)
+
+        if angle < straight_max:
             return ShotDirection.STRAIGHT
-        elif dx > cross_min:
+        elif angle > cross_min:
             return ShotDirection.CROSS_COURT
         else:
             return ShotDirection.DOWN_THE_LINE
 
     def _classify_depth(self, features: Dict) -> ShotDepth:
         """
-        Classify shot depth based on time and velocity.
+        Classify shot depth based on rebound distance (wall→next racket vector length).
+
+        Uses the length of the wall→next racket vector:
+        - Short rebound distance → Drop shot (ball doesn't travel far after wall)
+        - Long rebound distance → Long shot/Drive (ball travels deep into court)
 
         Args:
-            features: Extracted shot features
+            features: Extracted shot features with rebound_distance
 
         Returns:
             ShotDepth enum value
         """
-        time_frames = features["time_to_wall_frames"]
-        velocity = features["velocity_px_per_frame"]
+        # Require wall hit for accurate classification
+        if not features["has_wall_hit"]:
+            return ShotDepth.LONG  # Default fallback
 
-        drop_max_time = self.depth_thresholds.get("drop_max_time_frames", 15)
-        drop_max_vel = self.depth_thresholds.get("drop_max_velocity_px_per_frame", 12.0)
+        rebound_dist = features["rebound_distance"]
 
-        # Drop shots are characterized by:
-        # - Short time to wall OR
-        # - Slow velocity
-        is_drop = time_frames < drop_max_time or velocity < drop_max_vel
+        # Distance threshold
+        drop_max = self.depth_thresholds.get("drop_max_rebound_distance_px", 400)
 
-        return ShotDepth.DROP if is_drop else ShotDepth.LONG
+        if rebound_dist < drop_max:
+            return ShotDepth.DROP
+        else:
+            return ShotDepth.LONG
 
     def _determine_shot_type(
         self, direction: ShotDirection, depth: ShotDepth, features: Dict
@@ -285,9 +332,6 @@ class ShotClassifier:
             "by_type": {},
             "by_direction": {},
             "by_depth": {},
-            "by_player": {},
-            "average_velocity": 0.0,
-            "average_time_to_wall": 0.0,
         }
 
         # Count by type
@@ -304,18 +348,23 @@ class ShotClassifier:
             depth_name = shot.depth.value
             stats["by_depth"][depth_name] = stats["by_depth"].get(depth_name, 0) + 1
 
-            # By player
-            if shot.player_id:
-                stats["by_player"][shot.player_id] = (
-                    stats["by_player"].get(shot.player_id, 0) + 1
-                )
-
-        # Average metrics
-        stats["average_velocity"] = np.mean(
-            [s.velocity_px_per_frame for s in shots]
-        )
-        stats["average_time_to_wall"] = np.mean(
-            [s.time_to_wall_frames for s in shots]
-        )
+        # Wall hit statistics (if available)
+        shots_with_wall = [s for s in shots if s.wall_hit_pos is not None]
+        if shots_with_wall:
+            stats["wall_hit_detection_rate"] = len(shots_with_wall) / len(shots)
+            stats["average_vector_angle"] = np.mean(
+                [
+                    s.vector_angle_deg
+                    for s in shots_with_wall
+                    if s.vector_angle_deg is not None
+                ]
+            )
+            stats["average_rebound_distance"] = np.mean(
+                [
+                    s.rebound_distance
+                    for s in shots_with_wall
+                    if s.rebound_distance is not None
+                ]
+            )
 
         return stats
