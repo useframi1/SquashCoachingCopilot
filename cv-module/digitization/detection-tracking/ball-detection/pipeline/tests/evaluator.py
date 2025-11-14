@@ -197,6 +197,37 @@ class BallTrackingEvaluator:
                 f"  Avg interval:          {metrics['racket_hits_avg_interval_sec']:.2f} sec\n"
             )
 
+    def save_positions_csv(self, results, output_dir):
+        """Save ball positions with hit detections to CSV file.
+
+        Args:
+            results: Results dictionary from process_results
+            output_dir: Output directory path
+        """
+        positions = results["positions"]
+        wall_hits = results["wall_hits"]
+        racket_hits = results["racket_hits"]
+        output_path = os.path.join(output_dir, f"{self.video_name}_ball_positions.csv")
+
+        # Create frame-to-hit lookup dictionaries
+        wall_hit_by_frame = {hit["frame"]: hit for hit in wall_hits}
+        racket_hit_by_frame = {hit["frame"]: hit for hit in racket_hits}
+
+        with open(output_path, "w") as f:
+            # Write header
+            f.write("frame,x,y,is_wall_hit,is_racket_hit\n")
+
+            # Write positions with hit markers
+            for frame_idx, pos in enumerate(positions):
+                x = pos[0] if pos[0] is not None else ""
+                y = pos[1] if pos[1] is not None else ""
+
+                # Check if this frame has a wall or racket hit
+                is_wall_hit = 1 if frame_idx in wall_hit_by_frame else 0
+                is_racket_hit = 1 if frame_idx in racket_hit_by_frame else 0
+
+                f.write(f"{frame_idx},{x},{y},{is_wall_hit},{is_racket_hit}\n")
+
     def save_position_plot(self, results, output_dir):
         """Save position plot with hit detections.
 
@@ -477,6 +508,11 @@ class BallTrackingEvaluator:
         metrics = self.calculate_metrics(results)
         self.save_metrics(metrics, output_dir)
         print(f"✓ Metrics saved")
+
+        # Save ball positions CSV (only for postprocessed)
+        if label == "POSTPROCESSED":
+            self.save_positions_csv(results, output_dir)
+            print(f"✓ Ball positions CSV saved")
 
         # Print key metrics
         print(f"  Detection rate: {metrics['detection_rate_percent']:.2f}%")

@@ -1,0 +1,15 @@
+{
+    "shot_classification": {
+        "direction_thresholds": {
+            "straight_max_angle_deg": 30,
+            "cross_min_angle_deg": 120
+        },
+        "depth_thresholds": {
+            "drop_max_rebound_distance_px": 100
+        },
+        "feature_windows": {
+            "velocity_frames": 5,
+            "acceleration_frames": 10
+        }
+    }
+}

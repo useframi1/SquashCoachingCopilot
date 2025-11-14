@@ -199,7 +199,9 @@ class ShotClassifier:
             vec_wall_to_next = end_pos - wall_pos
 
             # Calculate angle between the two vectors (in degrees)
-            # Angle tells us the direction of the shot
+            # We calculate the exterior angle (rebound angle) which represents
+            # the deviation from a straight bounce. A straight bounce = 0°,
+            # a sharp cross-court = larger angle
             dot_product = np.dot(vec_racket_to_wall, vec_wall_to_next)
             mag1 = np.linalg.norm(vec_racket_to_wall)
             mag2 = np.linalg.norm(vec_wall_to_next)
@@ -209,7 +211,9 @@ class ShotClassifier:
                 # Clamp to [-1, 1] to avoid numerical errors
                 cos_angle = np.clip(cos_angle, -1.0, 1.0)
                 angle_rad = np.arccos(cos_angle)
-                angle_deg = np.degrees(angle_rad)
+                interior_angle_deg = np.degrees(angle_rad)
+                # Get exterior angle (rebound angle)
+                angle_deg = 180.0 - interior_angle_deg
             else:
                 angle_deg = 0.0
 

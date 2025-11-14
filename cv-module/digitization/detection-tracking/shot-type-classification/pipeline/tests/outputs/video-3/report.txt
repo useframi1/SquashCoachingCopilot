@@ -1,5 +1,5 @@
 ================================================================================
-COMPREHENSIVE BALL TRACKING & SHOT CLASSIFICATION REPORT
+SHOT TYPE CLASSIFICATION REPORT
 ================================================================================
 
 Video: video-3
@@ -19,62 +19,62 @@ SHOT-BY-SHOT BREAKDOWN:
 
 Shot 1:
   Frame:              88
-  Type:               Down Line Drop
+  Type:               Down Line Drive
   Direction:          Down The Line
-  Depth:              Drop
+  Depth:              Long
   Racket hit pos:     (627, 403)
-  Next racket pos:    (299, 361)
+  Next racket pos:    (301, 361)
   Confidence:         1.00
-  Wall hit:           (481, 115) at frame 112
-  Vector angle:       116.6°
-  Rebound distance:   306 px
+  Wall hit:           (479, 119) at frame 112
+  Vector angle:       63.9°
+  Rebound distance:   300 px
 
 Shot 2:
   Frame:              165
-  Type:               Cross Court Drive
-  Direction:          Cross Court
+  Type:               Straight Drive
+  Direction:          Straight
   Depth:              Long
-  Racket hit pos:     (299, 361)
-  Next racket pos:    (385, 512)
+  Racket hit pos:     (301, 361)
+  Next racket pos:    (377, 559)
   Confidence:         1.00
   Wall hit:           (425, 73) at frame 192
-  Vector angle:       161.6°
-  Rebound distance:   441 px
+  Vector angle:       17.7°
+  Rebound distance:   488 px
 
 Shot 3:
-  Frame:              279
-  Type:               Cross Court Drive
-  Direction:          Cross Court
+  Frame:              277
+  Type:               Straight Drive
+  Direction:          Straight
   Depth:              Long
-  Racket hit pos:     (385, 512)
+  Racket hit pos:     (377, 559)
   Next racket pos:    (251, 625)
   Confidence:         1.00
   Wall hit:           (409, 225) at frame 301
-  Vector angle:       163.2°
+  Vector angle:       16.1°
   Rebound distance:   430 px
 
 Shot 4:
   Frame:              389
-  Type:               Cross Court Drop
-  Direction:          Cross Court
-  Depth:              Drop
+  Type:               Straight Drive
+  Direction:          Straight
+  Depth:              Long
   Racket hit pos:     (251, 625)
   Next racket pos:    (411, 367)
   Confidence:         1.00
-  Wall hit:           (391, 147) at frame 421
-  Vector angle:       158.5°
-  Rebound distance:   221 px
+  Wall hit:           (349, 147) at frame 416
+  Vector angle:       27.3°
+  Rebound distance:   229 px
 
 Shot 5:
   Frame:              461
-  Type:               Cross Court Drop
-  Direction:          Cross Court
-  Depth:              Drop
+  Type:               Down Line Drive
+  Direction:          Down The Line
+  Depth:              Long
   Racket hit pos:     (411, 367)
-  Next racket pos:    (329, 371)
+  Next racket pos:    (327, 373)
   Confidence:         1.00
-  Wall hit:           (437, 283) at frame 479
-  Vector angle:       146.4°
+  Wall hit:           (433, 283) at frame 479
+  Vector angle:       35.0°
   Rebound distance:   139 px
 
 Shot 6:
@@ -82,23 +82,23 @@ Shot 6:
   Type:               Down Line Drop
   Direction:          Down The Line
   Depth:              Drop
-  Racket hit pos:     (329, 371)
+  Racket hit pos:     (327, 373)
   Next racket pos:    (485, 351)
   Confidence:         1.00
-  Wall hit:           (443, 289) at frame 560
-  Vector angle:       91.6°
-  Rebound distance:   75 px
+  Wall hit:           (429, 289) at frame 554
+  Vector angle:       92.6°
+  Rebound distance:   84 px
 
 Shot 7:
   Frame:              609
-  Type:               Cross Court Drop
-  Direction:          Cross Court
-  Depth:              Drop
+  Type:               Down Line Drive
+  Direction:          Down The Line
+  Depth:              Long
   Racket hit pos:     (485, 351)
   Next racket pos:    (543, 317)
   Confidence:         1.00
   Wall hit:           (421, 299) at frame 626
-  Vector angle:       149.3°
+  Vector angle:       30.7°
   Rebound distance:   123 px
 
 Shot 8:
@@ -107,33 +107,33 @@ Shot 8:
   Direction:          Down The Line
   Depth:              Drop
   Racket hit pos:     (543, 317)
-  Next racket pos:    (789, 359)
+  Next racket pos:    (783, 357)
   Confidence:         1.00
-  Wall hit:           (803, 265) at frame 695
-  Vector angle:       109.8°
-  Rebound distance:   95 px
+  Wall hit:           (791, 263) at frame 694
+  Vector angle:       72.9°
+  Rebound distance:   94 px
 
 Shot 9:
-  Frame:              728
-  Type:               Cross Court Drop
-  Direction:          Cross Court
-  Depth:              Drop
-  Racket hit pos:     (789, 359)
-  Next racket pos:    (891, 601)
+  Frame:              730
+  Type:               Straight Drive
+  Direction:          Straight
+  Depth:              Long
+  Racket hit pos:     (783, 357)
+  Next racket pos:    (889, 601)
   Confidence:         1.00
   Wall hit:           (783, 277) at frame 751
-  Vector angle:       165.7°
-  Rebound distance:   342 px
+  Vector angle:       18.1°
+  Rebound distance:   341 px
 
 Shot 10:
   Frame:              817
-  Type:               Cross Court Drop
-  Direction:          Cross Court
-  Depth:              Drop
-  Racket hit pos:     (891, 601)
+  Type:               Straight Drive
+  Direction:          Straight
+  Depth:              Long
+  Racket hit pos:     (889, 601)
   Next racket pos:    (967, 471)
   Confidence:         1.00
-  Wall hit:           (829, 189) at frame 841
-  Vector angle:       162.5°
-  Rebound distance:   314 px
+  Wall hit:           (925, 189) at frame 842
+  Vector angle:       13.5°
+  Rebound distance:   285 px
 

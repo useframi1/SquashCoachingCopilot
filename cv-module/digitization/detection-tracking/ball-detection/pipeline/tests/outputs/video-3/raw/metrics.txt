@@ -1,15 +1,15 @@
-================================================================================
-RAW BALL TRACKING METRICS
-================================================================================
+BALL TRACKING METRICS
+==================================================
 
-Video: video-3
-Resolution: 1280x720 @ 60.0 fps
+Detection Performance:
+  Total frames:          1000
+  Detected frames:       806
+  Detection rate:        80.60%
 
-TRACKING STATISTICS:
---------------------------------------------------------------------------------
-Total frames:        1000
-Detected frames:     807
-Detection rate:      80.7%
+Wall Hit Detection:
+  Total hits:            0
+  Avg interval:          0.00 sec
 
-NOTE: This is raw tracking data without postprocessing.
-No hit detection or shot classification performed.
+Racket Hit Detection:
+  Total hits:            0
+  Avg interval:          0.00 sec

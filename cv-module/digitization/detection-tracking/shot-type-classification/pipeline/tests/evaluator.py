@@ -1,25 +1,19 @@
 """
-Comprehensive Ball Tracking and Shot Classification Evaluator
+Shot Type Classification Evaluator
 
-Combines ball tracking, hit detection, and shot classification with
-comprehensive visualizations including annotated videos and plots.
+Evaluates shot classification performance using ball tracking CSV results.
+Generates comprehensive reports with visualizations and statistics.
 """
 
 import json
 import cv2
 import numpy as np
 import os
+import csv
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from ball_tracking import (
-    BallTracker,
-    WallHitDetector,
-    RacketHitDetector,
-    ShotClassifier,
-    ShotType,
-)
-from court_calibration import CourtCalibrator
+from shot_type_classification import ShotClassifier, ShotType
 
 
 def load_config(config_path="config.json"):
@@ -30,8 +24,8 @@ def load_config(config_path="config.json"):
         return json.load(f)
 
 
-class ComprehensiveEvaluator:
-    """Comprehensive evaluator for ball tracking and shot classification"""
+class ShotClassificationEvaluator:
+    """Evaluator for shot type classification using ball tracking CSV"""
 
     def __init__(self, config=None):
         self.config = config if config is not None else load_config()
@@ -39,27 +33,22 @@ class ComprehensiveEvaluator:
         # Get test directory path
         self.test_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # Resolve paths
-        self.video_path = os.path.join(
-            self.test_dir, self.config["video"]["input_path"]
+        # Get video name from config
+        self.video_name = self.config["test_video"]
+
+        # Construct paths based on video name
+        video_data_dir = os.path.join(self.test_dir, "data", self.video_name)
+        self.csv_path = os.path.join(
+            video_data_dir, f"{self.video_name}_ball_positions.csv"
         )
+        self.video_path = os.path.join(video_data_dir, f"{self.video_name}.mp4")
 
-        # Get video name
-        self.video_name = os.path.splitext(os.path.basename(self.video_path))[0]
-
-        # Create output directories: tests/outputs/{video_name}/raw and /postprocessed
+        # Create output directory
         base_output_dir = os.path.join(
             self.test_dir, self.config["output"]["output_dir"]
         )
-        self.video_output_dir = os.path.join(base_output_dir, self.video_name)
-        self.raw_output_dir = os.path.join(self.video_output_dir, "raw")
-        self.postprocessed_output_dir = os.path.join(
-            self.video_output_dir, "postprocessed"
-        )
-
-        # Ensure output directories exist
-        os.makedirs(self.raw_output_dir, exist_ok=True)
-        os.makedirs(self.postprocessed_output_dir, exist_ok=True)
+        self.output_dir = os.path.join(base_output_dir, self.video_name)
+        os.makedirs(self.output_dir, exist_ok=True)
 
         # Get video properties
         cap = cv2.VideoCapture(self.video_path)
@@ -69,129 +58,54 @@ class ComprehensiveEvaluator:
         cap.release()
 
         print(f"\nVideo: {self.video_name}")
+        print(f"CSV: {os.path.basename(self.csv_path)}")
         print(f"Resolution: {self.width}x{self.height} @ {self.fps} fps")
-        print(f"Output directory: {self.video_output_dir}")
+        print(f"Output directory: {self.output_dir}")
 
-        # Initialize components
-        print("\nInitializing components...")
-        self.ball_tracker = BallTracker()
-        self.wall_detector = WallHitDetector()
-        self.racket_detector = RacketHitDetector()
+        # Initialize shot classifier
+        print("\nInitializing shot classifier...")
         self.shot_classifier = ShotClassifier(fps=self.fps)
-        self.court_calibrator = CourtCalibrator()
-
-        print("✓ Ball tracker initialized")
-        print("✓ Wall hit detector initialized")
-        print("✓ Racket hit detector initialized")
         print("✓ Shot classifier initialized")
-        print("✓ Court calibrator initialized")
 
-    def process_video(self):
-        """Process video to extract ball trajectory"""
+    def load_csv_data(self):
+        """Load ball positions and hits from CSV file"""
         print("\n" + "=" * 60)
-        print("PROCESSING VIDEO")
+        print("LOADING BALL TRACKING DATA FROM CSV")
         print("=" * 60)
-
-        cap = cv2.VideoCapture(self.video_path)
-        max_frames = self.config["video"].get("max_frames")
-
-        # Determine total frames for progress bar
-        if max_frames:
-            total_frames = max_frames
-        else:
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         ball_positions = []
+        wall_hits = []
+        racket_hits = []
 
-        # Process frames with progress bar
-        with tqdm(total=total_frames, desc="Tracking ball", unit="frame") as pbar:
-            frame_count = 0
+        with open(self.csv_path, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                frame = int(row["frame"])
 
-            while cap.isOpened():
-                if max_frames and frame_count >= max_frames:
-                    break
-
-                ret, frame = cap.read()
-                if not ret:
-                    break
-
-                # Detect wall color on first frame to set ball color
-                if frame_count == 0:
-                    _, keypoints = self.court_calibrator.process_frame(frame)
-                    wall_info = self.court_calibrator.detect_wall_color(
-                        frame, keypoints
-                    )
-                    is_black_ball = wall_info["recommended_ball"] == "black"
-                    self.ball_tracker.set_is_black_ball(is_black_ball)
-                    print(f"\nDetected {wall_info['recommended_ball']} ball")
-
-                # Track ball
-                x, y = self.ball_tracker.process_frame(frame)
+                # Parse ball position
+                x = float(row["x"]) if row["x"] else None
+                y = float(row["y"]) if row["y"] else None
                 ball_positions.append((x, y))
 
-                frame_count += 1
-                pbar.update(1)
+                # Parse wall hit
+                if int(row["is_wall_hit"]) == 1 and x is not None and y is not None:
+                    wall_hits.append({"frame": frame, "x": x, "y": y})
 
-        cap.release()
+                # Parse racket hit
+                if int(row["is_racket_hit"]) == 1 and x is not None and y is not None:
+                    racket_hits.append({"frame": frame, "x": x, "y": y})
 
         detected_count = sum(1 for pos in ball_positions if pos[0] is not None)
-        detection_rate = (detected_count / frame_count * 100) if frame_count > 0 else 0
-
-        print(f"\n✓ Processed {frame_count} frames")
-        print(f"✓ Detected ball in {detected_count} frames ({detection_rate:.1f}%)")
-
-        return ball_positions
-
-    def detect_hits_from_positions(self, positions, label=""):
-        """Detect hits from given positions"""
-        # Detect wall hits
-        wall_hits = []
-        if self.config["hit_detection"]["wall_hits_enabled"]:
-            wall_hits = self.wall_detector.detect(positions)
-            if label:
-                print(f"✓ Detected {len(wall_hits)} wall hits ({label})")
-
-        # Detect racket hits
-        racket_hits = []
-        if self.config["hit_detection"]["racket_hits_enabled"]:
-            racket_hits = self.racket_detector.detect(positions, wall_hits)
-            if label:
-                print(f"✓ Detected {len(racket_hits)} racket hits ({label})")
-
-        return wall_hits, racket_hits
-
-    def postprocess_and_detect_hits(self, ball_positions):
-        """Process both raw and postprocessed trajectories"""
-        print("\n" + "=" * 60)
-        print("PROCESSING RAW & POSTPROCESSED RESULTS")
-        print("=" * 60)
-
-        # Raw positions - NO hit detection for raw
-        print("\nPreparing raw positions (no hit detection)...")
-
-        # Postprocess trajectory
-        print("\nPostprocessing trajectory...")
-        processed_positions = self.ball_tracker.postprocess(ball_positions)
-        print("✓ Trajectory smoothed and interpolated")
-
-        # Process postprocessed positions - detect hits only here
-        print("\nDetecting hits from postprocessed positions...")
-        wall_hits, racket_hits = self.detect_hits_from_positions(
-            processed_positions, label="postprocessed"
+        detection_rate = (
+            (detected_count / len(ball_positions) * 100) if ball_positions else 0
         )
 
-        return {
-            "raw": {
-                "positions": ball_positions,
-                "wall_hits": [],  # No hits for raw
-                "racket_hits": [],  # No hits for raw
-            },
-            "postprocessed": {
-                "positions": processed_positions,
-                "wall_hits": wall_hits,
-                "racket_hits": racket_hits,
-            },
-        }
+        print(f"\n✓ Loaded {len(ball_positions)} frames")
+        print(f"✓ Ball detected in {detected_count} frames ({detection_rate:.1f}%)")
+        print(f"✓ Loaded {len(wall_hits)} wall hits")
+        print(f"✓ Loaded {len(racket_hits)} racket hits")
+
+        return ball_positions, wall_hits, racket_hits
 
     def classify_shots(self, ball_positions, wall_hits, racket_hits):
         """Classify shots using shot classifier"""
@@ -212,7 +126,7 @@ class ComprehensiveEvaluator:
     def print_statistics(self, ball_positions, wall_hits, racket_hits, shots):
         """Print comprehensive statistics"""
         print("\n" + "=" * 60)
-        print("COMPREHENSIVE STATISTICS")
+        print("STATISTICS")
         print("=" * 60)
 
         # Ball tracking stats
@@ -258,7 +172,7 @@ class ComprehensiveEvaluator:
                 percentage = (count / stats["total_shots"]) * 100
                 print(f"      {depth.title():25s}: {count:3d} ({percentage:5.1f}%)")
 
-            # Wall hit detection statistics (if available)
+            # Wall hit detection statistics
             if "wall_hit_detection_rate" in stats:
                 print(
                     f"\n   Wall hit detection rate: {stats['wall_hit_detection_rate']*100:.1f}%"
@@ -277,57 +191,12 @@ class ComprehensiveEvaluator:
             "shots": len(shots),
         }
 
-    def create_raw_trajectory_plots(self, ball_positions, output_dir):
-        """Create simple trajectory plots for raw data (no hits or shots)"""
-        if not self.config["output"]["save_plots"]:
-            return
-
-        # Extract coordinates
-        frames = list(range(len(ball_positions)))
-        xs = [
-            pos[0] if pos and pos[0] is not None else np.nan for pos in ball_positions
-        ]
-        ys = [
-            pos[1] if pos and pos[1] is not None else np.nan for pos in ball_positions
-        ]
-
-        # Create figure with 2 subplots
-        fig, axes = plt.subplots(2, 1, figsize=(14, 8))
-
-        # Plot 1: X trajectory
-        axes[0].plot(frames, xs, "b-", linewidth=1.5)
-        axes[0].set_ylabel("X Position (pixels)", fontsize=11)
-        axes[0].set_title(
-            "Ball Trajectory - X Coordinate (Raw)", fontsize=12, fontweight="bold"
-        )
-        axes[0].grid(True, alpha=0.3)
-
-        # Plot 2: Y trajectory
-        axes[1].plot(frames, ys, "r-", linewidth=1.5)
-        axes[1].set_xlabel("Frame", fontsize=11)
-        axes[1].set_ylabel("Y Position (pixels)", fontsize=11)
-        axes[1].set_title(
-            "Ball Trajectory - Y Coordinate (Raw)", fontsize=12, fontweight="bold"
-        )
-        axes[1].grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        # Save plot
-        plot_path = os.path.join(output_dir, "trajectory_plots.png")
-        plt.savefig(
-            plot_path, dpi=self.config["output"]["plot_dpi"], bbox_inches="tight"
-        )
-        print(f"✓ Saved raw trajectory plots: {plot_path}")
-
-        plt.close()
-
-    def create_trajectory_plots(
-        self, ball_positions, wall_hits, racket_hits, shots, output_dir, label=""
-    ):
+    def create_trajectory_plots(self, ball_positions, wall_hits, racket_hits, shots):
         """Create comprehensive trajectory plots"""
         if not self.config["output"]["save_plots"]:
             return
+
+        print("\nCreating trajectory plots...")
 
         # Extract coordinates
         frames = list(range(len(ball_positions)))
@@ -371,7 +240,7 @@ class ComprehensiveEvaluator:
         )
         axes[1].grid(True, alpha=0.3)
 
-        # Create lookup for next racket hit by finding next hit after current
+        # Create lookup for next racket hit
         racket_hit_frames = sorted([hit["frame"] for hit in racket_hits])
 
         # Mark shots on both trajectories
@@ -387,7 +256,7 @@ class ComprehensiveEvaluator:
             if next_racket_frames:
                 next_racket_frame = next_racket_frames[0]
 
-                # Draw shot segment (from racket hit to next racket hit)
+                # Draw shot segment
                 segment_frames = range(
                     shot.frame, min(next_racket_frame + 1, len(frames))
                 )
@@ -471,75 +340,22 @@ class ComprehensiveEvaluator:
         plt.tight_layout()
 
         # Save plot
-        plot_path = os.path.join(output_dir, "comprehensive_plots.png")
+        plot_path = os.path.join(self.output_dir, "trajectory_plots.png")
         plt.savefig(
             plot_path, dpi=self.config["output"]["plot_dpi"], bbox_inches="tight"
         )
-        if label:
-            print(f"✓ Saved {label} trajectory plots: {plot_path}")
+        print(f"✓ Saved trajectory plots: {plot_path}")
 
         plt.close()
 
-    def create_raw_video(self, ball_positions, output_dir):
-        """Create simple video with ball trace only (no hits or shots)"""
-        if not self.config["output"]["save_video"]:
-            return
-
-        output_path = os.path.join(output_dir, "annotated.mp4")
-
-        # Setup video writer
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(output_path, fourcc, self.fps, (self.width, self.height))
-
-        # Open video
-        cap = cv2.VideoCapture(self.video_path)
-
-        # Get visualization config
-        trace_length = self.config["tracking"]["trace_length"]
-        trace_color = tuple(self.config["tracking"]["trace_color"])
-        trace_thickness = self.config["tracking"]["trace_thickness"]
-
-        # Process frames
-        max_frames = self.config["video"].get("max_frames", len(ball_positions))
-        with tqdm(total=max_frames, desc="Rendering raw video", unit="frame") as pbar:
-            frame_idx = 0
-
-            while cap.isOpened() and frame_idx < max_frames:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-
-                # Draw ball trace only
-                for i in range(trace_length):
-                    idx = frame_idx - i
-                    if 0 <= idx < len(ball_positions):
-                        pos = ball_positions[idx]
-                        if pos[0] is not None:
-                            cv2.circle(
-                                frame,
-                                (int(pos[0]), int(pos[1])),
-                                radius=max(1, trace_thickness - i // 2),
-                                color=trace_color,
-                                thickness=-1,
-                            )
-
-                out.write(frame)
-                frame_idx += 1
-                pbar.update(1)
-
-        cap.release()
-        out.release()
-
-        print(f"✓ Saved raw video: {output_path}")
-
-    def create_annotated_video(
-        self, ball_positions, wall_hits, racket_hits, shots, output_dir, label=""
-    ):
+    def create_annotated_video(self, ball_positions, wall_hits, racket_hits, shots):
         """Create annotated video with ball tracking and shot classifications"""
         if not self.config["output"]["save_video"]:
             return
 
-        output_path = os.path.join(output_dir, "annotated.mp4")
+        print("\nCreating annotated video...")
+
+        output_path = os.path.join(self.output_dir, "annotated.mp4")
 
         # Setup video writer
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -554,7 +370,6 @@ class ComprehensiveEvaluator:
         trace_thickness = self.config["tracking"]["trace_thickness"]
 
         # Create frame-to-shot lookup
-        # First create racket hit frame lookup
         racket_hit_frames_list = sorted([hit["frame"] for hit in racket_hits])
 
         shot_by_frame = {}
@@ -569,18 +384,16 @@ class ComprehensiveEvaluator:
 
         # Shot type colors (BGR for OpenCV)
         shot_colors = {
-            ShotType.STRAIGHT_DRIVE: (204, 102, 0),  # Blue
-            ShotType.STRAIGHT_DROP: (255, 178, 102),  # Light blue
-            ShotType.CROSS_COURT_DRIVE: (0, 0, 204),  # Red
-            ShotType.CROSS_COURT_DROP: (102, 102, 255),  # Light red
-            ShotType.DOWN_LINE_DRIVE: (0, 204, 0),  # Green
-            ShotType.DOWN_LINE_DROP: (102, 255, 102),  # Light green
+            ShotType.STRAIGHT_DRIVE: (204, 102, 0),
+            ShotType.STRAIGHT_DROP: (255, 178, 102),
+            ShotType.CROSS_COURT_DRIVE: (0, 0, 204),
+            ShotType.CROSS_COURT_DROP: (102, 102, 255),
+            ShotType.DOWN_LINE_DRIVE: (0, 204, 0),
+            ShotType.DOWN_LINE_DROP: (102, 255, 102),
         }
 
         # Create frame-to-hit lookup (with display duration)
-        hit_display_duration = (
-            30  # Show hit markers for 15 frames (~0.5 seconds at 30fps)
-        )
+        hit_display_duration = 30
 
         wall_hit_frames = {}
         for hit in wall_hits:
@@ -596,8 +409,8 @@ class ComprehensiveEvaluator:
                 if frame < len(ball_positions):
                     racket_hit_frames[frame] = hit
 
-        # Process frames
-        max_frames = self.config["video"].get("max_frames", len(ball_positions))
+        # Process frames (process all frames from CSV)
+        max_frames = len(ball_positions)
         with tqdm(total=max_frames, desc="Rendering video", unit="frame") as pbar:
             frame_idx = 0
 
@@ -712,6 +525,66 @@ class ComprehensiveEvaluator:
                         2,
                     )
 
+                # Draw shot vectors (show for 2 seconds after racket hit)
+                if current_shot:
+                    vector_display_duration = int(2 * self.fps)  # 2 seconds
+                    frames_since_shot = frame_idx - current_shot.frame
+
+                    if frames_since_shot <= vector_display_duration and current_shot.wall_hit_pos:
+                        # Draw vector 1: Racket → Wall (attack vector) in cyan
+                        racket_pos = (
+                            int(current_shot.racket_hit_pos[0]),
+                            int(current_shot.racket_hit_pos[1])
+                        )
+                        wall_pos = (
+                            int(current_shot.wall_hit_pos[0]),
+                            int(current_shot.wall_hit_pos[1])
+                        )
+                        cv2.arrowedLine(
+                            frame,
+                            racket_pos,
+                            wall_pos,
+                            (255, 255, 0),  # Cyan
+                            3,
+                            tipLength=0.2
+                        )
+
+                        # Draw vector 2: Wall → Next Racket (rebound vector) in magenta
+                        next_racket_pos = (
+                            int(current_shot.next_racket_hit_pos[0]),
+                            int(current_shot.next_racket_hit_pos[1])
+                        )
+                        cv2.arrowedLine(
+                            frame,
+                            wall_pos,
+                            next_racket_pos,
+                            (255, 0, 255),  # Magenta
+                            3,
+                            tipLength=0.2
+                        )
+
+                        # Add vector labels
+                        cv2.putText(
+                            frame,
+                            "Attack",
+                            (int((racket_pos[0] + wall_pos[0]) / 2),
+                             int((racket_pos[1] + wall_pos[1]) / 2) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (255, 255, 0),
+                            2,
+                        )
+                        cv2.putText(
+                            frame,
+                            "Rebound",
+                            (int((wall_pos[0] + next_racket_pos[0]) / 2),
+                             int((wall_pos[1] + next_racket_pos[1]) / 2) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (255, 0, 255),
+                            2,
+                        )
+
                 out.write(frame)
                 frame_idx += 1
                 pbar.update(1)
@@ -719,51 +592,20 @@ class ComprehensiveEvaluator:
         cap.release()
         out.release()
 
-        if label:
-            print(f"✓ Saved {label} annotated video: {output_path}")
+        print(f"✓ Saved annotated video: {output_path}")
 
-    def save_raw_metrics(self, ball_positions, output_dir):
-        """Save simple tracking metrics for raw data"""
-        if not self.config["output"]["save_metrics"]:
-            return
-
-        output_path = os.path.join(output_dir, "metrics.txt")
-
-        total_frames = len(ball_positions)
-        detected_frames = sum(1 for pos in ball_positions if pos[0] is not None)
-        detection_rate = (
-            (detected_frames / total_frames * 100) if total_frames > 0 else 0
-        )
-
-        with open(output_path, "w") as f:
-            f.write("=" * 80 + "\n")
-            f.write("RAW BALL TRACKING METRICS\n")
-            f.write("=" * 80 + "\n\n")
-
-            f.write(f"Video: {self.video_name}\n")
-            f.write(f"Resolution: {self.width}x{self.height} @ {self.fps} fps\n\n")
-
-            f.write("TRACKING STATISTICS:\n")
-            f.write("-" * 80 + "\n")
-            f.write(f"Total frames:        {total_frames}\n")
-            f.write(f"Detected frames:     {detected_frames}\n")
-            f.write(f"Detection rate:      {detection_rate:.1f}%\n\n")
-
-            f.write("NOTE: This is raw tracking data without postprocessing.\n")
-            f.write("No hit detection or shot classification performed.\n")
-
-        print(f"✓ Saved raw metrics: {output_path}")
-
-    def save_detailed_report(self, shots, stats, output_dir, label=""):
+    def save_detailed_report(self, shots, stats):
         """Save detailed text report"""
         if not self.config["output"]["save_metrics"]:
             return
 
-        output_path = os.path.join(output_dir, "report.txt")
+        print("\nSaving detailed report...")
+
+        output_path = os.path.join(self.output_dir, "report.txt")
 
         with open(output_path, "w") as f:
             f.write("=" * 80 + "\n")
-            f.write("COMPREHENSIVE BALL TRACKING & SHOT CLASSIFICATION REPORT\n")
+            f.write("SHOT TYPE CLASSIFICATION REPORT\n")
             f.write("=" * 80 + "\n\n")
 
             f.write(f"Video: {self.video_name}\n")
@@ -800,7 +642,6 @@ class ComprehensiveEvaluator:
                     )
                     f.write(f"  Confidence:         {shot.confidence:.2f}\n")
 
-                    # Add wall hit information if available
                     if shot.wall_hit_pos is not None:
                         f.write(
                             f"  Wall hit:           ({shot.wall_hit_pos[0]:.0f}, {shot.wall_hit_pos[1]:.0f}) at frame {shot.wall_hit_frame}\n"
@@ -812,132 +653,48 @@ class ComprehensiveEvaluator:
 
                     f.write("\n")
 
-        if label:
-            print(f"✓ Saved {label} detailed report: {output_path}")
+        print(f"✓ Saved detailed report: {output_path}")
 
-    def run_evaluation(self):
-        """Run complete comprehensive evaluation pipeline"""
+    def evaluate(self):
+        """Run complete evaluation pipeline"""
         print("\n" + "=" * 60)
-        print("COMPREHENSIVE EVALUATION PIPELINE")
+        print("SHOT TYPE CLASSIFICATION EVALUATION")
         print("=" * 60)
 
-        # 1. Process video
-        ball_positions = self.process_video()
+        # Step 1: Load ball tracking data from CSV
+        ball_positions, wall_hits, racket_hits = self.load_csv_data()
 
-        # 2. Process both raw and postprocessed trajectories
-        results = self.postprocess_and_detect_hits(ball_positions)
+        # Step 2: Classify shots
+        shots = self.classify_shots(ball_positions, wall_hits, racket_hits)
 
-        # 3. Process RAW results - simple trajectory only, no hits or shots
-        print("\n" + "=" * 60)
-        print("PROCESSING RAW RESULTS")
-        print("=" * 60)
-        print(
-            "(Raw version: trajectory plots, metrics, and video only - no hit/shot detection)"
-        )
+        # Step 3: Print statistics
+        stats = self.print_statistics(ball_positions, wall_hits, racket_hits, shots)
 
-        # Calculate basic stats
-        total_frames = len(results["raw"]["positions"])
-        detected_frames = sum(
-            1 for pos in results["raw"]["positions"] if pos[0] is not None
-        )
-        detection_rate = (
-            (detected_frames / total_frames * 100) if total_frames > 0 else 0
-        )
+        # Step 4: Create visualizations
+        if self.config["output"]["save_plots"]:
+            self.create_trajectory_plots(ball_positions, wall_hits, racket_hits, shots)
 
-        print(f"\nRaw tracking statistics:")
-        print(f"  Total frames:     {total_frames}")
-        print(f"  Detected frames:  {detected_frames}")
-        print(f"  Detection rate:   {detection_rate:.1f}%")
+        if self.config["output"]["save_video"]:
+            self.create_annotated_video(ball_positions, wall_hits, racket_hits, shots)
 
-        print("\nCreating RAW visualizations...")
-        self.create_raw_trajectory_plots(
-            results["raw"]["positions"], self.raw_output_dir
-        )
-        self.create_raw_video(results["raw"]["positions"], self.raw_output_dir)
-        self.save_raw_metrics(results["raw"]["positions"], self.raw_output_dir)
+        if self.config["output"]["save_metrics"]:
+            self.save_detailed_report(shots, stats)
 
-        # 4. Process POSTPROCESSED results
-        print("\n" + "=" * 60)
-        print("PROCESSING POSTPROCESSED RESULTS")
-        print("=" * 60)
-
-        pp_shots = self.classify_shots(
-            results["postprocessed"]["positions"],
-            results["postprocessed"]["wall_hits"],
-            results["postprocessed"]["racket_hits"],
-        )
-
-        pp_stats = self.print_statistics(
-            results["postprocessed"]["positions"],
-            results["postprocessed"]["wall_hits"],
-            results["postprocessed"]["racket_hits"],
-            pp_shots,
-        )
-
-        print("\nCreating POSTPROCESSED visualizations...")
-        self.create_trajectory_plots(
-            results["postprocessed"]["positions"],
-            results["postprocessed"]["wall_hits"],
-            results["postprocessed"]["racket_hits"],
-            pp_shots,
-            self.postprocessed_output_dir,
-            label="postprocessed",
-        )
-
-        self.create_annotated_video(
-            results["postprocessed"]["positions"],
-            results["postprocessed"]["wall_hits"],
-            results["postprocessed"]["racket_hits"],
-            pp_shots,
-            self.postprocessed_output_dir,
-            label="postprocessed",
-        )
-
-        self.save_detailed_report(
-            pp_shots, pp_stats, self.postprocessed_output_dir, label="postprocessed"
-        )
-
-        # 5. Print comparison
-        print("\n" + "=" * 60)
-        print("RAW vs POSTPROCESSED COMPARISON")
-        print("=" * 60)
-        print(f"\nDetection Rate:")
-        print(f"  Raw:           {detection_rate:.1f}%")
-        print(f"  Postprocessed: {pp_stats['detection_rate']:.1f}%")
-        print(f"\nWall Hits:")
-        print(f"  Raw:           0 (not computed)")
-        print(f"  Postprocessed: {pp_stats['wall_hits']}")
-        print(f"\nRacket Hits:")
-        print(f"  Raw:           0 (not computed)")
-        print(f"  Postprocessed: {pp_stats['racket_hits']}")
-        print(f"\nClassified Shots:")
-        print(f"  Raw:           0 (not computed)")
-        print(f"  Postprocessed: {pp_stats['shots']}")
-
+        # Done
         print("\n" + "=" * 60)
         print("EVALUATION COMPLETE")
         print("=" * 60)
-        print(f"\nResults saved to:")
-        print(f"  Raw:           {self.raw_output_dir}")
-        print(f"                 (trajectory plots, metrics, video only)")
-        print(f"  Postprocessed: {self.postprocessed_output_dir}")
-        print(f"                 (full analysis with hits and shot classification)")
+        print(f"\nResults saved to: {self.output_dir}")
 
         return {
-            "raw": {
-                "positions": results["raw"]["positions"],
-                "detection_rate": detection_rate,
-            },
-            "postprocessed": {
-                "positions": results["postprocessed"]["positions"],
-                "wall_hits": results["postprocessed"]["wall_hits"],
-                "racket_hits": results["postprocessed"]["racket_hits"],
-                "shots": pp_shots,
-                "stats": pp_stats,
-            },
+            "positions": ball_positions,
+            "wall_hits": wall_hits,
+            "racket_hits": racket_hits,
+            "shots": shots,
+            "stats": stats,
         }
 
 
 if __name__ == "__main__":
-    evaluator = ComprehensiveEvaluator()
-    results = evaluator.run_evaluation()
+    evaluator = ShotClassificationEvaluator()
+    results = evaluator.evaluate()
