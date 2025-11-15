@@ -1,0 +1,78 @@
+# Rally State Detection Configuration
+# Configuration for detecting rally states (start, play/active, end) using ML or rule-based models
+
+# General Configuration
+window_size: 50  # Number of frames to aggregate for feature extraction
+active_model: ml_based  # Model to use: 'ml_based' or 'rule_based'
+
+# Feature Engineering
+feature_engineering:
+  lookback_frames: 3  # Number of previous frames to use for temporal features
+  court_center_x: 3.2  # X coordinate of court center (meters)
+  service_line_y: 5.44  # Y coordinate of service line (meters)
+
+# Model Configurations
+models:
+  # Machine Learning Based Model (XGBoost)
+  ml_based:
+    model_path: model/weights/rally_state_model.pkl  # Path to trained model
+    model_type: xgboost  # Type of ML model
+    n_estimators: 200  # Number of boosting rounds
+    max_depth: 6  # Maximum tree depth
+    learning_rate: 0.1  # Learning rate
+
+  # Rule-Based Model
+  rule_based:
+    lookback_frames: 2  # Frames to look back for state transitions
+
+    # Start State Thresholds
+    start_state:
+      distance_min: 2.0  # Minimum distance between players (meters)
+      distance_max: 3.0  # Maximum distance between players (meters)
+
+    # Active/Play State Thresholds
+    active_state:
+      distance_max: 2.5  # Maximum distance between players during play (meters)
+
+    # End State Thresholds
+    end_state:
+      distance_min: 3.5  # Minimum distance when rally ends (meters)
+
+    # Court Geometry
+    court_center_x: 3.2  # X coordinate of court center (meters)
+    service_line_y: 5.44  # Y coordinate of service line (meters)
+
+    # Service Box Coordinates (meters)
+    service_boxes:
+      left:
+        x_min: 0.0
+        x_max: 1.6
+        y_min: 5.44
+        y_max: 7.04
+      right:
+        x_min: 4.8
+        x_max: 6.4
+        y_min: 5.44
+        y_max: 7.04
+
+# Postprocessing
+postprocessing:
+  # Minimum duration for each state (frames)
+  min_duration:
+    start: 1
+    active: 4
+    end: 2
+
+# Test Configuration
+tests:
+  data:
+    data_dir: data
+    video_name: video-2
+  evaluation:
+    tolerance_frames: 2
+  output:
+    output_dir: outputs
+    plot_dpi: 300
+  annotations:
+    video_path: videos/video-2.mp4
+    data_path: data

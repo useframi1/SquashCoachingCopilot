@@ -1,0 +1,47 @@
+# Annotation Module Configuration
+# Configuration for video annotation pipeline
+
+# Video Settings
+video:
+    name: video-1.mp4 # Name of the video file to annotate (in annotation/data/)
+    max_frames: 10 # Maximum number of frames to process (null = process all frames)
+
+# Visualization Settings
+visualization:
+    ball_trail_length: 30 # Number of previous ball positions to show in trajectory
+    player_colors: # BGR colors for each player
+        player_1: [0, 255, 0] # Green
+        player_2: [255, 0, 0] # Blue
+    ball_color: [0, 255, 255] # Yellow (BGR)
+    court_color: [255, 255, 0] # Cyan (BGR)
+    wall_hit_color: [0, 0, 255] # Red (BGR)
+    racket_hit_color: [255, 0, 255] # Magenta (BGR)
+
+    # Hit marker settings
+    wall_hit_marker:
+        circle_radius: 20
+        text: "WALL HIT"
+        text_position: [50, 50]
+
+    racket_hit_marker:
+        circle_radius: 25
+        text: "RACKET HIT"
+        text_position: [50, 100]
+
+    # Drawing parameters
+    bbox_thickness: 2
+    skeleton_thickness: 2
+    court_thickness: 2
+    keypoint_radius: 3
+    keypoint_confidence_threshold: 0.5
+    font: 0 # cv2.FONT_HERSHEY_SIMPLEX
+    font_scale: 1.5
+    font_thickness: 3
+    label_font_scale: 0.7
+    label_font_thickness: 2
+
+# Output Settings
+output:
+    video_codec: mp4v # FourCC codec for output video
+    csv_index: false # Whether to include index in CSV output
+    progress_update_interval: 100 # Print progress every N frames

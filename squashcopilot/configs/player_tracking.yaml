@@ -1,0 +1,44 @@
+# Player Tracking Configuration
+# Configuration for detecting and tracking two squash players using YOLO and ReID
+
+# Model Configuration
+models:
+    yolo_model: model/weights/yolov8m-pose.pt # Path to YOLOv8 pose estimation model
+    reid_feature_size: 512 # Feature vector size for ReID model
+    reid_input_size: [224, 224] # Input image size for ReID model [width, height]
+
+# Tracker Configuration
+tracker:
+    max_history: 30 # Maximum number of frames to keep in position history
+    reid_threshold: 0.07 # Threshold for ReID feature similarity (lower = more strict)
+    reid_weight: 0.1 # Weight for ReID in player matching (0-1)
+    position_weight: 0.9 # Weight for position proximity in player matching (0-1)
+    smoothing_sigma: 2.0 # Gaussian smoothing sigma for trajectory smoothing
+
+# Test Configuration
+tests:
+    paths:
+        test_video: data/test_video.mp4
+        coco_annotations: data/_annotations.coco.json
+        output_video: outputs/tracking_output.mp4
+        output_results: outputs/tracking_results.txt
+    evaluation:
+        iou_threshold: 0.5
+        player_1_class_id: 1
+        player_2_class_id: 2
+    processing:
+        max_frames: null
+        progress_interval: 100
+    visualization:
+        display: true
+        player_1_color: [0, 255, 0]
+        player_2_color: [0, 0, 255]
+        circle_radius: 5
+        bbox_thickness: 2
+        window_name: Tracking Evaluation
+    output:
+        video_codec: mp4v
+        results_precision: 3
+    frame_formatting:
+        video_name: clip2
+        pattern: "{video_name}_mp4-{frame_number:04d}.jpg"

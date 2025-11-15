@@ -1,0 +1,111 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "squashcopilot"
+version = "0.1.0"
+description = "AI-powered squash coaching system for analyzing player performance from video"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "Youssef", email = "youssef@example.com"}
+]
+keywords = ["squash", "computer-vision", "sports-analytics", "ai", "coaching"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "numpy>=1.21.0",
+    "opencv-python>=4.5.0",
+    "torch>=1.9.0",
+    "torchvision>=0.10.0",
+    "ultralytics>=8.0.0",
+    "scipy>=1.7.0",
+    "pandas>=1.3.0",
+    "scikit-learn>=1.0.0",
+    "xgboost>=1.5.0",
+    "joblib>=1.0.0",
+    "inference>=0.9.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "mypy>=0.950",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/squashcopilot"
+Repository = "https://github.com/yourusername/squashcopilot"
+Documentation = "https://github.com/yourusername/squashcopilot/blob/main/README.md"
+
+[tool.setuptools]
+packages = [
+    "squashcopilot",
+    "squashcopilot.common",
+    "squashcopilot.common.models",
+    "squashcopilot.common.types",
+    "squashcopilot.modules",
+    "squashcopilot.modules.ball_tracking",
+    "squashcopilot.modules.ball_tracking.model",
+    "squashcopilot.modules.court_calibration",
+    "squashcopilot.modules.player_tracking",
+    "squashcopilot.modules.player_tracking.model",
+    "squashcopilot.modules.rally_state_detection",
+    "squashcopilot.modules.rally_state_detection.model",
+    "squashcopilot.modules.rally_state_detection.utilities",
+    "squashcopilot.modules.shot_type_classification",
+    "squashcopilot.modules.stroke_detection",
+    "squashcopilot.modules.stroke_detection.model",
+    "squashcopilot.annotation",
+]
+
+[tool.setuptools.package-data]
+"squashcopilot" = ["configs/*.yaml", "configs/tests/*.yaml"]
+"squashcopilot.modules.ball_tracking" = ["model/weights/*.pt"]
+"squashcopilot.modules.player_tracking" = ["model/weights/*.pt"]
+"squashcopilot.modules.rally_state_detection" = ["model/weights/*.pkl"]
+"squashcopilot.modules.stroke_detection" = ["model/weights/*.pt"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | __pycache__
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["squashcopilot/modules/*/tests"]
+python_files = ["test_*.py", "*_test.py", "evaluator.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=squashcopilot --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true

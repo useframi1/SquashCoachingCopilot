@@ -1,0 +1,31 @@
+# Shot Type Classification Configuration
+# Configuration for classifying shot types based on ball trajectory analysis
+
+shot_classification:
+  # Direction Classification Thresholds
+  direction_thresholds:
+    straight_max_angle_deg: 30  # Maximum angle for straight shots (degrees)
+    cross_min_angle_deg: 120  # Minimum angle for cross-court shots (degrees)
+
+  # Depth Classification Thresholds
+  depth_thresholds:
+    drop_max_rebound_distance_px: 100  # Maximum rebound distance for drop shots (pixels)
+
+  # Feature Extraction Windows
+  feature_windows:
+    velocity_frames: 5  # Number of frames for velocity calculation
+    acceleration_frames: 10  # Number of frames for acceleration calculation
+
+# Test Configuration
+tests:
+  test_video: video-3
+  tracking:
+    trace_length: 5
+    trace_color: [0, 0, 255]
+    trace_thickness: 10
+  output:
+    output_dir: outputs
+    save_video: true
+    save_plots: true
+    save_metrics: true
+    plot_dpi: 300

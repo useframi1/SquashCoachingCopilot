@@ -1,0 +1,12 @@
+BALL TRACKING METRICS
+==================================================
+
+Detection Performance:
+  Total frames:          10
+  Detected frames:       5
+  Detection rate:        50.00%
+
+Wall Hit Detection:
+  Total hits:            0
+Racket Hit Detection:
+  Total hits:            0

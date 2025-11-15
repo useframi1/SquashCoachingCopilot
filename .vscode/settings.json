@@ -3,10 +3,13 @@
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python-envs.pythonProjects": [],
     "python.analysis.extraPaths": [
-        "${workspaceFolder}/cv-module/digitization/detection-tracking/court-detection/pipeline",
-        "${workspaceFolder}/cv-module/digitization/detection-tracking/player-detection/pipeline",
-        "${workspaceFolder}/cv-module/digitization/detection-tracking/ball-detection/pipeline",
-        "${workspaceFolder}/cv-module/digitization/event-recognition/rally-segmentation/pipeline",
-        "${workspaceFolder}/cv-module/digitization/event-recognition/stroke-detection/pipeline"
+        "${workspaceFolder}/common/models",
+        "${workspaceFolder}/common/types",
+        "${workspaceFolder}/modules/ball-detection",
+        "${workspaceFolder}/modules/court-detection",
+        "${workspaceFolder}/modules/player-detection",
+        "${workspaceFolder}/modules/rally-segmentation",
+        "${workspaceFolder}/modules/shot-type-classification",
+        "${workspaceFolder}/modules/stroke-detection"
     ]
 }

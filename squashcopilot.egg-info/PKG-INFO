@@ -1,0 +1,41 @@
+Metadata-Version: 2.4
+Name: squashcopilot
+Version: 0.1.0
+Summary: AI-powered squash coaching system for analyzing player performance from video
+Author-email: Youssef <youssef@example.com>
+Project-URL: Homepage, https://github.com/yourusername/squashcopilot
+Project-URL: Repository, https://github.com/yourusername/squashcopilot
+Project-URL: Documentation, https://github.com/yourusername/squashcopilot/blob/main/README.md
+Keywords: squash,computer-vision,sports-analytics,ai,coaching
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Scientific/Engineering :: Image Recognition
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.21.0
+Requires-Dist: opencv-python>=4.5.0
+Requires-Dist: torch>=1.9.0
+Requires-Dist: torchvision>=0.10.0
+Requires-Dist: ultralytics>=8.0.0
+Requires-Dist: scipy>=1.7.0
+Requires-Dist: pandas>=1.3.0
+Requires-Dist: scikit-learn>=1.0.0
+Requires-Dist: xgboost>=1.5.0
+Requires-Dist: joblib>=1.0.0
+Requires-Dist: inference>=0.9.0
+Requires-Dist: pyyaml>=6.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=3.0.0; extra == "dev"
+Requires-Dist: black>=22.0.0; extra == "dev"
+Requires-Dist: flake8>=4.0.0; extra == "dev"
+Requires-Dist: mypy>=0.950; extra == "dev"
+
+# SquashCoachingCopilot

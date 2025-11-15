@@ -1,0 +1,46 @@
+# Ball Tracking Configuration
+# Configuration for ball detection, tracking, and hit detection in squash videos
+
+# TrackNet Model Configuration
+model:
+    model_path: model/weights/model_best.pt # Path to TrackNet model weights
+    device: auto # Device for inference: 'auto', 'cpu', or 'cuda:0'
+    model_width: 640 # Model input width in pixels
+    model_height: 360 # Model input height in pixels
+
+# Trajectory Postprocessing
+postprocessing:
+    window: 20 # Rolling window size for outlier detection (frames)
+    threshold: 80 # Maximum distance threshold for outlier removal (pixels)
+
+# Wall Hit Detection
+wall_hit_detection:
+    prominence: 50.0 # Minimum valley prominence for detecting wall hits
+    width: 10 # Minimum width of valleys (frames)
+    min_distance: 50 # Minimum distance between consecutive hits (frames)
+
+# Racket Hit Detection
+racket_hit_detection:
+    slope_window: 10 # Window size for slope calculation (frames)
+    slope_threshold: 3.0 # Minimum negative slope to detect racket hit
+    min_distance: 15 # Minimum distance between consecutive hits (frames)
+    lookback_frames: 50 # Number of frames to look back from wall hit
+
+# Test Configuration
+tests:
+    video:
+        input_path: data/video-1.mp4
+        max_frames: 10
+    tracking:
+        trace_length: 5
+        trace_color: [0, 0, 255]
+        trace_thickness: 10
+    hit_detection:
+        wall_hits_enabled: true
+        racket_hits_enabled: true
+    output:
+        output_dir: outputs
+        save_video: true
+        save_plots: true
+        save_metrics: true
+        plot_dpi: 300

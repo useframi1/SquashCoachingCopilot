@@ -1,7 +1,0 @@
-numpy
-opencv-python
-torch
-torchvision
-torchaudio
-ultralytics
-scipy
