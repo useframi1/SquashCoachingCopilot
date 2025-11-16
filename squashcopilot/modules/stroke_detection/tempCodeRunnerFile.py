@@ -1,0 +1,1 @@
+_strokes_ann

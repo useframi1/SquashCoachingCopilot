@@ -3,35 +3,42 @@
 
 # Model Configuration
 model:
-  model_path: model/weights/lstm_model.pt  # Path to trained LSTM model weights
+    model_path: model/weights/lstm_model.pt # Path to trained LSTM model weights
 
 # Detection Parameters
 detection:
-  window_size: 15  # Sliding window size for temporal sequence (frames)
-  confidence_threshold: 0.5  # Minimum confidence for stroke detection (0-1)
-  cooldown_frames: 5  # Minimum frames between consecutive stroke detections
+    window_size: 15 # Sliding window size for temporal sequence (frames)
+    confidence_threshold: 0.5 # Minimum confidence for stroke detection (0-1)
+    cooldown_frames: 5 # Minimum frames between consecutive stroke detections
 
-# Keypoint Configuration (COCO format indices)
-keypoints:
-  # COCO keypoint indices for upper body and legs
-  relevant_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+# # Keypoint Configuration (COCO format indices)
+# keypoints:
+#   # COCO keypoint indices for upper body and legs
+#   relevant_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
-  # Human-readable names for the keypoints
-  relevant_names:
-    - left_shoulder   # Index 5
-    - right_shoulder  # Index 6
-    - left_elbow      # Index 7
-    - right_elbow     # Index 8
-    - left_wrist      # Index 9
-    - right_wrist     # Index 10
-    - left_hip        # Index 11
-    - right_hip       # Index 12
-    - left_knee       # Index 13
-    - right_knee      # Index 14
-    - left_ankle      # Index 15
-    - right_ankle     # Index 16
+#   # Human-readable names for the keypoints
+#   relevant_names:
+#     - left_shoulder   # Index 5
+#     - right_shoulder  # Index 6
+#     - left_elbow      # Index 7
+#     - right_elbow     # Index 8
+#     - left_wrist      # Index 9
+#     - right_wrist     # Index 10
+#     - left_hip        # Index 11
+#     - right_hip       # Index 12
+#     - left_knee       # Index 13
+#     - right_knee      # Index 14
+#     - left_ankle      # Index 15
+#     - right_ankle     # Index 16
 
 # Normalization Settings
 normalization:
-  method: hip_torso  # Normalization method: relative to hip center and torso length
-  min_torso_length: 1.0e-6  # Minimum torso length to avoid division by zero
+    method: hip_torso # Normalization method: relative to hip center and torso length
+    min_torso_length: 1.0e-6 # Minimum torso length to avoid division by zero
+
+# Annotation Settings
+annotation:
+    video_name: video-5 # Name of the video to annotate (e.g., video-1, video-2, etc.)
+    annotation_dir: squashcopilot/annotation/annotations # Directory containing annotation folders
+    output_dir: squashcopilot/modules/stroke_detection/data # Directory to save annotated stroke data
+    frame_window: 15 # Number of frames before/after racket hit to show
