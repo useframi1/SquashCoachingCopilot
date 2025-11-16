@@ -5,9 +5,15 @@ Detects racket hits by finding steep negative slopes (downward) before wall hits
 """
 
 import numpy as np
+import math
 from squashcopilot.common.utils import load_config
 
-from squashcopilot.common import Point2D, RacketHitInput, RacketHit, RacketHitDetectionResult
+from squashcopilot.common import (
+    Point2D,
+    RacketHitInput,
+    RacketHit,
+    RacketHitDetectionResult,
+)
 
 
 class RacketHitDetector:
@@ -28,7 +34,7 @@ class RacketHitDetector:
             config: Configuration dictionary. If None, loads from config.json
         """
         if config is None:
-            config = load_config(config_name='ball_tracking')
+            config = load_config(config_name="ball_tracking")
 
         racket_config = config.get("racket_hit_detection", {})
         self.slope_window = racket_config.get("slope_window", 5)
@@ -40,7 +46,7 @@ class RacketHitDetector:
         """Detect racket hits using steep negative slopes (downward) before wall hits.
 
         Args:
-            input_data: RacketHitInput with positions, wall hits, and config
+            input_data: RacketHitInput with positions, wall hits, player positions, and config
 
         Returns:
             RacketHitDetectionResult with detected racket hits
@@ -112,6 +118,7 @@ class RacketHitDetector:
                 ):
                     continue
 
+                # Placeholder player_id (will be assigned later)
                 racket_hit = RacketHit(
                     frame=int(min_slope_frame),
                     position=Point2D(
@@ -119,7 +126,71 @@ class RacketHitDetector:
                         y=float(y_coords[min_slope_frame]),
                     ),
                     slope=float(min_slope),
+                    player_id=0,  # Will be assigned in attribution step
                 )
                 racket_hits.append(racket_hit)
 
+        # Attribute racket hits to players
+        racket_hits = self._attribute_hits_to_players(
+            racket_hits, input_data.player_positions
+        )
+
         return RacketHitDetectionResult(racket_hits=racket_hits)
+
+    def _attribute_hits_to_players(self, racket_hits, player_positions):
+        """Attribute racket hits to players based on distance comparison.
+
+        For the first hit, determine player by comparing distances to both players.
+        The player closest to the hit gets attributed.
+        For subsequent hits, alternate between players.
+
+        Args:
+            racket_hits: List of RacketHit objects
+            player_positions: Dict mapping player_id to list of positions
+
+        Returns:
+            List of RacketHit objects with player_id assigned
+        """
+        if not racket_hits or not player_positions:
+            return racket_hits
+
+        # Determine first player based on distance comparison
+        first_hit = racket_hits[0]
+        first_hit_pos = first_hit.position
+        first_hit_frame = first_hit.frame
+
+        # Calculate distance to each player at the first hit frame
+        min_distance = float("inf")
+        first_player = 1  # Default to player 1
+
+        for player_id, positions in player_positions.items():
+            if first_hit_frame < len(positions):
+                player_pos = positions[first_hit_frame]
+                # Calculate Euclidean distance
+                dx = first_hit_pos.x - player_pos.x
+                dy = first_hit_pos.y - player_pos.y
+                distance = np.sqrt(dx**2 + dy**2)
+
+                if distance < min_distance:
+                    min_distance = distance
+                    first_player = player_id
+
+        # Assign to the closest player (no threshold check)
+        current_player = first_player
+
+        # Assign player IDs with alternation
+        updated_hits = []
+        for hit in racket_hits:
+            # Create new RacketHit with updated player_id
+            updated_hit = RacketHit(
+                frame=hit.frame,
+                position=hit.position,
+                slope=hit.slope,
+                player_id=current_player,
+            )
+            updated_hits.append(updated_hit)
+
+            # Alternate for next hit
+            current_player = 2 if current_player == 1 else 1
+
+        return updated_hits

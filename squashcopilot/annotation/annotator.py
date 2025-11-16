@@ -96,7 +96,7 @@ class Annotator:
         if not video_path.exists():
             raise FileNotFoundError(f"Video not found: {video_path}")
 
-        max_frames = self.config.get('video', {}).get('max_frames')
+        max_time = self.config.get('video', {}).get('max_time')
 
         print(f"Processing video: {video_name}")
 
@@ -107,10 +107,12 @@ class Annotator:
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # Limit frames if max_frames is specified
-        if max_frames is not None and max_frames > 0:
-            total_frames = min(total_frames, max_frames)
-            print(f"Video info: {total_frames} frames (limited from {int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}), {fps:.2f} FPS, {width}x{height}")
+        # Limit frames based on max_time (seconds)
+        original_total_frames = total_frames
+        if max_time is not None and max_time > 0:
+            # Convert max_time (seconds) to frames
+            total_frames = min(total_frames, int(max_time * fps))
+            print(f"Video info: {total_frames} frames (limited to {max_time}s from {original_total_frames}), {fps:.2f} FPS, {width}x{height}")
         else:
             print(f"Video info: {total_frames} frames, {fps:.2f} FPS, {width}x{height}")
 
@@ -130,6 +132,7 @@ class Annotator:
             raise RuntimeError("Court calibration failed on first frame")
 
         floor_homography = court_result.get_homography('floor')
+        wall_homography = court_result.get_homography('wall')
         court_keypoints = court_result.keypoints_per_class
 
         print("Court calibration successful")
@@ -240,7 +243,7 @@ class Annotator:
         # Step 8: Detect wall hits
         print("Detecting wall hits...")
         wall_hits_result = self.wall_hit_detector.detect(
-            WallHitInput(positions=ball_positions_smooth)
+            WallHitInput(positions=ball_positions_smooth, wall_homography=wall_homography)
         )
         print(f"Detected {wall_hits_result.num_hits} wall hits")
 
@@ -249,7 +252,8 @@ class Annotator:
         racket_hits_result = self.racket_hit_detector.detect(
             RacketHitInput(
                 positions=ball_positions_smooth,
-                wall_hits=wall_hits_result.wall_hits
+                wall_hits=wall_hits_result.wall_hits,
+                player_positions=player_positions_smooth
             )
         )
         print(f"Detected {racket_hits_result.num_hits} racket hits")
@@ -268,14 +272,18 @@ class Annotator:
 
         # Step 11: Save CSV
         video_base_name = Path(video_name).stem
-        csv_path = self.annotations_dir / f"{video_base_name}_annotations.csv"
+        # Create video-specific subdirectory in annotations
+        video_annotations_dir = self.annotations_dir / video_base_name
+        video_annotations_dir.mkdir(exist_ok=True)
+
+        csv_path = video_annotations_dir / f"{video_base_name}_annotations.csv"
         csv_index = self.config.get('output', {}).get('csv_index', False)
         df.to_csv(csv_path, index=csv_index)
         print(f"Saved annotations to: {csv_path}")
 
         # Step 12: Create annotated video
         print("Creating annotated video...")
-        annotated_video_path = self.annotations_dir / f"{video_base_name}_annotated.mp4"
+        annotated_video_path = video_annotations_dir / f"{video_base_name}_annotated.mp4"
         self._create_annotated_video(
             video_path=video_path,
             output_path=annotated_video_path,
@@ -307,6 +315,13 @@ class Annotator:
         # Create wall and racket hit frame sets for quick lookup
         wall_hit_frames = {hit.frame for hit in wall_hits}
         racket_hit_frames = {hit.frame for hit in racket_hits}
+
+        # Create dictionaries for wall hit positions (pixel and meter)
+        wall_hit_positions = {hit.frame: hit.position for hit in wall_hits}
+        wall_hit_positions_meter = {hit.frame: hit.position_meter for hit in wall_hits}
+
+        # Create dictionaries for racket hit player IDs
+        racket_hit_players = {hit.frame: hit.player_id for hit in racket_hits}
 
         # Build rows
         rows = []
@@ -356,6 +371,29 @@ class Annotator:
             row['is_wall_hit'] = frame_idx in wall_hit_frames
             row['is_racket_hit'] = frame_idx in racket_hit_frames
 
+            # Racket hit player ID
+            if frame_idx in racket_hit_players:
+                row['racket_hit_player_id'] = racket_hit_players[frame_idx]
+            else:
+                row['racket_hit_player_id'] = None
+
+            # Wall hit positions (pixel and meter coordinates)
+            if frame_idx in wall_hit_positions:
+                wall_hit_pos = wall_hit_positions[frame_idx]
+                row['wall_hit_x_pixel'] = wall_hit_pos.x
+                row['wall_hit_y_pixel'] = wall_hit_pos.y
+            else:
+                row['wall_hit_x_pixel'] = None
+                row['wall_hit_y_pixel'] = None
+
+            if frame_idx in wall_hit_positions_meter and wall_hit_positions_meter[frame_idx] is not None:
+                wall_hit_pos_meter = wall_hit_positions_meter[frame_idx]
+                row['wall_hit_x_meter'] = wall_hit_pos_meter.x
+                row['wall_hit_y_meter'] = wall_hit_pos_meter.y
+            else:
+                row['wall_hit_x_meter'] = None
+                row['wall_hit_y_meter'] = None
+
             rows.append(row)
 
         return pd.DataFrame(rows)
@@ -392,9 +430,13 @@ class Annotator:
         # Create dictionaries mapping frame to hit position
         wall_hit_positions = {hit.frame: hit.position for hit in wall_hits}
         racket_hit_positions = {hit.frame: hit.position for hit in racket_hits}
+        racket_hit_players = {hit.frame: hit.player_id for hit in racket_hits}
 
         # Calculate hit marker duration in frames (1 second)
         hit_marker_duration = int(fps * 1)
+
+        # Track player hit indicator (show for 1 second)
+        player_hit_indicator = None  # (player_id, frames_remaining)
 
         # Open input video
         cap = cv2.VideoCapture(str(video_path))
@@ -517,6 +559,10 @@ class Annotator:
                         hit_text_thickness
                     )
 
+            # Set player hit indicator when a racket hit occurs
+            if frame_idx in racket_hit_players:
+                player_hit_indicator = (racket_hit_players[frame_idx], hit_marker_duration)
+
             # Draw racket hit markers (persist for hit_marker_duration frames)
             for hit_frame, hit_pos in racket_hit_positions.items():
                 if hit_frame <= frame_idx < hit_frame + hit_marker_duration:
@@ -549,6 +595,17 @@ class Annotator:
                         racket_hit_color,
                         hit_text_thickness
                     )
+
+            # Draw player hit indicator
+            if player_hit_indicator is not None:
+                player_id, frames_remaining = player_hit_indicator
+                self._draw_player_hit_indicator(frame, player_id, player_colors)
+                # Decrement counter
+                frames_remaining -= 1
+                if frames_remaining > 0:
+                    player_hit_indicator = (player_id, frames_remaining)
+                else:
+                    player_hit_indicator = None
 
             out.write(frame)
 
@@ -631,6 +688,36 @@ class Annotator:
                 if conf > keypoint_conf_threshold:
                     cv2.circle(frame, (int(x), int(y)), keypoint_radius, color, -1)
 
+    def _draw_player_hit_indicator(self, frame: np.ndarray, player_id: int, player_colors: Dict[int, tuple]):
+        """Draw player hit indicator in top-left corner.
+
+        Args:
+            frame: Frame to draw on
+            player_id: ID of player who hit (1 or 2)
+            player_colors: Dictionary mapping player_id to BGR color tuple
+        """
+        text = f"PLAYER {player_id} HIT!"
+        position = (20, 50)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.2
+        thickness = 3
+
+        # Get color for this player
+        color = player_colors.get(player_id, (255, 255, 255))
+
+        # Draw background rectangle
+        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+        bg_x1 = position[0] - 10
+        bg_y1 = position[1] - text_size[1] - 10
+        bg_x2 = position[0] + text_size[0] + 10
+        bg_y2 = position[1] + 10
+
+        cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+        cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), color, 3)
+
+        # Draw text
+        cv2.putText(frame, text, position, font, font_scale, color, thickness)
+
     def load_annotations(self, video_name: str) -> pd.DataFrame:
         """
         Load annotations from CSV file.
@@ -645,7 +732,7 @@ class Annotator:
             FileNotFoundError: If annotations file doesn't exist
         """
         video_base_name = Path(video_name).stem
-        csv_path = self.annotations_dir / f"{video_base_name}_annotations.csv"
+        csv_path = self.annotations_dir / video_base_name / f"{video_base_name}_annotations.csv"
 
         if not csv_path.exists():
             raise FileNotFoundError(f"Annotations not found: {csv_path}")

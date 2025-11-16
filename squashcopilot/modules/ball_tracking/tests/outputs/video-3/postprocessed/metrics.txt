@@ -8,8 +8,5 @@ Detection Performance:
 
 Wall Hit Detection:
   Total hits:            11
-  Avg interval:          1.37 sec
-
 Racket Hit Detection:
   Total hits:            11
-  Avg interval:          1.38 sec

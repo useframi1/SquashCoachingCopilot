@@ -79,12 +79,21 @@ class WallHitDetector:
         # Build WallHit objects
         wall_hits = []
         for i, peak_idx in enumerate(peaks):
+            # Get pixel position
+            position = Point2D(
+                x=float(x_coords[peak_idx]), y=float(y_coords[peak_idx])
+            )
+
+            # Transform to wall meter coordinates if homography is provided
+            position_meter = None
+            if input_data.wall_homography is not None:
+                position_meter = input_data.wall_homography.transform_point(position)
+
             wall_hit = WallHit(
                 frame=int(peak_idx),
-                position=Point2D(
-                    x=float(x_coords[peak_idx]), y=float(y_coords[peak_idx])
-                ),
+                position=position,
                 prominence=float(properties["prominences"][i]),
+                position_meter=position_meter
             )
             wall_hits.append(wall_hit)
 

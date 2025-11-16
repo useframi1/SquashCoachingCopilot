@@ -248,7 +248,8 @@ class PlayerTracker:
             return keypoints_list
 
         # Get the number of keypoints from the first valid entry
-        num_keypoints = len(keypoints_list[valid_indices[0]].xy)
+        # xy contains [x0, y0, x1, y1, ...] so divide by 2 to get number of keypoints
+        num_keypoints = len(keypoints_list[valid_indices[0]].xy) // 2
 
         # Interpolate each keypoint coordinate separately
         interpolated_keypoints = []
@@ -264,8 +265,9 @@ class PlayerTracker:
 
                 for kp_idx in range(num_keypoints):
                     # Extract x, y coordinates for this keypoint across all valid frames
-                    valid_x = [keypoints_list[i].xy[kp_idx] for i in valid_indices]
-                    valid_y = [keypoints_list[i].xy[kp_idx + num_keypoints] for i in valid_indices]
+                    # xy format is [x0, y0, x1, y1, ...] so x is at kp_idx*2, y is at kp_idx*2+1
+                    valid_x = [keypoints_list[i].xy[kp_idx * 2] for i in valid_indices]
+                    valid_y = [keypoints_list[i].xy[kp_idx * 2 + 1] for i in valid_indices]
 
                     # Interpolate for current frame
                     if len(valid_indices) > 1:

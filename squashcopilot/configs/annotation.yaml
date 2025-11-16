@@ -3,16 +3,16 @@
 
 # Video Settings
 video:
-    name: video-1.mp4 # Name of the video file to annotate (in annotation/data/)
-    max_frames: 200 # Maximum number of frames to process (null = process all frames)
+    name: video-5.mp4 # Name of the video file to annotate (in annotation/data/)
+    max_time: 300 # Maximum duration to process in seconds (null = process entire video)
 
 # Visualization Settings
 visualization:
-    ball_trail_length: 30 # Number of previous ball positions to show in trajectory
+    ball_trail_length: 5 # Number of previous ball positions to show in trajectory
     player_colors: # BGR colors for each player
         player_1: [0, 255, 0] # Green
         player_2: [255, 0, 0] # Blue
-    ball_color: [0, 255, 255] # Yellow (BGR)
+    ball_color: [255, 255, 255] # White (BGR)
     court_color: [255, 255, 0] # Cyan (BGR)
     wall_hit_color: [0, 0, 255] # Red (BGR)
     racket_hit_color: [255, 0, 255] # Magenta (BGR)

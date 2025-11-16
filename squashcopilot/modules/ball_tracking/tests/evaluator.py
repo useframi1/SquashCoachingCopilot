@@ -17,6 +17,7 @@ from squashcopilot.modules.ball_tracking import (
     RacketHitDetector,
 )
 from squashcopilot.modules.court_calibration import CourtCalibrator
+from squashcopilot.modules.player_tracking import PlayerTracker
 
 from squashcopilot.common import (
     Frame,
@@ -26,6 +27,8 @@ from squashcopilot.common import (
     WallColorDetectionInput,
     WallHitInput,
     RacketHitInput,
+    PlayerTrackingInput,
+    PlayerPostprocessingInput,
 )
 from squashcopilot.common.utils import load_config
 
@@ -50,12 +53,15 @@ class BallTrackingEvaluator:
         self.wall_hit_detector = WallHitDetector()
         self.racket_hit_detector = RacketHitDetector()
         self.court_calibrator = CourtCalibrator()
+        self.player_tracker = PlayerTracker()
 
         # Video properties (set during processing)
         self.video_name = None
         self.fps = None
         self.width = None
         self.height = None
+        self.wall_homography = None
+        self.floor_homography = None
 
     def detect_ball_positions(self):
         """Detect ball positions in all frames.
@@ -79,9 +85,10 @@ class BallTrackingEvaluator:
         print(f"Resolution: {self.width}x{self.height} @ {self.fps} fps")
         print(f"Processing {total_frames} frames\n")
 
-        # Detect ball in each frame
+        # Detect ball and track players in each frame
         positions = []
-        pbar = tqdm(total=total_frames, desc="Detecting ball")
+        player_positions_raw = {1: [], 2: []}
+        pbar = tqdm(total=total_frames, desc="Tracking ball and players")
 
         frame_count = 0
         while cap.isOpened() and frame_count < total_frames:
@@ -95,6 +102,14 @@ class BallTrackingEvaluator:
                     frame=Frame(image=frame, frame_number=0, timestamp=0.0)
                 )
                 court_result = self.court_calibrator.process_frame(court_input)
+
+                # Store homographies for hit detection
+                self.wall_homography = court_result.get_homography('wall')
+                self.floor_homography = court_result.get_homography('floor')
+
+                # Set homography for player tracker
+                if self.floor_homography:
+                    self.player_tracker.homography = self.floor_homography.matrix
 
                 wall_color_input = WallColorDetectionInput(
                     frame=Frame(image=frame, frame_number=0, timestamp=0.0),
@@ -116,19 +131,38 @@ class BallTrackingEvaluator:
             ball_result = self.tracker.process_frame(ball_input)
             positions.append(ball_result.position if ball_result.detected else None)
 
+            # Track players
+            player_input = PlayerTrackingInput(
+                frame=Frame(
+                    image=frame,
+                    frame_number=frame_count,
+                    timestamp=frame_count / self.fps,
+                ),
+                homography=self.floor_homography
+            )
+            player_result = self.player_tracker.process_frame(player_input)
+
+            for player_id in [1, 2]:
+                player = player_result.get_player(player_id)
+                if player:
+                    player_positions_raw[player_id].append(player.position)
+                else:
+                    player_positions_raw[player_id].append(None)
+
             frame_count += 1
             pbar.update(1)
 
         cap.release()
         pbar.close()
 
-        return positions
+        return positions, player_positions_raw
 
-    def process_results(self, positions, apply_postprocessing=False):
+    def process_results(self, positions, player_positions_raw, apply_postprocessing=False):
         """Process positions and detect hits.
 
         Args:
             positions: List of Point2D ball positions (or None)
+            player_positions_raw: Dict mapping player_id to list of positions
             apply_postprocessing: Whether to apply postprocessing
 
         Returns:
@@ -139,31 +173,48 @@ class BallTrackingEvaluator:
 
         # Apply postprocessing if requested
         if apply_postprocessing:
-            # Postprocess using new interface
+            # Postprocess ball trajectory
             postprocess_input = BallPostprocessingInput(positions=positions)
             trajectory = self.tracker.postprocess(postprocess_input)
             processed_positions = trajectory.positions
 
+            # Postprocess player positions
+            player_postprocess_input = PlayerPostprocessingInput(
+                positions_history=player_positions_raw
+            )
+            player_postprocess_result = self.player_tracker.postprocess(player_postprocess_input)
+            player_positions_smooth = {
+                player_id: traj.positions
+                for player_id, traj in player_postprocess_result.trajectories.items()
+            }
+
             # Detect wall hits
             if self.config.get("hit_detection", {}).get("wall_hits_enabled", True):
-                wall_hit_input = WallHitInput(positions=processed_positions)
+                wall_hit_input = WallHitInput(
+                    positions=processed_positions,
+                    wall_homography=self.wall_homography
+                )
                 wall_hit_result = self.wall_hit_detector.detect(wall_hit_input)
                 wall_hits = wall_hit_result.wall_hits
 
             # Detect racket hits
             if self.config.get("hit_detection", {}).get("racket_hits_enabled", True):
                 racket_hit_input = RacketHitInput(
-                    positions=processed_positions, wall_hits=wall_hits
+                    positions=processed_positions,
+                    wall_hits=wall_hits,
+                    player_positions=player_positions_smooth
                 )
                 racket_hit_result = self.racket_hit_detector.detect(racket_hit_input)
                 racket_hits = racket_hit_result.racket_hits
         else:
             processed_positions = positions
+            player_positions_smooth = player_positions_raw
 
         return {
             "positions": processed_positions,
             "wall_hits": wall_hits,
             "racket_hits": racket_hits,
+            "player_positions": player_positions_smooth,
         }
 
     def calculate_metrics(self, results):
@@ -230,6 +281,7 @@ class BallTrackingEvaluator:
         positions = results["positions"]
         wall_hits = results["wall_hits"]
         racket_hits = results["racket_hits"]
+        player_positions = results.get("player_positions", {})
         output_path = os.path.join(output_dir, f"{self.video_name}_ball_positions.csv")
 
         # Create frame-to-hit lookup dictionaries
@@ -238,7 +290,7 @@ class BallTrackingEvaluator:
 
         with open(output_path, "w") as f:
             # Write header
-            f.write("frame,x,y,is_wall_hit,is_racket_hit\n")
+            f.write("frame,x,y,is_wall_hit,is_racket_hit,wall_hit_x_pixel,wall_hit_y_pixel,wall_hit_x_meter,wall_hit_y_meter,racket_hit_x,racket_hit_y,racket_hit_player_id,racket_hit_player1_x,racket_hit_player1_y,racket_hit_player2_x,racket_hit_player2_y\n")
 
             # Write positions with hit markers
             for frame_idx, pos in enumerate(positions):
@@ -249,7 +301,48 @@ class BallTrackingEvaluator:
                 is_wall_hit = 1 if frame_idx in wall_hit_by_frame else 0
                 is_racket_hit = 1 if frame_idx in racket_hit_by_frame else 0
 
-                f.write(f"{frame_idx},{x},{y},{is_wall_hit},{is_racket_hit}\n")
+                # Add wall hit position data if available
+                wall_hit_x_pixel = ""
+                wall_hit_y_pixel = ""
+                wall_hit_x_meter = ""
+                wall_hit_y_meter = ""
+                if frame_idx in wall_hit_by_frame:
+                    wall_hit = wall_hit_by_frame[frame_idx]
+                    wall_hit_x_pixel = wall_hit.position.x
+                    wall_hit_y_pixel = wall_hit.position.y
+                    if wall_hit.position_meter is not None:
+                        wall_hit_x_meter = wall_hit.position_meter.x
+                        wall_hit_y_meter = wall_hit.position_meter.y
+
+                # Add racket hit position and player data if available
+                racket_hit_x = ""
+                racket_hit_y = ""
+                racket_hit_player_id = ""
+                racket_hit_player1_x = ""
+                racket_hit_player1_y = ""
+                racket_hit_player2_x = ""
+                racket_hit_player2_y = ""
+                if frame_idx in racket_hit_by_frame:
+                    racket_hit = racket_hit_by_frame[frame_idx]
+                    racket_hit_x = racket_hit.position.x
+                    racket_hit_y = racket_hit.position.y
+                    racket_hit_player_id = racket_hit.player_id
+
+                    # Add player positions at the racket hit frame
+                    if player_positions:
+                        if 1 in player_positions and frame_idx < len(player_positions[1]):
+                            player1_pos = player_positions[1][frame_idx]
+                            if player1_pos is not None:
+                                racket_hit_player1_x = player1_pos.x
+                                racket_hit_player1_y = player1_pos.y
+
+                        if 2 in player_positions and frame_idx < len(player_positions[2]):
+                            player2_pos = player_positions[2][frame_idx]
+                            if player2_pos is not None:
+                                racket_hit_player2_x = player2_pos.x
+                                racket_hit_player2_y = player2_pos.y
+
+                f.write(f"{frame_idx},{x},{y},{is_wall_hit},{is_racket_hit},{wall_hit_x_pixel},{wall_hit_y_pixel},{wall_hit_x_meter},{wall_hit_y_meter},{racket_hit_x},{racket_hit_y},{racket_hit_player_id},{racket_hit_player1_x},{racket_hit_player1_y},{racket_hit_player2_x},{racket_hit_player2_y}\n")
 
     def save_position_plot(self, results, output_dir):
         """Save position plot with hit detections.
@@ -335,6 +428,7 @@ class BallTrackingEvaluator:
         positions = results["positions"]
         wall_hits = results["wall_hits"]
         racket_hits = results["racket_hits"]
+        player_positions = results.get("player_positions", {})
 
         output_path = os.path.join(output_dir, "tracking.mp4")
 
@@ -359,6 +453,10 @@ class BallTrackingEvaluator:
         active_wall_hits = []
         active_racket_hits = []
 
+        # Track player hit indicator (show for 1 second = fps frames)
+        player_hit_indicator = None  # (player_id, frames_remaining)
+        player_hit_duration = int(self.fps)
+
         # Process frames
         pbar = tqdm(total=len(positions), desc="Creating video")
         frame_idx = 0
@@ -382,11 +480,53 @@ class BallTrackingEvaluator:
                             thickness=max(1, trace_thickness - i),
                         )
 
+            # Draw player IDs on players
+            for player_id in [1, 2]:
+                if player_id in player_positions and frame_idx < len(player_positions[player_id]):
+                    player_pos = player_positions[player_id][frame_idx]
+                    if player_pos is not None:
+                        # Player colors: Green for P1, Blue for P2
+                        color = (0, 255, 0) if player_id == 1 else (255, 0, 0)
+
+                        # Draw circle at player position
+                        center = (int(player_pos.x), int(player_pos.y))
+                        cv2.circle(frame, center, radius=25, color=color, thickness=3)
+
+                        # Draw player ID text
+                        text = f"P{player_id}"
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font_scale = 0.8
+                        text_thickness = 2
+
+                        # Get text size for background
+                        (text_width, text_height), baseline = cv2.getTextSize(
+                            text, font, font_scale, text_thickness
+                        )
+
+                        # Position text above the circle
+                        text_x = center[0] - text_width // 2
+                        text_y = center[1] - 35
+
+                        # Draw background rectangle
+                        bg_x1 = text_x - 5
+                        bg_y1 = text_y - text_height - 5
+                        bg_x2 = text_x + text_width + 5
+                        bg_y2 = text_y + baseline + 5
+                        cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+
+                        # Draw text
+                        cv2.putText(
+                            frame, text, (text_x, text_y), font, font_scale, color, text_thickness
+                        )
+
             # Add new hits to active lists
             if frame_idx in wall_hit_frames:
                 active_wall_hits.append((wall_hit_frames[frame_idx], 0))
             if frame_idx in racket_hit_frames:
                 active_racket_hits.append((racket_hit_frames[frame_idx], 0))
+                # Set player hit indicator
+                racket_hit = racket_hit_frames[frame_idx]
+                player_hit_indicator = (racket_hit.player_id, player_hit_duration)
 
             # Draw active wall hits
             self._draw_hit_markers(
@@ -417,6 +557,17 @@ class BallTrackingEvaluator:
             active_racket_hits = [
                 (h, f + 1) for h, f in active_racket_hits if f < hit_display_duration
             ]
+
+            # Draw player hit indicator
+            if player_hit_indicator is not None:
+                player_id, frames_remaining = player_hit_indicator
+                self._draw_player_hit_indicator(frame, player_id)
+                # Decrement counter
+                frames_remaining -= 1
+                if frames_remaining > 0:
+                    player_hit_indicator = (player_id, frames_remaining)
+                else:
+                    player_hit_indicator = None
 
             out.write(frame)
             frame_idx += 1
@@ -514,6 +665,35 @@ class BallTrackingEvaluator:
                 frame, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2
             )
 
+    def _draw_player_hit_indicator(self, frame, player_id):
+        """Draw player hit indicator in top-left corner.
+
+        Args:
+            frame: Frame to draw on
+            player_id: ID of player who hit (1 or 2)
+        """
+        text = f"PLAYER {player_id} HIT!"
+        position = (20, 40)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.2
+        thickness = 3
+
+        # Choose color based on player
+        color = (0, 255, 0) if player_id == 1 else (255, 0, 0)  # Green for P1, Blue for P2
+
+        # Draw background rectangle
+        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+        bg_x1 = position[0] - 10
+        bg_y1 = position[1] - text_size[1] - 10
+        bg_x2 = position[0] + text_size[0] + 10
+        bg_y2 = position[1] + 10
+
+        cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+        cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), color, 2)
+
+        # Draw text
+        cv2.putText(frame, text, position, font, font_scale, color, thickness)
+
     def save_results(self, results, output_dir, label):
         """Save all results for a processing type.
 
@@ -558,17 +738,17 @@ class BallTrackingEvaluator:
         print("BALL TRACKING EVALUATION")
         print("=" * 70)
 
-        # Step 1: Detect ball positions (runs once)
-        raw_positions = self.detect_ball_positions()
+        # Step 1: Detect ball positions and track players (runs once)
+        raw_positions, player_positions_raw = self.detect_ball_positions()
 
         # Step 2: Process raw results
         print("\nProcessing raw results...")
-        raw_results = self.process_results(raw_positions, apply_postprocessing=False)
+        raw_results = self.process_results(raw_positions, player_positions_raw, apply_postprocessing=False)
 
         # Step 3: Process postprocessed results
         print("Processing postprocessed results...")
         postprocessed_results = self.process_results(
-            raw_positions, apply_postprocessing=True
+            raw_positions, player_positions_raw, apply_postprocessing=True
         )
 
         # Step 4: Save raw results

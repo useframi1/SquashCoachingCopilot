@@ -10,6 +10,7 @@ squashcopilot.egg-info/top_level.txt
 squashcopilot/annotation/__init__.py
 squashcopilot/annotation/annotator.py
 squashcopilot/common/__init__.py
+squashcopilot/common/constants.py
 squashcopilot/common/utils.py
 squashcopilot/common/models/__init__.py
 squashcopilot/common/models/ball.py
@@ -38,12 +39,6 @@ squashcopilot/modules/ball_tracking/wall_hit_detector.py
 squashcopilot/modules/ball_tracking/model/__init__.py
 squashcopilot/modules/ball_tracking/model/model.py
 squashcopilot/modules/ball_tracking/model/tracknet_tracker.py
-squashcopilot/modules/ball_tracking/model/weights/model_best.pt
-squashcopilot/modules/ball_tracking/tests/data/video-1.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-2.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-3.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-4.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-5.mp4
 squashcopilot/modules/court_calibration/__init__.py
 squashcopilot/modules/court_calibration/court_calibrator.py
 squashcopilot/modules/court_calibration/tests/data/image-1.png
@@ -53,11 +48,8 @@ squashcopilot/modules/court_calibration/tests/data/image-4.png
 squashcopilot/modules/player_tracking/__init__.py
 squashcopilot/modules/player_tracking/player_tracker.py
 squashcopilot/modules/player_tracking/model/__init__.py
-squashcopilot/modules/player_tracking/model/weights/yolov8m-pose.pt
-squashcopilot/modules/player_tracking/model/weights/yolov8m.pt
 squashcopilot/modules/player_tracking/tests/data/README.md
 squashcopilot/modules/player_tracking/tests/data/_annotations.coco.json
-squashcopilot/modules/player_tracking/tests/data/test_video.mp4
 squashcopilot/modules/rally_state_detection/__init__.py
 squashcopilot/modules/rally_state_detection/rally_state_detector.py
 squashcopilot/modules/rally_state_detection/model/__init__.py
@@ -74,11 +66,9 @@ squashcopilot/modules/rally_state_detection/utilities/__init__.py
 squashcopilot/modules/rally_state_detection/utilities/metrics_aggregator.py
 squashcopilot/modules/shot_type_classification/__init__.py
 squashcopilot/modules/shot_type_classification/shot_classifier.py
-squashcopilot/modules/shot_type_classification/tests/data/video-3/video-3.mp4
 squashcopilot/modules/shot_type_classification/tests/data/video-3/video-3_ball_positions.csv
 squashcopilot/modules/stroke_detection/__init__.py
 squashcopilot/modules/stroke_detection/stroke_detector.py
 squashcopilot/modules/stroke_detection/utils.py
 squashcopilot/modules/stroke_detection/model/__init__.py
 squashcopilot/modules/stroke_detection/model/lstm_classifier.py
-squashcopilot/modules/stroke_detection/model/weights/lstm_model.pt

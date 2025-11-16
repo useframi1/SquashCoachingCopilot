@@ -1,11 +1,1 @@
-frame,x,y,is_wall_hit,is_racket_hit
-0,85.0,139.0,0,0
-1,85.0,139.0,0,0
-2,85.0,139.0,0,0
-3,69.0,135.0,0,0
-4,59.0,143.0,0,0
-5,49.0,143.0,0,0
-6,39.0,139.0,0,0
-7,39.0,139.0,0,0
-8,39.0,139.0,0,0
-9,39.0,139.0,0,0
+frame,x,y,is_wall_hit,is_racket_hit,wall_hit_x_pixel,wall_hit_y_pixel,wall_hit_x_meter,wall_hit_y_meter

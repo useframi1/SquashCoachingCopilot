@@ -4,84 +4,84 @@
 # Roboflow Model API Configuration
 model_id: court-detection-pdgxs/1
 api_key: 8ztE8wKb3wAhHf8BARWy
-conf: 0.5  # Confidence threshold for detections
+conf: 0.5 # Confidence threshold for detections
 
 # Polygon Approximation
-epsilon_factor: 0.02  # Epsilon factor for polygon approximation (lower = more precise)
+epsilon_factor: 0.02 # Epsilon factor for polygon approximation (lower = more precise)
 
 # Target court elements to detect
 target_classes:
-  - tin
-  - left-square
-  - right-square
-  - front-wall-down
+    - tin
+    - left-square
+    - right-square
+    - front-wall-down
 
 # Mapping of detected classes to real-world coordinates
 class_mapping:
-  tin: real_tin_coords
-  left-square: real_left_square_coords
-  right-square: real_right_square_coords
-  front-wall-down: real_front_wall_coords
+    tin: real_tin_coords
+    left-square: real_left_square_coords
+    right-square: real_right_square_coords
+    front-wall-down: real_front_wall_coords
 
 # Real-world Court Coordinates (in meters)
 # Format: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
 
 # Tin coordinates (bottom section of front wall)
 real_tin_coords:
-  - [0.0, 0.48]
-  - [6.4, 0.48]
-  - [6.4, 0.0]
-  - [0.0, 0.0]
+    - [0.0, 0.48]
+    - [6.4, 0.48]
+    - [6.4, 0.0]
+    - [0.0, 0.0]
 
 # Left service box coordinates
 real_left_square_coords:
-  - [0.0, 5.44]
-  - [1.6, 5.44]
-  - [1.6, 7.04]
-  - [0.0, 7.04]
+    - [0.0, 5.44]
+    - [1.6, 5.44]
+    - [1.6, 7.04]
+    - [0.0, 7.04]
 
 # Right service box coordinates
 real_right_square_coords:
-  - [4.8, 5.44]
-  - [6.4, 5.44]
-  - [6.4, 7.04]
-  - [4.8, 7.04]
+    - [4.8, 5.44]
+    - [6.4, 5.44]
+    - [6.4, 7.04]
+    - [4.8, 7.04]
 
 # Front wall lower section coordinates
 real_front_wall_coords:
-  - [0.0, 1.78]
-  - [6.4, 1.78]
-  - [6.4, 0.48]
-  - [0.0, 0.48]
+    - [0.0, 1.78]
+    - [6.4, 1.78]
+    - [6.4, 0.48]
+    - [0.0, 0.48]
 
 # Wall Color Detection
 wall_detection:
-  brightness_threshold: 180  # Threshold to determine if wall is white (0-255)
+    brightness_threshold: 180 # Threshold to determine if wall is white (0-255)
 
 # Test Configuration
 tests:
-  paths:
-    test_image: data/image-3.png
-  test_points:
-    floor:
-      - real: [3.2, 6.24]
-        description: Center of court at service line
-        color: [0, 255, 0]
-      - real: [1.6, 5.44]
-        description: Front-left corner of left service box
-        color: [255, 0, 0]
-    wall:
-      - real: [3.2, 1.14]
-        description: Center of front wall middle section
-        color: [0, 0, 255]
-      - real: [0, 0.48]
-        description: Bottom-left of tin
-        color: [255, 255, 0]
-  visualization:
-    point_radius: 8
-    line_thickness: 2
-    font_scale: 0.6
-    font_thickness: 2
-    show_keypoints: true
-    keypoint_color: [255, 0, 255]
-    keypoint_radius: 5
+    paths:
+        test_image: data/image-2.png
+    test_points:
+        floor:
+            - real: [3.2, 6.24]
+              description: Center of court at service line
+              color: [0, 255, 0]
+            - real: [1.6, 5.44]
+              description: Front-left corner of left service box
+              color: [255, 0, 0]
+        wall:
+            - real: [3.2, 1.14]
+              description: Center of front wall middle section
+              color: [0, 0, 255]
+            - real: [0, 0.48]
+              description: Bottom-left of tin
+              color: [255, 255, 0]
+    visualization:
+        point_radius: 8
+        line_thickness: 2
+        font_scale: 0.6
+        font_thickness: 2
+        show_keypoints: true
+        keypoint_color: [255, 0, 255]
+        keypoint_radius: 5

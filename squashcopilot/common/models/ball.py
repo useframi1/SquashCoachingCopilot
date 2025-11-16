@@ -7,7 +7,7 @@ This module defines input and output models for the ball-detection module.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from squashcopilot.common.types import Frame, Config, Point2D
+from squashcopilot.common.types import Frame, Config, Point2D, Homography
 
 
 # ============================================================================
@@ -122,9 +122,11 @@ class WallHitInput:
 
     Attributes:
         positions: Smoothed ball trajectory
+        wall_homography: Optional wall homography for coordinate transformation
         config: Optional configuration for detection
     """
     positions: List[Point2D]
+    wall_homography: Optional[Homography] = None
     config: Optional[Config] = None
 
 
@@ -135,18 +137,21 @@ class WallHit:
 
     Attributes:
         frame: Frame index where wall hit occurred
-        position: Ball position at wall hit
+        position: Ball position at wall hit (pixel coordinates)
+        position_meter: Ball position at wall hit (wall meter coordinates)
         prominence: Valley prominence (measure of hit strength)
     """
     frame: int
     position: Point2D
     prominence: float
+    position_meter: Optional[Point2D] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
             'frame': self.frame,
             'position': self.position.to_dict(),
+            'position_meter': self.position_meter.to_dict() if self.position_meter else None,
             'prominence': self.prominence
         }
 
@@ -167,10 +172,15 @@ class WallHit:
             # Legacy format: x and y as separate keys
             position = Point2D(x=d['x'], y=d['y'])
 
+        position_meter = None
+        if d.get('position_meter'):
+            position_meter = Point2D(**d['position_meter'])
+
         return cls(
             frame=d['frame'],
             position=position,
-            prominence=d.get('prominence', 0.0)
+            prominence=d.get('prominence', 0.0),
+            position_meter=position_meter
         )
 
 
@@ -210,10 +220,12 @@ class RacketHitInput:
     Attributes:
         positions: Smoothed ball trajectory
         wall_hits: Detected wall hits
+        player_positions: Dict mapping player_id to list of positions for player attribution
         config: Optional configuration for detection
     """
     positions: List[Point2D]
     wall_hits: List[WallHit]
+    player_positions: Dict[int, List[Point2D]]
     config: Optional[Config] = None
 
 
@@ -226,17 +238,20 @@ class RacketHit:
         frame: Frame index where racket hit occurred
         position: Ball position at racket hit
         slope: Negative slope value indicating hit
+        player_id: ID of player who hit the ball (1 or 2)
     """
     frame: int
     position: Point2D
     slope: float
+    player_id: int
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
             'frame': self.frame,
             'position': self.position.to_dict(),
-            'slope': self.slope
+            'slope': self.slope,
+            'player_id': self.player_id
         }
 
     @classmethod
@@ -245,7 +260,7 @@ class RacketHit:
         Create RacketHit from dictionary.
 
         Args:
-            d: Dictionary with frame, position (x, y), slope
+            d: Dictionary with frame, position (x, y), slope, player_id
 
         Returns:
             RacketHit instance
@@ -259,7 +274,8 @@ class RacketHit:
         return cls(
             frame=d['frame'],
             position=position,
-            slope=d.get('slope', 0.0)
+            slope=d.get('slope', 0.0),
+            player_id=d['player_id']
         )
 
 
