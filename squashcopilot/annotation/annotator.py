@@ -14,6 +14,7 @@ from typing import Tuple, List, Optional, Dict
 import cv2
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from squashcopilot.modules.court_calibration import CourtCalibrator
 from squashcopilot.modules.player_tracking import PlayerTracker
@@ -34,6 +35,9 @@ from squashcopilot.common import (
     RacketHitInput,
     Point2D,
     Homography,
+    BODY_KEYPOINT_INDICES,
+    KEYPOINT_NAMES,
+    SKELETON_CONNECTIONS,
 )
 from squashcopilot.common.utils import load_config
 
@@ -49,34 +53,6 @@ class Annotator:
     4. CSV export with annotations
     5. Annotated video generation
     """
-
-    # COCO keypoint indices for body parts (excluding face)
-    # Indices 5-16: shoulders, elbows, wrists, hips, knees, ankles
-    BODY_KEYPOINT_INDICES = list(range(5, 17))
-    KEYPOINT_NAMES = [
-        'left_shoulder', 'right_shoulder',
-        'left_elbow', 'right_elbow',
-        'left_wrist', 'right_wrist',
-        'left_hip', 'right_hip',
-        'left_knee', 'right_knee',
-        'left_ankle', 'right_ankle'
-    ]
-
-    # COCO skeleton connections for visualization
-    SKELETON_CONNECTIONS = [
-        (5, 6),   # shoulders
-        (5, 7),   # left shoulder to left elbow
-        (7, 9),   # left elbow to left wrist
-        (6, 8),   # right shoulder to right elbow
-        (8, 10),  # right elbow to right wrist
-        (5, 11),  # left shoulder to left hip
-        (6, 12),  # right shoulder to right hip
-        (11, 12), # hips
-        (11, 13), # left hip to left knee
-        (13, 15), # left knee to left ankle
-        (12, 14), # right hip to right knee
-        (14, 16), # right knee to right ankle
-    ]
 
     def __init__(self, config: Optional[Dict] = None):
         """Initialize the annotator with all required modules."""
@@ -120,7 +96,6 @@ class Annotator:
         if not video_path.exists():
             raise FileNotFoundError(f"Video not found: {video_path}")
 
-        progress_interval = self.config.get('output', {}).get('progress_update_interval', 100)
         max_frames = self.config.get('video', {}).get('max_frames')
 
         print(f"Processing video: {video_name}")
@@ -179,12 +154,13 @@ class Annotator:
         print("Tracking players and ball...")
         ball_positions_raw = []
         player_positions_raw = {1: [], 2: []}
+        player_real_positions_raw = {1: [], 2: []}
         player_keypoints_raw = {1: [], 2: []}
         player_bboxes_raw = {1: [], 2: []}
 
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to beginning
 
-        for frame_idx in range(total_frames):
+        for frame_idx in tqdm(range(total_frames), desc="Tracking", unit="frame"):
             ret, frame_img = cap.read()
             if not ret:
                 break
@@ -204,10 +180,12 @@ class Annotator:
                 player = player_result.get_player(player_id)
                 if player:
                     player_positions_raw[player_id].append(player.position)
+                    player_real_positions_raw[player_id].append(player.real_position)
                     player_keypoints_raw[player_id].append(player.keypoints)
                     player_bboxes_raw[player_id].append(player.bbox)
                 else:
                     player_positions_raw[player_id].append(None)
+                    player_real_positions_raw[player_id].append(None)
                     player_keypoints_raw[player_id].append(None)
                     player_bboxes_raw[player_id].append(None)
 
@@ -219,20 +197,32 @@ class Annotator:
                 ball_result.position if ball_result.detected else None
             )
 
-            if (frame_idx + 1) % progress_interval == 0:
-                print(f"Processed {frame_idx + 1}/{total_frames} frames")
-
         cap.release()
-        print(f"Tracking complete: {len(ball_positions_raw)} frames processed")
 
         # Step 6: Postprocess player trajectories
         print("Postprocessing player trajectories...")
         player_postprocess_result = self.player_tracker.postprocess(
-            PlayerPostprocessingInput(positions_history=player_positions_raw)
+            PlayerPostprocessingInput(
+                positions_history=player_positions_raw,
+                real_positions_history=player_real_positions_raw,
+                keypoints_history=player_keypoints_raw,
+                bboxes_history=player_bboxes_raw
+            )
         )
 
         player_positions_smooth = {
             player_id: traj.positions
+            for player_id, traj in player_postprocess_result.trajectories.items()
+        }
+
+        # Extract interpolated keypoints and bboxes
+        player_keypoints_interpolated = {
+            player_id: traj.keypoints if traj.keypoints else player_keypoints_raw[player_id]
+            for player_id, traj in player_postprocess_result.trajectories.items()
+        }
+
+        player_bboxes_interpolated = {
+            player_id: traj.bboxes if traj.bboxes else player_bboxes_raw[player_id]
             for player_id, traj in player_postprocess_result.trajectories.items()
         }
 
@@ -269,7 +259,7 @@ class Annotator:
         df = self._build_dataframe(
             total_frames=total_frames,
             player_positions_smooth=player_positions_smooth,
-            player_keypoints_raw=player_keypoints_raw,
+            player_keypoints_raw=player_keypoints_interpolated,
             ball_positions_smooth=ball_positions_smooth,
             wall_hits=wall_hits_result.wall_hits,
             racket_hits=racket_hits_result.racket_hits,
@@ -291,8 +281,8 @@ class Annotator:
             output_path=annotated_video_path,
             court_keypoints=court_keypoints,
             player_positions=player_positions_smooth,
-            player_keypoints=player_keypoints_raw,
-            player_bboxes=player_bboxes_raw,
+            player_keypoints=player_keypoints_interpolated,
+            player_bboxes=player_bboxes_interpolated,
             ball_positions=ball_positions_smooth,
             wall_hits=wall_hits_result.wall_hits,
             racket_hits=racket_hits_result.racket_hits,
@@ -341,8 +331,8 @@ class Annotator:
                 kp_data = player_keypoints_raw[player_id][frame_idx]
                 if kp_data and kp_data.xy:
                     # Extract COCO keypoints 5-16 (12 body keypoints)
-                    for i, kp_idx in enumerate(self.BODY_KEYPOINT_INDICES):
-                        kp_name = self.KEYPOINT_NAMES[i]
+                    for i, kp_idx in enumerate(BODY_KEYPOINT_INDICES):
+                        kp_name = KEYPOINT_NAMES[i]
                         kp_result = kp_data.get_keypoint(kp_idx)
                         if kp_result is not None:
                             x, y, conf = kp_result
@@ -353,7 +343,7 @@ class Annotator:
                             row[f'{prefix}_kp_{kp_name}_y'] = None
                 else:
                     # No keypoints detected
-                    for kp_name in self.KEYPOINT_NAMES:
+                    for kp_name in KEYPOINT_NAMES:
                         row[f'{prefix}_kp_{kp_name}_x'] = None
                         row[f'{prefix}_kp_{kp_name}_y'] = None
 
@@ -399,9 +389,12 @@ class Annotator:
         wall_hit_color = tuple(viz_config.get('wall_hit_color', [0, 0, 255]))
         racket_hit_color = tuple(viz_config.get('racket_hit_color', [255, 0, 255]))
 
-        # Create hit frame sets
-        wall_hit_frames = {hit.frame for hit in wall_hits}
-        racket_hit_frames = {hit.frame for hit in racket_hits}
+        # Create dictionaries mapping frame to hit position
+        wall_hit_positions = {hit.frame: hit.position for hit in wall_hits}
+        racket_hit_positions = {hit.frame: hit.position for hit in racket_hits}
+
+        # Calculate hit marker duration in frames (1 second)
+        hit_marker_duration = int(fps * 1)
 
         # Open input video
         cap = cv2.VideoCapture(str(video_path))
@@ -419,13 +412,8 @@ class Annotator:
         label_font_thickness = viz_config.get('label_font_thickness', 2)
         wall_hit_config = viz_config.get('wall_hit_marker', {})
         racket_hit_config = viz_config.get('racket_hit_marker', {})
-        font_scale = viz_config.get('font_scale', 1.5)
-        font_thickness = viz_config.get('font_thickness', 3)
 
-        frame_idx = 0
-        progress_interval = self.config.get('output', {}).get('progress_update_interval', 100)
-
-        while frame_idx < num_frames:
+        for frame_idx in tqdm(range(num_frames), desc="Creating video", unit="frame"):
             ret, frame = cap.read()
             if not ret:
                 break
@@ -485,47 +473,84 @@ class Annotator:
                     2
                 )
 
-            # Draw hit markers
-            if frame_idx in wall_hit_frames:
-                wall_text = wall_hit_config.get('text', 'WALL HIT')
-                wall_pos = tuple(wall_hit_config.get('text_position', [50, 50]))
-                wall_radius = wall_hit_config.get('circle_radius', 20)
+            # Draw hit markers (persist for 1 second)
+            wall_text = wall_hit_config.get('text', 'WALL HIT')
+            wall_radius = wall_hit_config.get('circle_radius', 20)
 
-                cv2.putText(
-                    frame,
-                    wall_text,
-                    wall_pos,
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    font_scale,
-                    wall_hit_color,
-                    font_thickness
-                )
-                # Draw circle around ball
-                cv2.circle(frame, (int(ball_pos.x), int(ball_pos.y)), wall_radius, wall_hit_color, 3)
+            racket_text = racket_hit_config.get('text', 'RACKET HIT')
+            racket_radius = racket_hit_config.get('circle_radius', 25)
 
-            if frame_idx in racket_hit_frames:
-                racket_text = racket_hit_config.get('text', 'RACKET HIT')
-                racket_pos = tuple(racket_hit_config.get('text_position', [50, 100]))
-                racket_radius = racket_hit_config.get('circle_radius', 25)
+            # Small text size for hit labels
+            hit_text_scale = 0.5
+            hit_text_thickness = 1
 
-                cv2.putText(
-                    frame,
-                    racket_text,
-                    racket_pos,
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    font_scale,
-                    racket_hit_color,
-                    font_thickness
-                )
-                # Draw circle around ball
-                cv2.circle(frame, (int(ball_pos.x), int(ball_pos.y)), racket_radius, racket_hit_color, 3)
+            # Draw wall hit markers (persist for hit_marker_duration frames)
+            for hit_frame, hit_pos in wall_hit_positions.items():
+                if hit_frame <= frame_idx < hit_frame + hit_marker_duration:
+                    # Draw marker at hit position
+                    cv2.circle(frame, (int(hit_pos.x), int(hit_pos.y)), wall_radius, wall_hit_color, 3)
+                    # Draw X marker at hit position for better visibility
+                    marker_size = 15
+                    cv2.line(
+                        frame,
+                        (int(hit_pos.x) - marker_size, int(hit_pos.y) - marker_size),
+                        (int(hit_pos.x) + marker_size, int(hit_pos.y) + marker_size),
+                        wall_hit_color,
+                        3
+                    )
+                    cv2.line(
+                        frame,
+                        (int(hit_pos.x) - marker_size, int(hit_pos.y) + marker_size),
+                        (int(hit_pos.x) + marker_size, int(hit_pos.y) - marker_size),
+                        wall_hit_color,
+                        3
+                    )
+                    # Draw small text label above the marker
+                    text_offset_y = 30  # Pixels above the marker
+                    cv2.putText(
+                        frame,
+                        wall_text,
+                        (int(hit_pos.x) - 30, int(hit_pos.y) - text_offset_y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        hit_text_scale,
+                        wall_hit_color,
+                        hit_text_thickness
+                    )
+
+            # Draw racket hit markers (persist for hit_marker_duration frames)
+            for hit_frame, hit_pos in racket_hit_positions.items():
+                if hit_frame <= frame_idx < hit_frame + hit_marker_duration:
+                    # Draw marker at hit position
+                    cv2.circle(frame, (int(hit_pos.x), int(hit_pos.y)), racket_radius, racket_hit_color, 3)
+                    # Draw X marker at hit position for better visibility
+                    marker_size = 15
+                    cv2.line(
+                        frame,
+                        (int(hit_pos.x) - marker_size, int(hit_pos.y) - marker_size),
+                        (int(hit_pos.x) + marker_size, int(hit_pos.y) + marker_size),
+                        racket_hit_color,
+                        3
+                    )
+                    cv2.line(
+                        frame,
+                        (int(hit_pos.x) - marker_size, int(hit_pos.y) + marker_size),
+                        (int(hit_pos.x) + marker_size, int(hit_pos.y) - marker_size),
+                        racket_hit_color,
+                        3
+                    )
+                    # Draw small text label above the marker
+                    text_offset_y = 30  # Pixels above the marker
+                    cv2.putText(
+                        frame,
+                        racket_text,
+                        (int(hit_pos.x) - 40, int(hit_pos.y) - text_offset_y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        hit_text_scale,
+                        racket_hit_color,
+                        hit_text_thickness
+                    )
 
             out.write(frame)
-            frame_idx += 1
-
-            # Print progress
-            if (frame_idx % progress_interval == 0):
-                print(f"Annotated {frame_idx}/{num_frames} frames")
 
         cap.release()
         out.release()
@@ -564,7 +589,7 @@ class Annotator:
         keypoint_conf_threshold = viz_config.get('keypoint_confidence_threshold', 0.5)
 
         # Draw skeleton connections
-        for start_idx, end_idx in self.SKELETON_CONNECTIONS:
+        for start_idx, end_idx in SKELETON_CONNECTIONS:
             kp1 = keypoints_data.get_keypoint(start_idx)
             kp2 = keypoints_data.get_keypoint(end_idx)
 
@@ -592,7 +617,7 @@ class Annotator:
                     )
 
         # Draw keypoint circles
-        for idx in self.BODY_KEYPOINT_INDICES:
+        for idx in BODY_KEYPOINT_INDICES:
             kp = keypoints_data.get_keypoint(idx)
             if kp is not None:
                 x, y, conf = kp

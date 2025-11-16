@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import torch
 from collections import deque
+from typing import List, Optional
 from ultralytics import YOLO
 from torchvision.models import resnet50, ResNet50_Weights
 from scipy.interpolate import interp1d
@@ -95,6 +96,7 @@ class PlayerTracker:
     ) -> PlayerPostprocessingResult:
         """
         Apply interpolation for missing positions and smoothing filter.
+        Also interpolates keypoints and bounding boxes (without smoothing).
 
         Args:
             input_data: PlayerPostprocessingInput with position histories
@@ -102,82 +104,253 @@ class PlayerTracker:
         Returns:
             PlayerPostprocessingResult with smoothed trajectories
         """
-        # Convert Point2D to tuples for processing
-        positions_history_tuples = {}
-        for player_id, positions in input_data.positions_history.items():
-            positions_history_tuples[player_id] = [
-                (p.x, p.y) if p else None for p in positions
-            ]
-
-        smoothed_positions = {}
-
-        for player_id, positions in positions_history_tuples.items():
-            if not positions or len(positions) == 0:
-                smoothed_positions[player_id] = []
-                continue
-
-            # Separate valid and invalid indices
-            valid_indices = [i for i, pos in enumerate(positions) if pos is not None]
-
-            if len(valid_indices) == 0:
-                smoothed_positions[player_id] = positions
-                continue
-
-            # Extract x and y coordinates from valid positions
-            valid_x = [positions[i][0] for i in valid_indices]
-            valid_y = [positions[i][1] for i in valid_indices]
-
-            # Interpolate missing positions
-            if len(valid_indices) > 1:
-                # Create interpolation functions
-                interp_x = interp1d(
-                    valid_indices,
-                    valid_x,
-                    kind="linear",
-                    fill_value="extrapolate",
-                    bounds_error=False,
-                )
-                interp_y = interp1d(
-                    valid_indices,
-                    valid_y,
-                    kind="linear",
-                    fill_value="extrapolate",
-                    bounds_error=False,
-                )
-
-                # Generate complete position arrays
-                all_indices = np.arange(len(positions))
-                interpolated_x = interp_x(all_indices)
-                interpolated_y = interp_y(all_indices)
-            else:
-                # If only one valid position, use it for all frames
-                interpolated_x = np.full(len(positions), valid_x[0])
-                interpolated_y = np.full(len(positions), valid_y[0])
-
-            # Apply Gaussian smoothing filter
-            sigma = self.config["tracker"].get("smoothing_sigma", 2.0)
-            smoothed_x = gaussian_filter1d(interpolated_x, sigma=sigma)
-            smoothed_y = gaussian_filter1d(interpolated_y, sigma=sigma)
-
-            # Combine back into position tuples
-            smoothed_positions[player_id] = [
-                (x, y) for x, y in zip(smoothed_x, smoothed_y)
-            ]
-
-        # Convert back to new format
         trajectories = {}
-        for player_id in smoothed_positions.keys():
-            original_positions = input_data.positions_history[player_id]
-            gaps_filled = sum(1 for p in original_positions if p is None)
+
+        for player_id in input_data.positions_history.keys():
+            # Process pixel positions (with interpolation and smoothing)
+            pixel_positions = input_data.positions_history[player_id]
+            smoothed_positions = self._interpolate_and_smooth_positions(pixel_positions)
+
+            # Process real positions (with interpolation and smoothing) if available
+            real_positions = None
+            if input_data.real_positions_history and player_id in input_data.real_positions_history:
+                real_positions_raw = input_data.real_positions_history[player_id]
+                real_positions = self._interpolate_and_smooth_positions(real_positions_raw)
+
+            # Process keypoints (interpolation only, no smoothing) if available
+            interpolated_keypoints = None
+            if input_data.keypoints_history and player_id in input_data.keypoints_history:
+                keypoints_raw = input_data.keypoints_history[player_id]
+                interpolated_keypoints = self._interpolate_keypoints(keypoints_raw)
+
+            # Process bounding boxes (interpolation only, no smoothing) if available
+            interpolated_bboxes = None
+            if input_data.bboxes_history and player_id in input_data.bboxes_history:
+                bboxes_raw = input_data.bboxes_history[player_id]
+                interpolated_bboxes = self._interpolate_bboxes(bboxes_raw)
+
+            # Count gaps filled
+            gaps_filled = sum(1 for p in pixel_positions if p is None)
 
             trajectories[player_id] = PlayerTrajectory(
                 player_id=player_id,
-                positions=[Point2D(x=x, y=y) for x, y in smoothed_positions[player_id]],
-                original_positions=original_positions,
+                positions=smoothed_positions,
+                original_positions=pixel_positions,
+                real_positions=real_positions,
+                original_real_positions=(
+                    input_data.real_positions_history[player_id]
+                    if input_data.real_positions_history and player_id in input_data.real_positions_history
+                    else None
+                ),
+                keypoints=interpolated_keypoints,
+                original_keypoints=(
+                    input_data.keypoints_history[player_id]
+                    if input_data.keypoints_history and player_id in input_data.keypoints_history
+                    else None
+                ),
+                bboxes=interpolated_bboxes,
+                original_bboxes=(
+                    input_data.bboxes_history[player_id]
+                    if input_data.bboxes_history and player_id in input_data.bboxes_history
+                    else None
+                ),
                 gaps_filled=gaps_filled,
             )
 
         return PlayerPostprocessingResult(trajectories=trajectories)
+
+    def _interpolate_and_smooth_positions(
+        self, positions: List[Optional[Point2D]]
+    ) -> List[Point2D]:
+        """
+        Interpolate missing positions and apply Gaussian smoothing.
+
+        Args:
+            positions: List of positions (can contain None)
+
+        Returns:
+            List of smoothed Point2D positions
+        """
+        if not positions or len(positions) == 0:
+            return []
+
+        # Convert Point2D to tuples for processing
+        positions_tuples = [(p.x, p.y) if p else None for p in positions]
+
+        # Separate valid and invalid indices
+        valid_indices = [i for i, pos in enumerate(positions_tuples) if pos is not None]
+
+        if len(valid_indices) == 0:
+            return []
+
+        # Extract x and y coordinates from valid positions
+        valid_x = [positions_tuples[i][0] for i in valid_indices]
+        valid_y = [positions_tuples[i][1] for i in valid_indices]
+
+        # Interpolate missing positions
+        if len(valid_indices) > 1:
+            # Create interpolation functions
+            interp_x = interp1d(
+                valid_indices,
+                valid_x,
+                kind="linear",
+                fill_value="extrapolate",
+                bounds_error=False,
+            )
+            interp_y = interp1d(
+                valid_indices,
+                valid_y,
+                kind="linear",
+                fill_value="extrapolate",
+                bounds_error=False,
+            )
+
+            # Generate complete position arrays
+            all_indices = np.arange(len(positions_tuples))
+            interpolated_x = interp_x(all_indices)
+            interpolated_y = interp_y(all_indices)
+        else:
+            # If only one valid position, use it for all frames
+            interpolated_x = np.full(len(positions_tuples), valid_x[0])
+            interpolated_y = np.full(len(positions_tuples), valid_y[0])
+
+        # Apply Gaussian smoothing filter
+        sigma = self.config["tracker"].get("smoothing_sigma", 2.0)
+        smoothed_x = gaussian_filter1d(interpolated_x, sigma=sigma)
+        smoothed_y = gaussian_filter1d(interpolated_y, sigma=sigma)
+
+        # Convert back to Point2D
+        return [Point2D(x=float(x), y=float(y)) for x, y in zip(smoothed_x, smoothed_y)]
+
+    def _interpolate_keypoints(
+        self, keypoints_list: List[Optional[PlayerKeypointsData]]
+    ) -> List[Optional[PlayerKeypointsData]]:
+        """
+        Interpolate missing keypoints (no smoothing).
+
+        Args:
+            keypoints_list: List of keypoints (can contain None)
+
+        Returns:
+            List of interpolated PlayerKeypointsData
+        """
+        if not keypoints_list or len(keypoints_list) == 0:
+            return []
+
+        # Find valid keypoint indices
+        valid_indices = [i for i, kp in enumerate(keypoints_list) if kp is not None and kp.xy is not None]
+
+        if len(valid_indices) == 0:
+            return keypoints_list
+
+        if len(valid_indices) == 1:
+            # If only one valid keypoint, use it for all frames
+            return keypoints_list
+
+        # Get the number of keypoints from the first valid entry
+        num_keypoints = len(keypoints_list[valid_indices[0]].xy)
+
+        # Interpolate each keypoint coordinate separately
+        interpolated_keypoints = []
+
+        for frame_idx in range(len(keypoints_list)):
+            if keypoints_list[frame_idx] is not None and keypoints_list[frame_idx].xy is not None:
+                # Keep original keypoints
+                interpolated_keypoints.append(keypoints_list[frame_idx])
+            else:
+                # Interpolate keypoints for this frame
+                interpolated_xy = []
+                interpolated_conf = []
+
+                for kp_idx in range(num_keypoints):
+                    # Extract x, y coordinates for this keypoint across all valid frames
+                    valid_x = [keypoints_list[i].xy[kp_idx] for i in valid_indices]
+                    valid_y = [keypoints_list[i].xy[kp_idx + num_keypoints] for i in valid_indices]
+
+                    # Interpolate for current frame
+                    if len(valid_indices) > 1:
+                        interp_x = interp1d(valid_indices, valid_x, kind="linear", fill_value="extrapolate", bounds_error=False)
+                        interp_y = interp1d(valid_indices, valid_y, kind="linear", fill_value="extrapolate", bounds_error=False)
+
+                        interpolated_xy.append(float(interp_x(frame_idx)))
+                        interpolated_xy.append(float(interp_y(frame_idx)))
+                    else:
+                        interpolated_xy.append(valid_x[0])
+                        interpolated_xy.append(valid_y[0])
+
+                    # Interpolate confidence if available
+                    if keypoints_list[valid_indices[0]].conf is not None:
+                        valid_conf = [keypoints_list[i].conf[kp_idx] for i in valid_indices]
+                        if len(valid_indices) > 1:
+                            interp_conf = interp1d(valid_indices, valid_conf, kind="linear", fill_value="extrapolate", bounds_error=False)
+                            interpolated_conf.append(float(interp_conf(frame_idx)))
+                        else:
+                            interpolated_conf.append(valid_conf[0])
+
+                interpolated_keypoints.append(
+                    PlayerKeypointsData(
+                        xy=interpolated_xy,
+                        conf=interpolated_conf if interpolated_conf else None
+                    )
+                )
+
+        return interpolated_keypoints
+
+    def _interpolate_bboxes(
+        self, bboxes_list: List[Optional[BoundingBox]]
+    ) -> List[Optional[BoundingBox]]:
+        """
+        Interpolate missing bounding boxes (no smoothing).
+
+        Args:
+            bboxes_list: List of bounding boxes (can contain None)
+
+        Returns:
+            List of interpolated BoundingBox
+        """
+        if not bboxes_list or len(bboxes_list) == 0:
+            return []
+
+        # Find valid bbox indices
+        valid_indices = [i for i, bbox in enumerate(bboxes_list) if bbox is not None]
+
+        if len(valid_indices) == 0:
+            return bboxes_list
+
+        if len(valid_indices) == 1:
+            # If only one valid bbox, use it for all frames
+            return bboxes_list
+
+        # Extract bbox coordinates from valid indices
+        valid_x1 = [bboxes_list[i].x1 for i in valid_indices]
+        valid_y1 = [bboxes_list[i].y1 for i in valid_indices]
+        valid_x2 = [bboxes_list[i].x2 for i in valid_indices]
+        valid_y2 = [bboxes_list[i].y2 for i in valid_indices]
+
+        # Create interpolation functions
+        interp_x1 = interp1d(valid_indices, valid_x1, kind="linear", fill_value="extrapolate", bounds_error=False)
+        interp_y1 = interp1d(valid_indices, valid_y1, kind="linear", fill_value="extrapolate", bounds_error=False)
+        interp_x2 = interp1d(valid_indices, valid_x2, kind="linear", fill_value="extrapolate", bounds_error=False)
+        interp_y2 = interp1d(valid_indices, valid_y2, kind="linear", fill_value="extrapolate", bounds_error=False)
+
+        # Interpolate for all frames
+        interpolated_bboxes = []
+        for frame_idx in range(len(bboxes_list)):
+            if bboxes_list[frame_idx] is not None:
+                # Keep original bbox
+                interpolated_bboxes.append(bboxes_list[frame_idx])
+            else:
+                # Interpolate bbox for this frame
+                interpolated_bboxes.append(
+                    BoundingBox(
+                        x1=float(interp_x1(frame_idx)),
+                        y1=float(interp_y1(frame_idx)),
+                        x2=float(interp_x2(frame_idx)),
+                        y2=float(interp_y2(frame_idx))
+                    )
+                )
+
+        return interpolated_bboxes
 
     def process_frame(self, input_data: PlayerTrackingInput) -> PlayerTrackingResult:
         """
@@ -232,7 +405,7 @@ class PlayerTracker:
                 bbox=BoundingBox.from_list(bbox.tolist()),
                 confidence=float(confidence),
                 keypoints=PlayerKeypointsData(
-                    xy=kp["xy"].tolist() if kp is not None else None,
+                    xy=kp["xy"].flatten().tolist() if kp is not None else None,
                     conf=(
                         kp["conf"].tolist()
                         if kp is not None and kp["conf"] is not None

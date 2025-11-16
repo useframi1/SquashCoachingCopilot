@@ -246,9 +246,18 @@ class PlayerPostprocessingInput:
     Attributes:
         positions_history: Dictionary mapping player_id to list of positions
                           (can contain None for missing detections)
+        real_positions_history: Dictionary mapping player_id to list of real positions
+                               (can contain None for missing detections)
+        keypoints_history: Dictionary mapping player_id to list of keypoints
+                          (can contain None for missing detections)
+        bboxes_history: Dictionary mapping player_id to list of bounding boxes
+                       (can contain None for missing detections)
         config: Optional configuration for postprocessing
     """
     positions_history: Dict[int, List[Optional[Point2D]]]
+    real_positions_history: Optional[Dict[int, List[Optional[Point2D]]]] = None
+    keypoints_history: Optional[Dict[int, List[Optional[PlayerKeypointsData]]]] = None
+    bboxes_history: Optional[Dict[int, List[Optional[BoundingBox]]]] = None
     config: Optional[Config] = None
 
 
@@ -260,17 +269,29 @@ class PlayerTrajectory:
     Attributes:
         player_id: Player identifier
         positions: List of smoothed positions (gaps filled)
+        real_positions: List of smoothed real positions (gaps filled)
+        keypoints: List of interpolated keypoints (gaps filled, not smoothed)
+        bboxes: List of interpolated bounding boxes (gaps filled, not smoothed)
         original_positions: Original positions before postprocessing
+        original_real_positions: Original real positions before postprocessing
+        original_keypoints: Original keypoints before postprocessing
+        original_bboxes: Original bounding boxes before postprocessing
         gaps_filled: Number of gaps interpolated
     """
     player_id: int
     positions: List[Point2D]
     original_positions: List[Optional[Point2D]]
+    real_positions: Optional[List[Point2D]] = None
+    original_real_positions: Optional[List[Optional[Point2D]]] = None
+    keypoints: Optional[List[Optional[PlayerKeypointsData]]] = None
+    original_keypoints: Optional[List[Optional[PlayerKeypointsData]]] = None
+    bboxes: Optional[List[Optional[BoundingBox]]] = None
+    original_bboxes: Optional[List[Optional[BoundingBox]]] = None
     gaps_filled: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        result = {
             'player_id': self.player_id,
             'positions': [p.to_dict() for p in self.positions],
             'original_positions': [
@@ -279,6 +300,41 @@ class PlayerTrajectory:
             ],
             'gaps_filled': self.gaps_filled
         }
+
+        if self.real_positions is not None:
+            result['real_positions'] = [p.to_dict() for p in self.real_positions]
+
+        if self.original_real_positions is not None:
+            result['original_real_positions'] = [
+                p.to_dict() if p else None
+                for p in self.original_real_positions
+            ]
+
+        if self.keypoints is not None:
+            result['keypoints'] = [
+                kp.to_dict() if kp else None
+                for kp in self.keypoints
+            ]
+
+        if self.original_keypoints is not None:
+            result['original_keypoints'] = [
+                kp.to_dict() if kp else None
+                for kp in self.original_keypoints
+            ]
+
+        if self.bboxes is not None:
+            result['bboxes'] = [
+                bbox.to_dict() if bbox else None
+                for bbox in self.bboxes
+            ]
+
+        if self.original_bboxes is not None:
+            result['original_bboxes'] = [
+                bbox.to_dict() if bbox else None
+                for bbox in self.original_bboxes
+            ]
+
+        return result
 
 
 @dataclass

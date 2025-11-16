@@ -8,6 +8,14 @@ between all modules in the system.
 # Re-export utility functions
 from .utils import load_config, get_package_dir
 
+# Re-export constants
+from .constants import (
+    BODY_KEYPOINT_INDICES,
+    KEYPOINT_NAMES,
+    SKELETON_CONNECTIONS,
+    COCO_KEYPOINT_NAMES_FULL,
+)
+
 # Re-export commonly used types
 from .types import (
     Frame,
@@ -74,6 +82,11 @@ __all__ = [
     # Utilities
     'load_config',
     'get_package_dir',
+    # Constants
+    'BODY_KEYPOINT_INDICES',
+    'KEYPOINT_NAMES',
+    'SKELETON_CONNECTIONS',
+    'COCO_KEYPOINT_NAMES_FULL',
     # Types
     'Frame',
     'Config',

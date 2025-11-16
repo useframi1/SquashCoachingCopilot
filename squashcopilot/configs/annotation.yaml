@@ -4,7 +4,7 @@
 # Video Settings
 video:
     name: video-1.mp4 # Name of the video file to annotate (in annotation/data/)
-    max_frames: 10 # Maximum number of frames to process (null = process all frames)
+    max_frames: 200 # Maximum number of frames to process (null = process all frames)
 
 # Visualization Settings
 visualization:
@@ -44,4 +44,3 @@ visualization:
 output:
     video_codec: mp4v # FourCC codec for output video
     csv_index: false # Whether to include index in CSV output
-    progress_update_interval: 100 # Print progress every N frames
