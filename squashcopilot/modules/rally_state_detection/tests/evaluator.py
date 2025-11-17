@@ -6,9 +6,8 @@ Visualizes rally state annotations by plotting ball trajectory with state transi
 
 import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
 from pathlib import Path
-from scipy.signal import savgol_filter, find_peaks
+from scipy.signal import savgol_filter
 
 from squashcopilot.common.utils import load_config
 
@@ -87,82 +86,6 @@ class RallyStateEvaluator:
             )
 
         return df
-
-    def compute_periodicity_metrics(self, df: pd.DataFrame) -> dict:
-        """
-        Compute periodicity metrics (autocorrelation and peak interval CV) for each state.
-
-        Args:
-            df: DataFrame with ball_y_filtered and rally_state columns
-
-        Returns:
-            Dictionary with metrics for each state
-        """
-        label_col = self.annotation_config["label_column"]
-        metrics = {}
-
-        # Group by rally state
-        for state in df[label_col].unique():
-            state_df = df[df[label_col] == state].copy()
-
-            if len(state_df) < 10:  # Need minimum samples
-                continue
-
-            trajectory = state_df["ball_y_filtered"].values
-
-            # 1. Autocorrelation metric
-            # Normalize the signal
-            trajectory_normalized = (trajectory - np.mean(trajectory)) / np.std(
-                trajectory
-            )
-
-            # Compute autocorrelation
-            autocorr = np.correlate(
-                trajectory_normalized, trajectory_normalized, mode="full"
-            )
-            autocorr = autocorr[len(autocorr) // 2 :]  # Take only positive lags
-            autocorr = autocorr / autocorr[0]  # Normalize by zero-lag
-
-            # Peak autocorrelation (excluding zero-lag)
-            max_lag = min(len(autocorr) - 1, 50)  # Look at first 50 lags
-            if max_lag > 1:
-                peak_autocorr = np.max(autocorr[1:max_lag])
-            else:
-                peak_autocorr = 0.0
-
-            # 2. Peak interval coefficient of variation
-            # Find peaks in trajectory
-            peaks, _ = find_peaks(trajectory, prominence=50, width=10, distance=50)
-
-            if len(peaks) >= 2:
-                # Calculate intervals between consecutive peaks
-                peak_intervals = np.diff(peaks)
-
-                # Coefficient of variation
-                if np.mean(peak_intervals) > 0:
-                    cv = np.std(peak_intervals) / np.mean(peak_intervals)
-                else:
-                    cv = np.nan
-
-                mean_interval = np.mean(peak_intervals)
-                std_interval = np.std(peak_intervals)
-            else:
-                cv = np.nan
-                mean_interval = np.nan
-                std_interval = np.nan
-                peak_intervals = []
-
-            metrics[state] = {
-                "peak_autocorrelation": peak_autocorr,
-                "peak_interval_cv": cv,
-                "mean_peak_interval": mean_interval,
-                "std_peak_interval": std_interval,
-                "num_peaks": len(peaks),
-                "num_frames": len(state_df),
-                "autocorr_values": autocorr[:max_lag] if max_lag > 0 else [],
-            }
-
-        return metrics
 
     def plot_trajectory(self, df: pd.DataFrame):
         """
@@ -270,13 +193,12 @@ class RallyStateEvaluator:
 
         print(f"Trajectory plot saved to: {output_path}")
 
-    def print_summary(self, df: pd.DataFrame, metrics: dict = None):
+    def print_summary(self, df: pd.DataFrame):
         """
         Print summary statistics of the annotations.
 
         Args:
             df: DataFrame with annotations
-            metrics: Optional dictionary of periodicity metrics for each state
         """
         label_col = self.annotation_config["label_column"]
 
@@ -299,35 +221,6 @@ class RallyStateEvaluator:
                 transitions += 1
 
         print(f"\nState Transitions: {transitions}")
-
-        # Print periodicity metrics if available
-        if metrics:
-            print("\n" + "-" * 60)
-            print("PERIODICITY METRICS")
-            print("-" * 60)
-
-            for state in sorted(metrics.keys()):
-                m = metrics[state]
-                print(f"\n{state.upper()} State:")
-                print(f"  Frames: {m['num_frames']}")
-                print(f"  Peaks Detected: {m['num_peaks']}")
-                print(f"  Peak Autocorrelation: {m['peak_autocorrelation']:.4f}")
-
-                if not np.isnan(m["peak_interval_cv"]):
-                    print(f"  Peak Interval CV: {m['peak_interval_cv']:.4f}")
-                    print(f"  Mean Peak Interval: {m['mean_peak_interval']:.2f} frames")
-                    print(f"  Std Peak Interval: {m['std_peak_interval']:.2f} frames")
-                else:
-                    print(f"  Peak Interval CV: N/A (insufficient peaks)")
-
-            # Interpretation
-            print("\n" + "-" * 60)
-            print("INTERPRETATION:")
-            print("  - Higher autocorrelation → more periodic/oscillating pattern")
-            print("  - Lower CV → more regular peak intervals")
-            print("  - START should have: HIGH autocorr, LOW CV")
-            print("  - END should have: LOW autocorr, HIGH CV")
-
         print("=" * 60)
 
     def run(self):
@@ -344,12 +237,8 @@ class RallyStateEvaluator:
         print(f"\nPreprocessing ball trajectory...")
         df = self.preprocess_ball_trajectory(df)
 
-        # Compute periodicity metrics
-        print(f"\nComputing periodicity metrics...")
-        metrics = self.compute_periodicity_metrics(df)
-
-        # Print summary with metrics
-        self.print_summary(df, metrics)
+        # Print summary
+        self.print_summary(df)
 
         # Plot trajectory
         print(f"\nGenerating trajectory plot...")
