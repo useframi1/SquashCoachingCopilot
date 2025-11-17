@@ -105,7 +105,8 @@ class PlayerTrackingInput:
         homography: Optional homography for coordinate transformation
     """
     frame: Frame
-    homography: Optional[Homography] = None
+    floor_homography: Optional[Homography] = None
+    wall_homography: Optional[Homography] = None
 
 
 @dataclass

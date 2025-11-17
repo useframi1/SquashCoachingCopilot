@@ -73,12 +73,31 @@ class PlayerTrackerEvaluator:
             raise ValueError("Failed to compute homography from first frame")
 
         # Use floor homography for player tracking
-        self.homography = calibration_result.homographies["floor"].matrix
+        self.floor_homography = calibration_result.homographies["floor"].matrix
+        self.wall_homography = calibration_result.homographies["wall"].matrix
 
         print("Homography computed successfully")
 
         # Initialize tracker with homography
-        self.tracker = PlayerTracker(homography=self.homography)
+        self.tracker = PlayerTracker(floor_homography=self.floor_homography, wall_homography=self.wall_homography)
+        mask = self.tracker._create_court_mask(first_frame_img.shape)
+        if mask is not None:
+            # Create visualization
+            mask_viz = cv2.cvtColor(first_frame_img.copy(), cv2.COLOR_BGR2BGRA)
+            # Overlay mask in semi-transparent green
+            mask_overlay = np.zeros_like(mask_viz)
+            mask_overlay[mask > 0] = [0, 255, 0, 128]  # Green with 50% transparency
+            
+            # Blend
+            mask_viz = cv2.addWeighted(mask_viz, 1.0, mask_overlay, 0.3, 0)
+
+            # Display and wait for key press
+            cv2.imshow("Court Mask Preview - Press any key to continue", mask_viz)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+        else:
+            print("Warning: Could not create court mask")
+    
 
     def reset_metrics(self):
         """Reset all tracking evaluation metrics"""
@@ -321,7 +340,8 @@ class PlayerTrackerEvaluator:
             # Create PlayerTrackingInput
             tracking_input = PlayerTrackingInput(
                 frame=frame,
-                homography=Homography(matrix=self.homography, source_plane="floor") if self.homography is not None else None
+                floor_homography=Homography(matrix=self.floor_homography, source_plane="floor") if self.floor_homography is not None else None,
+                wall_homography=Homography(matrix=self.wall_homography, source_plane="wall") if self.wall_homography is not None else None
             )
 
             # Track frame
@@ -649,7 +669,7 @@ class PlayerTrackerEvaluator:
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             overall = results["overall"]
 
             f.write("=" * 60 + "\n")

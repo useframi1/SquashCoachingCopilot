@@ -30,15 +30,18 @@ class PlayerTracker:
     Returns the bottom-center position of each player's bounding box.
     """
 
-    def __init__(self, config: dict = None, homography: np.ndarray = None):
+    def __init__(self, config: dict = None, floor_homography: np.ndarray = None, wall_homography: np.ndarray = None):
         """
         Initialize the player tracker.
         Args:
             config (dict): Configuration dictionary. If None, loads from 'config.json'.
-            homography (np.ndarray): 3x3 homography matrix for court coordinate transformation.
+            floor_homography (np.ndarray): 3x3 floor_homography matrix for court coordinate transformation.
+            wall_homography (np.ndarray): 3x3 wall_homography matrix for court coordinate transformation.
         """
         self.config = config if config else load_config(config_name="player_tracking")
-        self.homography = homography
+        self.floor_homography = floor_homography
+        self.wall_homography = wall_homography
+        self.court_mask = None
         self.max_history = self.config["tracker"]["max_history"]
         self.reid_threshold = self.config["tracker"]["reid_threshold"]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -77,6 +80,57 @@ class PlayerTracker:
         # Move entire model to device and set to eval mode
         self.reid_model = self.reid_model.to(self.device)
         self.reid_model.eval()
+
+    def _get_floor_from_homography(self, floor_homography):
+        """Get full court boundaries using floor_homography."""
+        # Full court in real coordinates (squash court dimensions in meters)
+        court_real = np.array(
+            [[0, 9.75], [6.4, 9.75], [6.4, 0], [0, 0]], dtype=np.float32
+        )
+
+        # Inverse transform to get pixel coordinates
+        H_inv = np.linalg.inv(floor_homography)
+        court_pixels = cv2.perspectiveTransform(court_real.reshape(-1, 1, 2), H_inv)
+
+        return court_pixels.reshape(-1, 2)
+
+    def _get_wall_from_homography(self, wall_homography):
+        """Get wall boundaries using wall homography."""
+        # Wall in real coordinates (front wall from tin top to service line height)
+        wall_real = np.array(
+            [[0, 0], [6.4, 0], [6.4, 1.78], [0, 1.78]], dtype=np.float32
+        )
+
+        # Inverse transform to get pixel coordinates
+        H_inv = np.linalg.inv(wall_homography)
+        wall_pixels = cv2.perspectiveTransform(wall_real.reshape(-1, 1, 2), H_inv)
+
+        return wall_pixels.reshape(-1, 2)
+    
+    def _create_court_mask(self, frame_shape):
+        """Create expanded court mask to filter out audience."""
+        h, w = frame_shape[:2]
+        
+        # Get floor boundary if floor homography is available
+        if self.floor_homography is not None:
+            floor_points = self._get_floor_from_homography(self.floor_homography)
+            floor_mask = np.zeros((h, w), dtype=np.uint8)
+            floor_points_int = np.array(floor_points, dtype=np.int32)
+            cv2.fillPoly(floor_mask, [floor_points_int], 255)
+        else:
+            floor_mask = np.zeros((h, w), dtype=np.uint8)
+
+        # Get wall boundary if wall homography is available
+        if self.wall_homography is not None:
+            wall_points = self._get_wall_from_homography(self.wall_homography)
+            wall_mask = np.zeros((h, w), dtype=np.uint8)
+            wall_points_int = np.array(wall_points, dtype=np.int32)
+            cv2.fillPoly(wall_mask, [wall_points_int], 255)
+        else:
+            wall_mask = np.zeros((h, w), dtype=np.uint8)
+            
+        combined_mask = cv2.bitwise_or(floor_mask, wall_mask)
+        return combined_mask
 
     def preprocess_frame(self, frame):
         """
@@ -359,7 +413,7 @@ class PlayerTracker:
         Process a single frame and return player tracking information.
 
         Args:
-            input_data: PlayerTrackingInput with frame and optional homography
+            input_data: PlayerTrackingInput with frame and optional floor_homography
 
         Returns:
             PlayerTrackingResult with structured player detection data
@@ -368,9 +422,9 @@ class PlayerTracker:
         frame_number = input_data.frame.frame_number
         frame_width = frame.shape[1]
 
-        # Update homography if provided
-        if input_data.homography:
-            self.homography = input_data.homography.matrix
+        # Update floor_homography if provided
+        if input_data.floor_homography:
+            self.floor_homography = input_data.floor_homography.matrix
 
         # Detect people in frame
         detections, keypoints = self._detect_people(frame)
@@ -390,7 +444,7 @@ class PlayerTracker:
             bottom_y = bbox[3]
             position = (center_x, bottom_y)
             pixel_point = np.array([[position]], dtype=np.float32)
-            real_point = cv2.perspectiveTransform(pixel_point, self.homography)
+            real_point = cv2.perspectiveTransform(pixel_point, self.floor_homography)
 
             # Get keypoints for this detection
             kp = keypoints[det_idx] if keypoints[det_idx] is not None else None
@@ -431,7 +485,17 @@ class PlayerTracker:
                 - detections: list of top 2 person detections sorted by confidence
                 - keypoints: list of keypoint arrays (None if pose not supported)
         """
-        results = self.detector(frame, verbose=False)[0]
+        # Create mask on first frame
+        if self.court_mask is None and self.floor_homography is not None:
+            self.court_mask = self._create_court_mask(frame.shape)
+        
+        # Apply mask before detection
+        detection_frame = frame
+        if self.court_mask is not None:
+            detection_frame = cv2.bitwise_and(frame, frame, mask=self.court_mask)
+    
+
+        results = self.detector(detection_frame, verbose=False)[0]
         detections = results.boxes.xyxy.cpu().numpy()
         confidences = results.boxes.conf.cpu().numpy()
         classes = results.boxes.cls.cpu().numpy()
@@ -669,3 +733,4 @@ class PlayerTracker:
         }
         self.player_features = {1: None, 2: None}
         self.players_initialized = False
+        self.court_mask = None
