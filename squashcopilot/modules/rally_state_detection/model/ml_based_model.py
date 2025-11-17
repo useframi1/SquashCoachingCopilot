@@ -14,7 +14,7 @@ import os
 import glob
 from collections import deque
 
-from ..utilities.metrics_aggregator import MetricsAggregator
+from ..metrics_aggregator import MetricsAggregator
 from squashcopilot.common.utils import get_package_dir
 
 

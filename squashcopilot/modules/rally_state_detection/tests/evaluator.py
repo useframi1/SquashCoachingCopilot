@@ -1,446 +1,370 @@
 """
 Rally State Detection Evaluator
 
-Evaluates rally state detection performance on annotated test data.
+Visualizes rally state annotations by plotting ball trajectory with state transitions.
 """
 
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-import os
-import glob
+import numpy as np
+from pathlib import Path
+from scipy.signal import savgol_filter, find_peaks
 
-from squashcopilot.modules.rally_state_detection import RallyStateDetector
 from squashcopilot.common.utils import load_config
 
 
 class RallyStateEvaluator:
-    """Evaluates rally state detection on test videos."""
+    """Evaluates and visualizes rally state annotations."""
 
-    def __init__(self, config=None):
-        """Initialize evaluator with configuration."""
-        if config is None:
-            # Load the tests section from the rally_state_detection config
-            full_config = load_config(config_name='rally_state_detection')
-            config = full_config['tests']
-        self.config = config
-        self.test_dir = os.path.dirname(os.path.abspath(__file__))
-
-        # Initialize detector
-        self.detector = RallyStateDetector()
-
-        # Video properties (set during processing)
-        self.video_name = self.config["data"]["video_name"]
-        self.data_dir = os.path.join(self.test_dir, self.config["data"]["data_dir"])
-
-    def load_test_data(self) -> pd.DataFrame:
+    def __init__(self, config_name: str = "rally_state_detection"):
         """
-        Load test data from CSV file.
+        Initialize evaluator with configuration.
+
+        Args:
+            config_name: Name of the configuration file (without .yaml extension)
+        """
+        full_config = load_config(config_name=config_name)
+        self.config = full_config["evaluator"]
+        self.annotation_config = full_config["annotation"]
+        self.video_name = self.config["video_name"]
+
+        # Get project root and build paths
+        project_root = Path(__file__).parent.parent.parent.parent.parent
+
+        # Data directory (where annotations are saved)
+        data_base_dir = project_root / self.config["data_dir"]
+        self.data_dir = data_base_dir / self.video_name
+
+        # Output directory (where plots will be saved)
+        output_base_dir = project_root / self.config["output_dir"]
+        self.output_dir = output_base_dir / self.video_name
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def load_annotations(self) -> pd.DataFrame:
+        """
+        Load rally state annotations from CSV file.
 
         Returns:
-            DataFrame with frame metrics and ground truth states
+            DataFrame with frame, features, and rally state labels
         """
-        print(f"Loading test data for video: {self.video_name}")
+        csv_path = self.data_dir / f"{self.video_name}_annotations.csv"
 
-        # Load CSV file
-        csv_path = glob.glob(os.path.join(self.data_dir, self.video_name, "*.csv"))[0]
-
-        if not os.path.exists(csv_path):
+        if not csv_path.exists():
             raise FileNotFoundError(f"Annotation file not found: {csv_path}")
 
         df = pd.read_csv(csv_path)
-        print(f"  Loaded {len(df)} samples from {csv_path}")
+        print(f"Loaded {len(df)} annotated frames from {csv_path}")
 
         return df
 
-    def evaluate(self, df: pd.DataFrame) -> dict:
+    def preprocess_ball_trajectory(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Evaluate detector on test data.
+        Preprocess ball trajectory using Savitzky-Golay filter.
 
         Args:
-            df: DataFrame with frame metrics and ground truth states
+            df: DataFrame with ball_y column
 
         Returns:
-            Dictionary with evaluation results
+            DataFrame with additional ball_y_filtered column
         """
-        print("Making predictions...")
+        # Apply Savitzky-Golay filter to smooth the trajectory
+        # window_length must be odd and greater than polyorder
+        window_length = 11  # Can be adjusted for more/less smoothing
+        polyorder = 3  # Polynomial order
 
-        # Extract ground truth before prediction
-        df_ground_truth = df[["frame_number", "state"]].copy()
+        # Ensure we have enough data points
+        if len(df) < window_length:
+            print(
+                f"Warning: Not enough data points for filtering. Using original values."
+            )
+            df["ball_y_filtered"] = df["ball_y"]
+        else:
+            df["ball_y_filtered"] = savgol_filter(
+                df["ball_y"], window_length=window_length, polyorder=polyorder
+            )
+            print(
+                f"Applied Savitzky-Golay filter (window={window_length}, poly={polyorder})"
+            )
 
-        # Remove state column from input to avoid collision during merge
-        df_input = df.drop(columns=["state"])
+        return df
 
-        # Make predictions using the detector
-        df_pred = self.detector.process_frames(df_input, aggregated=True)
-
-        # Apply postprocessing
-        print("Applying postprocessing...")
-        df_pred["postprocessed_state"] = self.detector.postprocess(
-            df_pred["predicted_state"]
-        )
-
-        # Merge with ground truth
-        df_results = pd.merge(df_pred, df_ground_truth, on="frame_number", how="inner")
-
-        # Extract ground truth and predictions
-        y_true = df_results["state"]
-        y_pred_raw = df_results["predicted_state"]
-        y_pred = df_results["postprocessed_state"]
-
-        # Calculate strict frame-level metrics (no tolerance)
-        accuracy_raw = accuracy_score(y_true, y_pred_raw)
-        accuracy_strict = accuracy_score(y_true, y_pred)
-
-        target_names = ["start", "active", "end"]
-        report_strict = classification_report(
-            y_true, y_pred, target_names=target_names, output_dict=True, zero_division=0
-        )
-
-        cm_strict = confusion_matrix(y_true, y_pred, labels=target_names)
-
-        # Calculate frame-level metrics WITH tolerance
-        print("Calculating frame-level metrics with tolerance...")
-
-        y_pred_tolerant = self.apply_tolerance_to_predictions(
-            y_true=y_true,
-            y_pred=y_pred,
-            tolerance_frames=self.config["evaluation"]["tolerance_frames"],
-        )
-
-        accuracy_tolerant = accuracy_score(y_true, y_pred_tolerant)
-        report_tolerant = classification_report(
-            y_true,
-            y_pred_tolerant,
-            target_names=target_names,
-            output_dict=True,
-            zero_division=0,
-        )
-        cm_tolerant = confusion_matrix(y_true, y_pred_tolerant, labels=target_names)
-
-        return {
-            "accuracy_raw": accuracy_raw,
-            "accuracy_strict": accuracy_strict,
-            "classification_report_strict": report_strict,
-            "confusion_matrix_strict": cm_strict,
-            "accuracy_tolerant": accuracy_tolerant,
-            "classification_report_tolerant": report_tolerant,
-            "confusion_matrix_tolerant": cm_tolerant,
-            "y_true": y_true.values,
-            "y_pred_raw": y_pred_raw.values,
-            "y_pred": y_pred.values,
-            "y_pred_tolerant": y_pred_tolerant.values,
-            "predictions_df": df_results,
-            "tolerance_frames": self.config["evaluation"]["tolerance_frames"],
-        }
-
-    def apply_tolerance_to_predictions(
-        self,
-        y_true: pd.Series,
-        y_pred: pd.Series,
-        tolerance_frames: int = 2,
-    ) -> pd.Series:
+    def compute_periodicity_metrics(self, df: pd.DataFrame) -> dict:
         """
-        Apply temporal tolerance to predictions for frame-level evaluation.
-
-        For each frame where prediction doesn't match ground truth, check if
-        the ground truth value appears within ±tolerance_frames window. If yes,
-        consider it correct by adjusting the prediction.
+        Compute periodicity metrics (autocorrelation and peak interval CV) for each state.
 
         Args:
-            y_true: Ground truth state sequence
-            y_pred: Predicted state sequence
-            tolerance_frames: Number of frames to look ahead/behind for tolerance
+            df: DataFrame with ball_y_filtered and rally_state columns
 
         Returns:
-            Adjusted predictions where mismatches within tolerance are corrected
+            Dictionary with metrics for each state
         """
-        y_pred_tolerant = y_pred.copy()
+        label_col = self.annotation_config["label_column"]
+        metrics = {}
 
-        for i in range(len(y_true)):
-            if y_pred.iloc[i] == y_true.iloc[i]:
-                # Already correct, no adjustment needed
+        # Group by rally state
+        for state in df[label_col].unique():
+            state_df = df[df[label_col] == state].copy()
+
+            if len(state_df) < 10:  # Need minimum samples
                 continue
 
-            # Check within tolerance window
-            window_start = max(0, i - tolerance_frames)
-            window_end = min(len(y_true) - 1, i + tolerance_frames)
+            trajectory = state_df["ball_y_filtered"].values
 
-            # Look for the predicted state in the ground truth window
-            predicted_state = y_pred.iloc[i]
-            for j in range(window_start, window_end + 1):
-                if y_true.iloc[j] == predicted_state:
-                    # Found the predicted state within tolerance window
-                    # This means the prediction is "close enough", so mark as correct
-                    y_pred_tolerant.iloc[i] = y_true.iloc[i]
-                    break
+            # 1. Autocorrelation metric
+            # Normalize the signal
+            trajectory_normalized = (trajectory - np.mean(trajectory)) / np.std(
+                trajectory
+            )
 
-        return y_pred_tolerant
+            # Compute autocorrelation
+            autocorr = np.correlate(
+                trajectory_normalized, trajectory_normalized, mode="full"
+            )
+            autocorr = autocorr[len(autocorr) // 2 :]  # Take only positive lags
+            autocorr = autocorr / autocorr[0]  # Normalize by zero-lag
 
-    def save_metrics(self, results: dict, output_dir: str):
+            # Peak autocorrelation (excluding zero-lag)
+            max_lag = min(len(autocorr) - 1, 50)  # Look at first 50 lags
+            if max_lag > 1:
+                peak_autocorr = np.max(autocorr[1:max_lag])
+            else:
+                peak_autocorr = 0.0
+
+            # 2. Peak interval coefficient of variation
+            # Find peaks in trajectory
+            peaks, _ = find_peaks(trajectory, prominence=50, width=10, distance=50)
+
+            if len(peaks) >= 2:
+                # Calculate intervals between consecutive peaks
+                peak_intervals = np.diff(peaks)
+
+                # Coefficient of variation
+                if np.mean(peak_intervals) > 0:
+                    cv = np.std(peak_intervals) / np.mean(peak_intervals)
+                else:
+                    cv = np.nan
+
+                mean_interval = np.mean(peak_intervals)
+                std_interval = np.std(peak_intervals)
+            else:
+                cv = np.nan
+                mean_interval = np.nan
+                std_interval = np.nan
+                peak_intervals = []
+
+            metrics[state] = {
+                "peak_autocorrelation": peak_autocorr,
+                "peak_interval_cv": cv,
+                "mean_peak_interval": mean_interval,
+                "std_peak_interval": std_interval,
+                "num_peaks": len(peaks),
+                "num_frames": len(state_df),
+                "autocorr_values": autocorr[:max_lag] if max_lag > 0 else [],
+            }
+
+        return metrics
+
+    def plot_trajectory(self, df: pd.DataFrame):
         """
-        Save evaluation metrics to text file.
+        Plot ball y trajectory with rally state transitions.
 
         Args:
-            results: Results dictionary from evaluate()
-            output_dir: Output directory path
+            df: DataFrame with annotations (must have ball_y_filtered column)
         """
-        output_path = os.path.join(output_dir, "metrics.txt")
+        # Get label column name from annotation config
+        label_col = self.annotation_config["label_column"]
 
-        with open(output_path, "w") as f:
-            f.write("RALLY STATE DETECTION METRICS\n")
-            f.write("=" * 70 + "\n\n")
+        # Create figure
+        fig, ax = plt.subplots(figsize=(16, 8))
 
-            # Raw predictions (before postprocessing)
-            f.write("RAW PREDICTIONS (Before Postprocessing):\n")
-            f.write(f"  Accuracy: {results['accuracy_raw']:.4f}\n\n")
+        # Plot original ball y trajectory (lighter, thinner)
+        ax.plot(
+            df["frame"],
+            df["ball_y"],
+            linewidth=1,
+            color="lightblue",
+            alpha=0.5,
+            label="Ball Y Position (Original)",
+        )
 
-            # Strict metrics (postprocessed, no tolerance)
-            f.write("POSTPROCESSED PREDICTIONS (Strict - No Tolerance):\n")
-            f.write(f"  Accuracy: {results['accuracy_strict']:.4f}\n\n")
-
-            f.write("  Per-Class Metrics:\n")
-            f.write(
-                f"  {'Class':<10} {'Precision':<12} {'Recall':<12} {'F1-Score':<12}\n"
-            )
-            f.write("  " + "-" * 46 + "\n")
-            for class_name in ["start", "active", "end"]:
-                if class_name in results["classification_report_strict"]:
-                    metrics = results["classification_report_strict"][class_name]
-                    f.write(
-                        f"  {class_name:<10} {metrics['precision']:.4f}       "
-                        f"{metrics['recall']:.4f}       {metrics['f1-score']:.4f}\n"
-                    )
-
-            f.write("\n  Confusion Matrix:\n")
-            f.write("  (Rows: True, Columns: Predicted)\n")
-            cm = results["confusion_matrix_strict"]
-            f.write(f"  {'':>10} {'Start':<10} {'Active':<10} {'End':<10}\n")
-            for i, state in enumerate(["Start", "Active", "End"]):
-                f.write(f"  {state:>10} {cm[i][0]:<10} {cm[i][1]:<10} {cm[i][2]:<10}\n")
-
-            # Tolerant metrics
-            f.write(f"\n\nWITH TOLERANCE (±{results['tolerance_frames']} frames):\n")
-            f.write(f"  Accuracy: {results['accuracy_tolerant']:.4f}\n\n")
-
-            f.write("  Per-Class Metrics:\n")
-            f.write(
-                f"  {'Class':<10} {'Precision':<12} {'Recall':<12} {'F1-Score':<12}\n"
-            )
-            f.write("  " + "-" * 46 + "\n")
-            for class_name in ["start", "active", "end"]:
-                if class_name in results["classification_report_tolerant"]:
-                    metrics = results["classification_report_tolerant"][class_name]
-                    f.write(
-                        f"  {class_name:<10} {metrics['precision']:.4f}       "
-                        f"{metrics['recall']:.4f}       {metrics['f1-score']:.4f}\n"
-                    )
-
-            f.write("\n  Confusion Matrix:\n")
-            f.write("  (Rows: True, Columns: Predicted)\n")
-            cm = results["confusion_matrix_tolerant"]
-            f.write(f"  {'':>10} {'Start':<10} {'Active':<10} {'End':<10}\n")
-            for i, state in enumerate(["Start", "Active", "End"]):
-                f.write(f"  {state:>10} {cm[i][0]:<10} {cm[i][1]:<10} {cm[i][2]:<10}\n")
-
-    def save_plot(self, results: dict, output_dir: str):
-        """
-        Save prediction visualization plot.
-
-        Args:
-            results: Results dictionary from evaluate()
-            output_dir: Output directory path
-        """
-        output_path = os.path.join(output_dir, "predictions_plot.png")
-        dpi = self.config["output"]["plot_dpi"]
-
-        df = results["predictions_df"]
-
-        # Create state mapping for plotting
-        state_map = {"start": 0, "active": 1, "end": 2}
-
-        fig, axes = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
-
-        # Plot 1: Ground truth states
-        y_true_numeric = [state_map[state] for state in df["state"]]
-        axes[0].fill_between(
-            df["frame_number"],
-            0,
-            y_true_numeric,
-            alpha=0.7,
-            step="post",
-            label="Ground Truth",
+        # Plot filtered ball y trajectory (darker, thicker)
+        ax.plot(
+            df["frame"],
+            df["ball_y_filtered"],
+            linewidth=2.5,
             color="blue",
+            label="Ball Y Position (Filtered)",
         )
-        axes[0].set_ylabel("State", fontsize=12)
-        axes[0].set_yticks([0, 1, 2])
-        axes[0].set_yticklabels(["Start", "Active", "End"])
-        axes[0].set_title("Ground Truth States", fontsize=14, fontweight="bold")
-        axes[0].grid(True, alpha=0.3)
 
-        # Plot 2: Raw Predicted states (before postprocessing)
-        y_pred_raw_numeric = [state_map[state] for state in df["predicted_state"]]
-        axes[1].fill_between(
-            df["frame_number"],
-            0,
-            y_pred_raw_numeric,
-            alpha=0.7,
-            step="post",
-            color="orange",
-            label="Raw Predictions",
-        )
-        axes[1].set_ylabel("State", fontsize=12)
-        axes[1].set_yticks([0, 1, 2])
-        axes[1].set_yticklabels(["Start", "Active", "End"])
-        axes[1].set_title(
-            f"Raw Predicted States (Accuracy: {results['accuracy_raw']:.2%})",
-            fontsize=14,
+        # Find state transitions
+        state_changes = []
+        for i in range(1, len(df)):
+            if df[label_col].iloc[i] != df[label_col].iloc[i - 1]:
+                state_changes.append(i)
+
+        # Add vertical lines at state transitions
+        for change_idx in state_changes:
+            frame_num = df["frame"].iloc[change_idx]
+            ax.axvline(x=frame_num, color="red", linestyle="--", linewidth=2, alpha=0.7)
+
+        # Color the background based on rally state
+        start_color = (0.0, 1.0, 0.0, 0.2)  # Green with alpha
+        end_color = (1.0, 0.0, 0.0, 0.2)  # Red with alpha
+
+        current_state = df[label_col].iloc[0]
+        region_start = df["frame"].iloc[0]
+
+        for i in range(1, len(df)):
+            if df[label_col].iloc[i] != current_state or i == len(df) - 1:
+                region_end = (
+                    df["frame"].iloc[i] if i == len(df) - 1 else df["frame"].iloc[i - 1]
+                )
+
+                # Fill region with appropriate color
+                color = start_color if current_state == "start" else end_color
+                ax.axvspan(
+                    region_start,
+                    region_end,
+                    alpha=0.3,
+                    color=color[0:3],
+                    label=(
+                        f"{current_state.capitalize()}"
+                        if region_start == df["frame"].iloc[0]
+                        else ""
+                    ),
+                )
+
+                if i < len(df):
+                    current_state = df[label_col].iloc[i]
+                    region_start = df["frame"].iloc[i]
+
+        # Customize plot
+        ax.set_xlabel("Frame Number", fontsize=14, fontweight="bold")
+        ax.set_ylabel("Ball Y Coordinate", fontsize=14, fontweight="bold")
+        ax.set_title(
+            f"Rally State Trajectory - {self.video_name}",
+            fontsize=16,
             fontweight="bold",
         )
-        axes[1].grid(True, alpha=0.3)
+        ax.grid(True, alpha=0.3, linestyle=":", linewidth=0.5)
+        ax.legend(loc="upper right", fontsize=11)
 
-        # Plot 3: Postprocessed Predicted states
-        y_pred_numeric = [state_map[state] for state in df["postprocessed_state"]]
-        axes[2].fill_between(
-            df["frame_number"],
-            0,
-            y_pred_numeric,
-            alpha=0.7,
-            step="post",
-            color="green",
-            label="Postprocessed",
-        )
-        axes[2].set_ylabel("State", fontsize=12)
-        axes[2].set_yticks([0, 1, 2])
-        axes[2].set_yticklabels(["Start", "Active", "End"])
-        axes[2].set_xlabel("Frame Number", fontsize=12)
-        axes[2].set_title(
-            f"Postprocessed Predicted States (Accuracy: {results['accuracy_strict']:.2%})",
-            fontsize=14,
-            fontweight="bold",
-        )
-        axes[2].grid(True, alpha=0.3)
+        # Add annotation for state changes
+        if state_changes:
+            ax.text(
+                0.02,
+                0.98,
+                f"State Transitions: {len(state_changes)}",
+                transform=ax.transAxes,
+                fontsize=12,
+                verticalalignment="top",
+                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+            )
 
         plt.tight_layout()
-        plt.savefig(output_path, dpi=dpi, bbox_inches="tight")
-        plt.close(fig)
-
-    def print_results(self, results: dict):
-        """Print evaluation results."""
-        print("\n" + "=" * 70)
-        print("EVALUATION RESULTS")
-        print("=" * 70)
-
-        # Raw predictions
-        print("\nRAW PREDICTIONS (Before Postprocessing):")
-        print(f"  Accuracy: {results['accuracy_raw']:.4f}")
-
-        # Frame-level metrics (STRICT)
-        print("\nPOSTPROCESSED PREDICTIONS (Strict - No Tolerance):")
-        print(f"  Accuracy: {results['accuracy_strict']:.4f}")
-
-        print("\n  Per-Class Metrics:")
-        print(f"  {'Class':<10} {'Precision':<12} {'Recall':<12} {'F1-Score':<12}")
-        print("  " + "-" * 46)
-
-        for class_name in ["start", "active", "end"]:
-            if class_name in results["classification_report_strict"]:
-                metrics = results["classification_report_strict"][class_name]
-                print(
-                    f"  {class_name:<10} {metrics['precision']:.4f}       "
-                    f"{metrics['recall']:.4f}       {metrics['f1-score']:.4f}"
-                )
-
-        print("\n  Confusion Matrix:")
-        print("  (Rows: True, Columns: Predicted)")
-        cm = results["confusion_matrix_strict"]
-        print(f"  {'':>10} {'Start':<10} {'Active':<10} {'End':<10}")
-        for i, state in enumerate(["Start", "Active", "End"]):
-            print(f"  {state:>10} {cm[i][0]:<10} {cm[i][1]:<10} {cm[i][2]:<10}")
-
-        # Frame-level metrics (WITH TOLERANCE)
-        print(f"\n\nWITH TOLERANCE (±{results['tolerance_frames']} frames):")
-        print(f"  Accuracy: {results['accuracy_tolerant']:.4f}")
-
-        print("\n  Per-Class Metrics:")
-        print(f"  {'Class':<10} {'Precision':<12} {'Recall':<12} {'F1-Score':<12}")
-        print("  " + "-" * 46)
-
-        for class_name in ["start", "active", "end"]:
-            if class_name in results["classification_report_tolerant"]:
-                metrics = results["classification_report_tolerant"][class_name]
-                print(
-                    f"  {class_name:<10} {metrics['precision']:.4f}       "
-                    f"{metrics['recall']:.4f}       {metrics['f1-score']:.4f}"
-                )
-
-        print("\n  Confusion Matrix:")
-        print("  (Rows: True, Columns: Predicted)")
-        cm = results["confusion_matrix_tolerant"]
-        print(f"  {'':>10} {'Start':<10} {'Active':<10} {'End':<10}")
-        for i, state in enumerate(["Start", "Active", "End"]):
-            print(f"  {state:>10} {cm[i][0]:<10} {cm[i][1]:<10} {cm[i][2]:<10}")
-
-    def save_results(self, results: dict, output_dir: str):
-        """
-        Save all results.
-
-        Args:
-            results: Results dictionary from evaluate()
-            output_dir: Output directory path
-        """
-        os.makedirs(output_dir, exist_ok=True)
-
-        print(f"\nSaving results to: {output_dir}")
-
-        # Save metrics
-        self.save_metrics(results, output_dir)
-        print("  ✓ Metrics saved")
 
         # Save plot
-        self.save_plot(results, output_dir)
-        print("  ✓ Plot saved")
+        output_path = self.output_dir / f"{self.video_name}_trajectory.png"
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
 
-    def run_evaluation(self) -> dict:
+        print(f"Trajectory plot saved to: {output_path}")
+
+    def print_summary(self, df: pd.DataFrame, metrics: dict = None):
         """
-        Run complete evaluation pipeline.
+        Print summary statistics of the annotations.
 
-        Returns:
-            Dictionary with evaluation results
+        Args:
+            df: DataFrame with annotations
+            metrics: Optional dictionary of periodicity metrics for each state
         """
-        print("=" * 70)
-        print("RALLY STATE DETECTION EVALUATION")
-        print("=" * 70)
+        label_col = self.annotation_config["label_column"]
 
-        # Load test data
-        df = self.load_test_data()
+        print("\n" + "=" * 60)
+        print("ANNOTATION SUMMARY")
+        print("=" * 60)
+        print(f"Video: {self.video_name}")
+        print(f"Total Frames: {len(df)}")
+        print(f"\nState Distribution:")
 
-        # Evaluate
-        results = self.evaluate(df)
+        state_counts = df[label_col].value_counts()
+        for state, count in state_counts.items():
+            percentage = (count / len(df)) * 100
+            print(f"  {state.capitalize()}: {count} frames ({percentage:.2f}%)")
 
-        # Print results
-        self.print_results(results)
+        # Count transitions
+        transitions = 0
+        for i in range(1, len(df)):
+            if df[label_col].iloc[i] != df[label_col].iloc[i - 1]:
+                transitions += 1
 
-        # Save results
-        output_dir = os.path.join(
-            self.test_dir,
-            self.config["output"]["output_dir"],
-            self.video_name,
-        )
-        self.save_results(results, output_dir)
+        print(f"\nState Transitions: {transitions}")
 
-        print("\n" + "=" * 70)
-        print(f"✓ Evaluation complete!")
-        print(f"✓ Results saved to: {output_dir}")
-        print("=" * 70)
+        # Print periodicity metrics if available
+        if metrics:
+            print("\n" + "-" * 60)
+            print("PERIODICITY METRICS")
+            print("-" * 60)
 
-        return results
+            for state in sorted(metrics.keys()):
+                m = metrics[state]
+                print(f"\n{state.upper()} State:")
+                print(f"  Frames: {m['num_frames']}")
+                print(f"  Peaks Detected: {m['num_peaks']}")
+                print(f"  Peak Autocorrelation: {m['peak_autocorrelation']:.4f}")
+
+                if not np.isnan(m["peak_interval_cv"]):
+                    print(f"  Peak Interval CV: {m['peak_interval_cv']:.4f}")
+                    print(f"  Mean Peak Interval: {m['mean_peak_interval']:.2f} frames")
+                    print(f"  Std Peak Interval: {m['std_peak_interval']:.2f} frames")
+                else:
+                    print(f"  Peak Interval CV: N/A (insufficient peaks)")
+
+            # Interpretation
+            print("\n" + "-" * 60)
+            print("INTERPRETATION:")
+            print("  - Higher autocorrelation → more periodic/oscillating pattern")
+            print("  - Lower CV → more regular peak intervals")
+            print("  - START should have: HIGH autocorr, LOW CV")
+            print("  - END should have: LOW autocorr, HIGH CV")
+
+        print("=" * 60)
+
+    def run(self):
+        """Run the complete evaluation pipeline."""
+        print("=" * 60)
+        print("RALLY STATE ANNOTATION EVALUATOR")
+        print("=" * 60)
+
+        # Load annotations
+        print(f"\nLoading annotations for {self.video_name}...")
+        df = self.load_annotations()
+
+        # Preprocess ball trajectory
+        print(f"\nPreprocessing ball trajectory...")
+        df = self.preprocess_ball_trajectory(df)
+
+        # Compute periodicity metrics
+        print(f"\nComputing periodicity metrics...")
+        metrics = self.compute_periodicity_metrics(df)
+
+        # Print summary with metrics
+        self.print_summary(df, metrics)
+
+        # Plot trajectory
+        print(f"\nGenerating trajectory plot...")
+        self.plot_trajectory(df)
+
+        print("\n" + "=" * 60)
+        print("✓ Evaluation complete!")
+        print(f"✓ Output saved to: {self.output_dir}")
+        print("=" * 60)
 
 
 def main():
     """Main entry point."""
     evaluator = RallyStateEvaluator()
-    evaluator.run_evaluation()
+    evaluator.run()
 
 
 if __name__ == "__main__":

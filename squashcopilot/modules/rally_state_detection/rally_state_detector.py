@@ -1,6 +1,6 @@
 import pandas as pd
 from squashcopilot.common.utils import load_config
-from .utilities.metrics_aggregator import MetricsAggregator
+from .metrics_aggregator import MetricsAggregator
 from .model.ml_based_model import MLBasedModel
 
 from squashcopilot.common import (
@@ -20,7 +20,9 @@ class RallyStateDetector:
         Args:
             config: Configuration dictionary. If None, loads from config.json
         """
-        self.config = config if config else load_config(config_name='rally_state_detection')
+        self.config = (
+            config if config else load_config(config_name="rally_state_detection")
+        )
 
         # Initialize metrics aggregator with config for feature engineering
         self.metrics_aggregator = MetricsAggregator(
