@@ -1,5 +1,27 @@
 # Rally State Detection Configuration
 
+# Preprocessing parameters
+preprocessing:
+    # Savitzky-Golay filter parameters
+    savgol_window_length: 11  # Must be odd number
+    savgol_polyorder: 3       # Polynomial order for fitting
+
+# FFT-based rally segmentation parameters
+segmentation:
+    # FFT window size for analyzing trajectory oscillations
+    fft_window_size: 50
+
+    # Frequency threshold for distinguishing active rallies from inactive periods
+    # Higher values = more strict (fewer rallies detected)
+    # Lower values = more lenient (more rallies detected)
+    frequency_threshold: 0.15
+
+    # Minimum rally duration in frames
+    min_rally_duration: 30
+
+    # Maximum gap between rallies to merge (in frames)
+    merge_gap_threshold: 20
+
 annotation:
     # Video name to annotate (will look for files in annotations_dir/{video_name}/)
     video_name: video-1
@@ -32,3 +54,7 @@ evaluator:
 
     # Output directory for plots and results
     output_dir: squashcopilot/modules/rally_state_detection/tests/outputs
+
+    # Tolerance for boundary matching (in frames)
+    # A predicted boundary within +/- tolerance of ground truth is considered correct
+    boundary_tolerance: 15

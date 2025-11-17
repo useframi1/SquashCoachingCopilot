@@ -1,19 +1,24 @@
 """
 Rally State Detection Evaluator
 
-Visualizes rally state annotations by plotting ball trajectory with state transitions.
+Evaluates rally segmentation performance against ground truth annotations.
 """
 
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from scipy.signal import savgol_filter
+from typing import List, Dict
 
 from squashcopilot.common.utils import load_config
+from squashcopilot.common.models.rally import (
+    RallySegmentationInput,
+    RallySegment,
+)
+from squashcopilot.modules.rally_state_detection import RallyStateDetector
 
 
 class RallyStateEvaluator:
-    """Evaluates and visualizes rally state annotations."""
+    """Evaluates and visualizes rally state detection performance."""
 
     def __init__(self, config_name: str = "rally_state_detection"):
         """
@@ -26,6 +31,7 @@ class RallyStateEvaluator:
         self.config = full_config["evaluator"]
         self.annotation_config = full_config["annotation"]
         self.video_name = self.config["video_name"]
+        self.boundary_tolerance = self.config["boundary_tolerance"]
 
         # Get project root and build paths
         project_root = Path(__file__).parent.parent.parent.parent.parent
@@ -39,12 +45,15 @@ class RallyStateEvaluator:
         self.output_dir = output_base_dir / self.video_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Initialize detector
+        self.detector = RallyStateDetector(config=full_config)
+
     def load_annotations(self) -> pd.DataFrame:
         """
         Load rally state annotations from CSV file.
 
         Returns:
-            DataFrame with frame, features, and rally state labels
+            DataFrame with frame, ball_y, and rally state labels
         """
         csv_path = self.data_dir / f"{self.video_name}_annotations.csv"
 
@@ -56,198 +65,330 @@ class RallyStateEvaluator:
 
         return df
 
-    def preprocess_ball_trajectory(self, df: pd.DataFrame) -> pd.DataFrame:
+    def extract_ground_truth_segments(self, df: pd.DataFrame) -> List[RallySegment]:
         """
-        Preprocess ball trajectory using Savitzky-Golay filter.
+        Extract ground truth rally segments from annotations.
 
         Args:
-            df: DataFrame with ball_y column
+            df: DataFrame with frame and rally_state columns
 
         Returns:
-            DataFrame with additional ball_y_filtered column
+            List of RallySegment objects representing ground truth
         """
-        # Apply Savitzky-Golay filter to smooth the trajectory
-        # window_length must be odd and greater than polyorder
-        window_length = 11  # Can be adjusted for more/less smoothing
-        polyorder = 3  # Polynomial order
+        label_col = self.annotation_config["label_column"]
+        segments = []
+        rally_id = 0
+        in_rally = False
+        rally_start = None
 
-        # Ensure we have enough data points
-        if len(df) < window_length:
-            print(
-                f"Warning: Not enough data points for filtering. Using original values."
-            )
-            df["ball_y_filtered"] = df["ball_y"]
-        else:
-            df["ball_y_filtered"] = savgol_filter(
-                df["ball_y"], window_length=window_length, polyorder=polyorder
-            )
-            print(
-                f"Applied Savitzky-Golay filter (window={window_length}, poly={polyorder})"
+        for i, row in df.iterrows():
+            frame = row["frame"]
+            state = row[label_col]
+
+            if state == "start" and not in_rally:
+                # Start of rally
+                rally_start = frame
+                in_rally = True
+
+            elif state == "end" and in_rally:
+                # End of rally
+                rally_end = frame
+                segments.append(
+                    RallySegment(
+                        rally_id=rally_id,
+                        start_frame=rally_start,
+                        end_frame=rally_end,
+                    )
+                )
+                rally_id += 1
+                in_rally = False
+                rally_start = None
+
+        # Handle case where annotation ends during a rally
+        if in_rally and rally_start is not None:
+            segments.append(
+                RallySegment(
+                    rally_id=rally_id,
+                    start_frame=rally_start,
+                    end_frame=df["frame"].iloc[-1],
+                )
             )
 
-        return df
+        return segments
 
-    def plot_trajectory(self, df: pd.DataFrame):
+    def compute_metrics(
+        self,
+        predicted_segments: List[RallySegment],
+        ground_truth_segments: List[RallySegment],
+    ) -> Dict[str, float]:
         """
-        Plot ball y trajectory with rally state transitions.
+        Compute evaluation metrics with tolerance for boundary matching.
 
         Args:
-            df: DataFrame with annotations (must have ball_y_filtered column)
+            predicted_segments: List of predicted rally segments
+            ground_truth_segments: List of ground truth rally segments
+
+        Returns:
+            Dictionary with precision, recall, F1, and boundary accuracy metrics
         """
-        # Get label column name from annotation config
-        label_col = self.annotation_config["label_column"]
+        tolerance = self.boundary_tolerance
 
-        # Create figure
-        fig, ax = plt.subplots(figsize=(16, 8))
+        # Convert segments to sets of frame ranges for easier comparison
+        def segment_to_frames(segment):
+            return set(range(segment.start_frame, segment.end_frame + 1))
 
-        # Plot original ball y trajectory (lighter, thinner)
-        ax.plot(
-            df["frame"],
-            df["ball_y"],
+        # Track matches
+        gt_matched = [False] * len(ground_truth_segments)
+        pred_matched = [False] * len(predicted_segments)
+
+        # Count boundary matches
+        start_boundary_matches = 0
+        end_boundary_matches = 0
+        total_boundaries = len(ground_truth_segments) * 2  # start + end for each rally
+
+        # For each predicted segment, find best matching ground truth segment
+        for pred_idx, pred_seg in enumerate(predicted_segments):
+            best_iou = 0.0
+            best_gt_idx = -1
+
+            for gt_idx, gt_seg in enumerate(ground_truth_segments):
+                # Compute IoU (Intersection over Union)
+                pred_frames = segment_to_frames(pred_seg)
+                gt_frames = segment_to_frames(gt_seg)
+
+                intersection = len(pred_frames & gt_frames)
+                union = len(pred_frames | gt_frames)
+                iou = intersection / union if union > 0 else 0.0
+
+                if iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
+
+            # Consider it a match if IoU > 0.5
+            if best_iou > 0.5:
+                pred_matched[pred_idx] = True
+                gt_matched[best_gt_idx] = True
+
+                # Check boundary accuracy with tolerance
+                gt_seg = ground_truth_segments[best_gt_idx]
+                if abs(pred_seg.start_frame - gt_seg.start_frame) <= tolerance:
+                    start_boundary_matches += 1
+                if abs(pred_seg.end_frame - gt_seg.end_frame) <= tolerance:
+                    end_boundary_matches += 1
+
+        # Compute metrics
+        true_positives = sum(pred_matched)
+        false_positives = len(predicted_segments) - true_positives
+        false_negatives = len(ground_truth_segments) - sum(gt_matched)
+
+        precision = (
+            true_positives / (true_positives + false_positives)
+            if (true_positives + false_positives) > 0
+            else 0.0
+        )
+        recall = (
+            true_positives / (true_positives + false_negatives)
+            if (true_positives + false_negatives) > 0
+            else 0.0
+        )
+        f1_score = (
+            2 * (precision * recall) / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+
+        boundary_accuracy = (
+            start_boundary_matches + end_boundary_matches
+        ) / total_boundaries
+
+        return {
+            "precision": precision,
+            "recall": recall,
+            "f1_score": f1_score,
+            "boundary_accuracy": boundary_accuracy,
+            "true_positives": true_positives,
+            "false_positives": false_positives,
+            "false_negatives": false_negatives,
+            "predicted_rallies": len(predicted_segments),
+            "ground_truth_rallies": len(ground_truth_segments),
+        }
+
+    def plot_comparison(
+        self,
+        df: pd.DataFrame,
+        predicted_segments: List[RallySegment],
+        ground_truth_segments: List[RallySegment],
+        preprocessed_trajectory: List[float],
+    ):
+        """
+        Plot comparison between predicted and ground truth rally segments.
+
+        Args:
+            df: DataFrame with annotations
+            predicted_segments: Predicted rally segments
+            ground_truth_segments: Ground truth segments
+            preprocessed_trajectory: Smoothed ball trajectory
+        """
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 10), sharex=True)
+
+        frames = df["frame"].values
+
+        # Top plot: Ball trajectory with ground truth
+        ax1.plot(
+            frames,
+            df["ball_y"].values,
             linewidth=1,
             color="lightblue",
             alpha=0.5,
-            label="Ball Y Position (Original)",
+            label="Ball Y (Original)",
         )
-
-        # Plot filtered ball y trajectory (darker, thicker)
-        ax.plot(
-            df["frame"],
-            df["ball_y_filtered"],
+        ax1.plot(
+            frames,
+            preprocessed_trajectory,
             linewidth=2.5,
             color="blue",
-            label="Ball Y Position (Filtered)",
+            label="Ball Y (Filtered)",
         )
 
-        # Find state transitions
-        state_changes = []
-        for i in range(1, len(df)):
-            if df[label_col].iloc[i] != df[label_col].iloc[i - 1]:
-                state_changes.append(i)
+        # Highlight ground truth rally segments
+        for segment in ground_truth_segments:
+            ax1.axvspan(
+                segment.start_frame,
+                segment.end_frame,
+                alpha=0.3,
+                color="green",
+                label="Ground Truth Rally" if segment.rally_id == 0 else "",
+            )
 
-        # Add vertical lines at state transitions
-        for change_idx in state_changes:
-            frame_num = df["frame"].iloc[change_idx]
-            ax.axvline(x=frame_num, color="red", linestyle="--", linewidth=2, alpha=0.7)
-
-        # Color the background based on rally state
-        start_color = (0.0, 1.0, 0.0, 0.2)  # Green with alpha
-        end_color = (1.0, 0.0, 0.0, 0.2)  # Red with alpha
-
-        current_state = df[label_col].iloc[0]
-        region_start = df["frame"].iloc[0]
-
-        for i in range(1, len(df)):
-            if df[label_col].iloc[i] != current_state or i == len(df) - 1:
-                region_end = (
-                    df["frame"].iloc[i] if i == len(df) - 1 else df["frame"].iloc[i - 1]
-                )
-
-                # Fill region with appropriate color
-                color = start_color if current_state == "start" else end_color
-                ax.axvspan(
-                    region_start,
-                    region_end,
-                    alpha=0.3,
-                    color=color[0:3],
-                    label=(
-                        f"{current_state.capitalize()}"
-                        if region_start == df["frame"].iloc[0]
-                        else ""
-                    ),
-                )
-
-                if i < len(df):
-                    current_state = df[label_col].iloc[i]
-                    region_start = df["frame"].iloc[i]
-
-        # Customize plot
-        ax.set_xlabel("Frame Number", fontsize=14, fontweight="bold")
-        ax.set_ylabel("Ball Y Coordinate", fontsize=14, fontweight="bold")
-        ax.set_title(
-            f"Rally State Trajectory - {self.video_name}",
-            fontsize=16,
+        ax1.set_ylabel("Ball Y Coordinate", fontsize=12, fontweight="bold")
+        ax1.set_title(
+            f"Ground Truth Rally Segments - {self.video_name}",
+            fontsize=14,
             fontweight="bold",
         )
-        ax.grid(True, alpha=0.3, linestyle=":", linewidth=0.5)
-        ax.legend(loc="upper right", fontsize=11)
+        ax1.grid(True, alpha=0.3, linestyle=":", linewidth=0.5)
+        ax1.legend(loc="upper right", fontsize=10)
 
-        # Add annotation for state changes
-        if state_changes:
-            ax.text(
-                0.02,
-                0.98,
-                f"State Transitions: {len(state_changes)}",
-                transform=ax.transAxes,
-                fontsize=12,
-                verticalalignment="top",
-                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+        # Bottom plot: Ball trajectory with predictions
+        ax2.plot(
+            frames,
+            df["ball_y"].values,
+            linewidth=1,
+            color="lightblue",
+            alpha=0.5,
+            label="Ball Y (Original)",
+        )
+        ax2.plot(
+            frames,
+            preprocessed_trajectory,
+            linewidth=2.5,
+            color="blue",
+            label="Ball Y (Filtered)",
+        )
+
+        # Highlight predicted rally segments
+        for segment in predicted_segments:
+            ax2.axvspan(
+                segment.start_frame,
+                segment.end_frame,
+                alpha=0.3,
+                color="orange",
+                label="Predicted Rally" if segment.rally_id == 0 else "",
             )
+
+        ax2.set_xlabel("Frame Number", fontsize=12, fontweight="bold")
+        ax2.set_ylabel("Ball Y Coordinate", fontsize=12, fontweight="bold")
+        ax2.set_title(
+            f"Predicted Rally Segments - {self.video_name}",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax2.grid(True, alpha=0.3, linestyle=":", linewidth=0.5)
+        ax2.legend(loc="upper right", fontsize=10)
 
         plt.tight_layout()
 
         # Save plot
-        output_path = self.output_dir / f"{self.video_name}_trajectory.png"
+        output_path = self.output_dir / f"{self.video_name}_comparison.png"
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-        print(f"Trajectory plot saved to: {output_path}")
+        print(f"Comparison plot saved to: {output_path}")
 
-    def print_summary(self, df: pd.DataFrame):
+    def print_metrics(self, metrics: Dict[str, float]):
         """
-        Print summary statistics of the annotations.
+        Print evaluation metrics.
 
         Args:
-            df: DataFrame with annotations
+            metrics: Dictionary with evaluation metrics
         """
-        label_col = self.annotation_config["label_column"]
-
-        print("\n" + "=" * 60)
-        print("ANNOTATION SUMMARY")
-        print("=" * 60)
+        print("\n" + "=" * 70)
+        print("EVALUATION METRICS")
+        print("=" * 70)
         print(f"Video: {self.video_name}")
-        print(f"Total Frames: {len(df)}")
-        print(f"\nState Distribution:")
-
-        state_counts = df[label_col].value_counts()
-        for state, count in state_counts.items():
-            percentage = (count / len(df)) * 100
-            print(f"  {state.capitalize()}: {count} frames ({percentage:.2f}%)")
-
-        # Count transitions
-        transitions = 0
-        for i in range(1, len(df)):
-            if df[label_col].iloc[i] != df[label_col].iloc[i - 1]:
-                transitions += 1
-
-        print(f"\nState Transitions: {transitions}")
-        print("=" * 60)
+        print(f"Boundary Tolerance: ±{self.boundary_tolerance} frames")
+        print()
+        print(f"Ground Truth Rallies: {metrics['ground_truth_rallies']}")
+        print(f"Predicted Rallies: {metrics['predicted_rallies']}")
+        print()
+        print(f"True Positives:  {metrics['true_positives']}")
+        print(f"False Positives: {metrics['false_positives']}")
+        print(f"False Negatives: {metrics['false_negatives']}")
+        print()
+        print(f"Precision: {metrics['precision']:.4f}")
+        print(f"Recall:    {metrics['recall']:.4f}")
+        print(f"F1 Score:  {metrics['f1_score']:.4f}")
+        print()
+        print(f"Boundary Accuracy: {metrics['boundary_accuracy']:.4f}")
+        print(
+            f"  (Percentage of rally boundaries within ±{self.boundary_tolerance} frames)"
+        )
+        print("=" * 70)
 
     def run(self):
         """Run the complete evaluation pipeline."""
-        print("=" * 60)
-        print("RALLY STATE ANNOTATION EVALUATOR")
-        print("=" * 60)
+        print("=" * 70)
+        print("RALLY STATE DETECTION EVALUATOR")
+        print("=" * 70)
 
         # Load annotations
         print(f"\nLoading annotations for {self.video_name}...")
         df = self.load_annotations()
 
-        # Preprocess ball trajectory
-        print(f"\nPreprocessing ball trajectory...")
-        df = self.preprocess_ball_trajectory(df)
+        # Extract ground truth segments
+        print(f"Extracting ground truth rally segments...")
+        ground_truth_segments = self.extract_ground_truth_segments(df)
+        print(f"Found {len(ground_truth_segments)} ground truth rallies")
 
-        # Print summary
-        self.print_summary(df)
+        # Prepare input for detector
+        print(f"\nRunning rally segmentation...")
+        input_data = RallySegmentationInput(
+            ball_positions=df["ball_y"].tolist(), frame_numbers=df["frame"].tolist()
+        )
 
-        # Plot trajectory
-        print(f"\nGenerating trajectory plot...")
-        self.plot_trajectory(df)
+        # Run detector
+        result = self.detector.segment_rallies(input_data)
+        print(f"Detected {len(result.segments)} rallies")
 
-        print("\n" + "=" * 60)
+        # Compute metrics
+        print(f"\nComputing evaluation metrics...")
+        metrics = self.compute_metrics(result.segments, ground_truth_segments)
+
+        # Print metrics
+        self.print_metrics(metrics)
+
+        # Plot comparison
+        print(f"\nGenerating comparison plot...")
+        self.plot_comparison(
+            df, result.segments, ground_truth_segments, result.preprocessed_trajectory
+        )
+
+        print("\n" + "=" * 70)
         print("✓ Evaluation complete!")
         print(f"✓ Output saved to: {self.output_dir}")
-        print("=" * 60)
+        print("=" * 70)
+
+        return metrics
 
 
 def main():
