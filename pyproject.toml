@@ -67,7 +67,6 @@ packages = [
     "squashcopilot.modules.player_tracking",
     "squashcopilot.modules.player_tracking.model",
     "squashcopilot.modules.rally_state_detection",
-    "squashcopilot.modules.rally_state_detection.model",
     "squashcopilot.modules.shot_type_classification",
     "squashcopilot.modules.stroke_detection",
     "squashcopilot.modules.stroke_detection.model",

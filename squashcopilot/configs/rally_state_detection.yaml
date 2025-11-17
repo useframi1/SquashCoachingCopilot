@@ -3,18 +3,18 @@
 # Preprocessing parameters
 preprocessing:
     # Savitzky-Golay filter parameters
-    savgol_window_length: 11  # Must be odd number
-    savgol_polyorder: 3       # Polynomial order for fitting
+    savgol_window_length: 11 # Must be odd number
+    savgol_polyorder: 3 # Polynomial order for fitting
 
 # FFT-based rally segmentation parameters
 segmentation:
     # FFT window size for analyzing trajectory oscillations
-    fft_window_size: 50
+    fft_window_size: 100
 
     # Frequency threshold for distinguishing active rallies from inactive periods
     # Higher values = more strict (fewer rallies detected)
     # Lower values = more lenient (more rallies detected)
-    frequency_threshold: 0.15
+    frequency_threshold: 0.01
 
     # Minimum rally duration in frames
     min_rally_duration: 30
@@ -58,3 +58,65 @@ evaluator:
     # Tolerance for boundary matching (in frames)
     # A predicted boundary within +/- tolerance of ground truth is considered correct
     boundary_tolerance: 15
+
+# Ground truth analysis parameters
+analysis:
+    # Video name to analyze
+    video_name: video-1
+
+    # Directory containing annotated CSV files
+    data_dir: squashcopilot/modules/rally_state_detection/tests/data
+
+    # Output directory for analysis plots and results
+    output_dir: squashcopilot/modules/rally_state_detection/tests/outputs
+
+    # Window sizes for computing metrics (in frames)
+    windows:
+        # Small window for fine-grained velocity analysis
+        velocity_small: 30
+        # Medium window for general velocity metrics
+        velocity_medium: 60
+        # Large window for position and trajectory analysis
+        position: 120
+        # Window for autocorrelation analysis
+        autocorrelation: 50
+
+    # Thresholds for classification
+    thresholds:
+        # Threshold for large movements (px/frame)
+        large_movement: 10
+        # Threshold for stationary frames (px/frame)
+        stationary: 1
+        # Threshold for significant acceleration (px/frame^2)
+        high_acceleration: 3
+
+    # Metric categories to compute (true/false)
+    compute_metrics:
+        velocity: true
+        position: true
+        motion_patterns: true
+        oscillation: true
+        temporal: true
+        distributions: true
+
+    # Visualization settings
+    visualization:
+        # Figure sizes (width, height in inches)
+        figure_size_large: [16, 10]
+        figure_size_medium: [14, 8]
+        figure_size_small: [10, 6]
+        # DPI for saved figures
+        dpi: 300
+        # Color scheme for rally vs non-rally
+        colors:
+            rally: green
+            non_rally: red
+        # Number of bins for histograms
+        histogram_bins: 50
+
+    # Statistical analysis settings
+    statistics:
+        # Percentiles to compute
+        percentiles: [5, 25, 50, 75, 95]
+        # Lag values for autocorrelation
+        autocorrelation_lags: [1, 2, 3, 5, 10]
