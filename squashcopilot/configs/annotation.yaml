@@ -3,7 +3,7 @@
 
 # Video Settings
 video:
-    name: video-5.mp4 # Name of the video file to annotate (in annotation/data/)
+    name: video-1.mp4 # Name of the video file to annotate (in annotation/data/)
     max_time: 300 # Maximum duration to process in seconds (null = process entire video)
 
 # Visualization Settings

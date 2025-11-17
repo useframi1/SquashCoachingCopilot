@@ -42,3 +42,10 @@ annotation:
     annotation_dir: squashcopilot/annotation/annotations # Directory containing annotation folders
     output_dir: squashcopilot/modules/stroke_detection/data # Directory to save annotated stroke data
     frame_window: 15 # Number of frames before/after racket hit to show
+
+# Inference Settings
+inference:
+    video_path: squashcopilot/annotation/annotations/video-2/video-2_annotated.mp4 # Path to video for inference (dummy path for now)
+    output_dir: squashcopilot/modules/stroke_detection/inference_output # Directory to save inference results
+    visualize: true # Whether to visualize stroke predictions on video
+    save_predictions: true # Whether to save predictions to CSV

@@ -336,7 +336,7 @@ def main():
     annotator.annotate_all()
 
     # Save results
-    output_csv = output_dir / f"{video_name}_strokes_annotated.csv"
+    output_csv = output_dir / f"{video_name}_strokes_annotated_2.csv"
     annotator.save_annotations(output_csv)
 
 
