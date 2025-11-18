@@ -14,15 +14,15 @@ class RallyState(str, Enum):
 
     Represents the current state of a rally in a squash match.
     """
-    START = "start"      # Rally is starting (players getting ready)
-    ACTIVE = "active"    # Rally is in progress (ball in play)
-    END = "end"          # Rally has ended (point scored or let/stroke)
+
+    START = "start"  # Rally is starting (players getting ready)
+    END = "end"  # Rally has ended (point scored or let/stroke)
 
     def __str__(self) -> str:
         return self.value
 
     @classmethod
-    def from_string(cls, s: str) -> 'RallyState':
+    def from_string(cls, s: str) -> "RallyState":
         """
         Convert string to RallyState.
 
@@ -50,6 +50,7 @@ class StrokeType(str, Enum):
 
     Represents the type of stroke a player is performing.
     """
+
     FOREHAND = "forehand"
     BACKHAND = "backhand"
     NEITHER = "neither"  # No stroke detected
@@ -58,7 +59,7 @@ class StrokeType(str, Enum):
         return self.value
 
     @classmethod
-    def from_string(cls, s: str) -> 'StrokeType':
+    def from_string(cls, s: str) -> "StrokeType":
         """
         Convert string to StrokeType.
 
@@ -86,15 +87,15 @@ class ShotDirection(str, Enum):
 
     Represents the direction of a shot based on ball trajectory.
     """
+
     STRAIGHT = "straight"
     CROSS_COURT = "cross_court"
-    DOWN_THE_LINE = "down_the_line"
 
     def __str__(self) -> str:
         return self.value
 
     @classmethod
-    def from_string(cls, s: str) -> 'ShotDirection':
+    def from_string(cls, s: str) -> "ShotDirection":
         """
         Convert string to ShotDirection.
 
@@ -122,6 +123,7 @@ class ShotDepth(str, Enum):
 
     Represents whether a shot is a drop shot or a long/drive shot.
     """
+
     DROP = "drop"
     LONG = "long"
 
@@ -129,7 +131,7 @@ class ShotDepth(str, Enum):
         return self.value
 
     @classmethod
-    def from_string(cls, s: str) -> 'ShotDepth':
+    def from_string(cls, s: str) -> "ShotDepth":
         """
         Convert string to ShotDepth.
 
@@ -157,18 +159,19 @@ class ShotType(str, Enum):
 
     Represents the full shot type combining direction and depth.
     """
+
     STRAIGHT_DRIVE = "straight_drive"
     STRAIGHT_DROP = "straight_drop"
     CROSS_COURT_DRIVE = "cross_court_drive"
     CROSS_COURT_DROP = "cross_court_drop"
-    DOWN_LINE_DRIVE = "down_line_drive"
-    DOWN_LINE_DROP = "down_line_drop"
 
     def __str__(self) -> str:
         return self.value
 
     @classmethod
-    def from_direction_and_depth(cls, direction: ShotDirection, depth: ShotDepth) -> 'ShotType':
+    def from_direction_and_depth(
+        cls, direction: ShotDirection, depth: ShotDepth
+    ) -> "ShotType":
         """
         Create ShotType from direction and depth.
 
@@ -184,8 +187,6 @@ class ShotType(str, Enum):
             (ShotDirection.STRAIGHT, ShotDepth.DROP): cls.STRAIGHT_DROP,
             (ShotDirection.CROSS_COURT, ShotDepth.LONG): cls.CROSS_COURT_DRIVE,
             (ShotDirection.CROSS_COURT, ShotDepth.DROP): cls.CROSS_COURT_DROP,
-            (ShotDirection.DOWN_THE_LINE, ShotDepth.LONG): cls.DOWN_LINE_DRIVE,
-            (ShotDirection.DOWN_THE_LINE, ShotDepth.DROP): cls.DOWN_LINE_DROP,
         }
         return mapping[(direction, depth)]
 
@@ -196,8 +197,6 @@ class ShotType(str, Enum):
             return ShotDirection.STRAIGHT
         elif "cross" in self.value:
             return ShotDirection.CROSS_COURT
-        else:
-            return ShotDirection.DOWN_THE_LINE
 
     @property
     def depth(self) -> ShotDepth:
@@ -208,7 +207,7 @@ class ShotType(str, Enum):
             return ShotDepth.LONG
 
     @classmethod
-    def from_string(cls, s: str) -> 'ShotType':
+    def from_string(cls, s: str) -> "ShotType":
         """
         Convert string to ShotType.
 

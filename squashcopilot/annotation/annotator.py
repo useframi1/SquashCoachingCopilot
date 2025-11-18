@@ -58,7 +58,7 @@ class Annotator:
         """Initialize the annotator with all required modules."""
         # Load configuration
         if config is None:
-            self.config = load_config(config_name='annotation')
+            self.config = load_config(config_name="annotation")
         else:
             self.config = config
 
@@ -96,7 +96,7 @@ class Annotator:
         if not video_path.exists():
             raise FileNotFoundError(f"Video not found: {video_path}")
 
-        max_time = self.config.get('video', {}).get('max_time')
+        max_time = self.config.get("video", {}).get("max_time")
 
         print(f"Processing video: {video_name}")
 
@@ -112,7 +112,9 @@ class Annotator:
         if max_time is not None and max_time > 0:
             # Convert max_time (seconds) to frames
             total_frames = min(total_frames, int(max_time * fps))
-            print(f"Video info: {total_frames} frames (limited to {max_time}s from {original_total_frames}), {fps:.2f} FPS, {width}x{height}")
+            print(
+                f"Video info: {total_frames} frames (limited to {max_time}s from {original_total_frames}), {fps:.2f} FPS, {width}x{height}"
+            )
         else:
             print(f"Video info: {total_frames} frames, {fps:.2f} FPS, {width}x{height}")
 
@@ -131,8 +133,8 @@ class Annotator:
         if not court_result.calibrated:
             raise RuntimeError("Court calibration failed on first frame")
 
-        floor_homography = court_result.get_homography('floor')
-        wall_homography = court_result.get_homography('wall')
+        floor_homography = court_result.get_homography("floor")
+        wall_homography = court_result.get_homography("wall")
         court_keypoints = court_result.keypoints_per_class
 
         print("Court calibration successful")
@@ -141,14 +143,15 @@ class Annotator:
         print("Detecting wall color...")
         wall_color_result = self.court_calibrator.detect_wall_color(
             WallColorDetectionInput(
-                frame=first_frame,
-                keypoints_per_class=court_keypoints
+                frame=first_frame, keypoints_per_class=court_keypoints
             )
         )
 
         is_black_ball = wall_color_result.is_white
         self.ball_tracker.set_is_black_ball(is_black_ball)
-        print(f"Wall is {'white' if wall_color_result.is_white else 'colored'}, using {'black' if is_black_ball else 'white'} ball")
+        print(
+            f"Wall is {'white' if wall_color_result.is_white else 'colored'}, using {'black' if is_black_ball else 'white'} ball"
+        )
 
         # Step 4: Update player tracker with homography
         self.player_tracker.homography = floor_homography.matrix
@@ -169,9 +172,7 @@ class Annotator:
                 break
 
             frame = Frame(
-                image=frame_img,
-                frame_number=frame_idx,
-                timestamp=frame_idx / fps
+                image=frame_img, frame_number=frame_idx, timestamp=frame_idx / fps
             )
 
             # Track players
@@ -209,7 +210,7 @@ class Annotator:
                 positions_history=player_positions_raw,
                 real_positions_history=player_real_positions_raw,
                 keypoints_history=player_keypoints_raw,
-                bboxes_history=player_bboxes_raw
+                bboxes_history=player_bboxes_raw,
             )
         )
 
@@ -220,7 +221,9 @@ class Annotator:
 
         # Extract interpolated keypoints and bboxes
         player_keypoints_interpolated = {
-            player_id: traj.keypoints if traj.keypoints else player_keypoints_raw[player_id]
+            player_id: (
+                traj.keypoints if traj.keypoints else player_keypoints_raw[player_id]
+            )
             for player_id, traj in player_postprocess_result.trajectories.items()
         }
 
@@ -238,12 +241,16 @@ class Annotator:
             BallPostprocessingInput(positions=ball_positions_raw)
         )
         ball_positions_smooth = ball_trajectory.positions
-        print(f"Ball: {ball_trajectory.outliers_removed} outliers removed, {ball_trajectory.gaps_filled} gaps filled")
+        print(
+            f"Ball: {ball_trajectory.outliers_removed} outliers removed, {ball_trajectory.gaps_filled} gaps filled"
+        )
 
         # Step 8: Detect wall hits
         print("Detecting wall hits...")
         wall_hits_result = self.wall_hit_detector.detect(
-            WallHitInput(positions=ball_positions_smooth, wall_homography=wall_homography)
+            WallHitInput(
+                positions=ball_positions_smooth, wall_homography=wall_homography
+            )
         )
         print(f"Detected {wall_hits_result.num_hits} wall hits")
 
@@ -253,7 +260,7 @@ class Annotator:
             RacketHitInput(
                 positions=ball_positions_smooth,
                 wall_hits=wall_hits_result.wall_hits,
-                player_positions=player_positions_smooth
+                player_positions=player_positions_smooth,
             )
         )
         print(f"Detected {racket_hits_result.num_hits} racket hits")
@@ -267,7 +274,7 @@ class Annotator:
             ball_positions_smooth=ball_positions_smooth,
             wall_hits=wall_hits_result.wall_hits,
             racket_hits=racket_hits_result.racket_hits,
-            floor_homography=floor_homography
+            floor_homography=floor_homography,
         )
 
         # Step 11: Save CSV
@@ -277,13 +284,15 @@ class Annotator:
         video_annotations_dir.mkdir(exist_ok=True)
 
         csv_path = video_annotations_dir / f"{video_base_name}_annotations.csv"
-        csv_index = self.config.get('output', {}).get('csv_index', False)
+        csv_index = self.config.get("output", {}).get("csv_index", False)
         df.to_csv(csv_path, index=csv_index)
         print(f"Saved annotations to: {csv_path}")
 
         # Step 12: Create annotated video
         print("Creating annotated video...")
-        annotated_video_path = video_annotations_dir / f"{video_base_name}_annotated.mp4"
+        annotated_video_path = (
+            video_annotations_dir / f"{video_base_name}_annotated.mp4"
+        )
         self._create_annotated_video(
             video_path=video_path,
             output_path=annotated_video_path,
@@ -295,7 +304,7 @@ class Annotator:
             wall_hits=wall_hits_result.wall_hits,
             racket_hits=racket_hits_result.racket_hits,
             fps=fps,
-            num_frames=total_frames
+            num_frames=total_frames,
         )
         print(f"Saved annotated video to: {annotated_video_path}")
 
@@ -309,7 +318,7 @@ class Annotator:
         ball_positions_smooth: List[Point2D],
         wall_hits: List,
         racket_hits: List,
-        floor_homography: Homography
+        floor_homography: Homography,
     ) -> pd.DataFrame:
         """Build the annotations DataFrame."""
         # Create wall and racket hit frame sets for quick lookup
@@ -326,21 +335,21 @@ class Annotator:
         # Build rows
         rows = []
         for frame_idx in range(total_frames):
-            row = {'frame': frame_idx}
+            row = {"frame": frame_idx}
 
             # Add player data
             for player_id in [1, 2]:
-                prefix = f'player_{player_id}'
+                prefix = f"player_{player_id}"
 
                 # Positions (pixel)
                 pos_pixel = player_positions_smooth[player_id][frame_idx]
-                row[f'{prefix}_x_pixel'] = pos_pixel.x
-                row[f'{prefix}_y_pixel'] = pos_pixel.y
+                row[f"{prefix}_x_pixel"] = pos_pixel.x
+                row[f"{prefix}_y_pixel"] = pos_pixel.y
 
                 # Positions (meter) - transform using homography
                 pos_meter = floor_homography.transform_point(pos_pixel)
-                row[f'{prefix}_x_meter'] = pos_meter.x
-                row[f'{prefix}_y_meter'] = pos_meter.y
+                row[f"{prefix}_x_meter"] = pos_meter.x
+                row[f"{prefix}_y_meter"] = pos_meter.y
 
                 # Keypoints (extract body keypoints only)
                 kp_data = player_keypoints_raw[player_id][frame_idx]
@@ -351,48 +360,51 @@ class Annotator:
                         kp_result = kp_data.get_keypoint(kp_idx)
                         if kp_result is not None:
                             x, y, conf = kp_result
-                            row[f'{prefix}_kp_{kp_name}_x'] = x if conf > 0 else None
-                            row[f'{prefix}_kp_{kp_name}_y'] = y if conf > 0 else None
+                            row[f"{prefix}_kp_{kp_name}_x"] = x if conf > 0 else None
+                            row[f"{prefix}_kp_{kp_name}_y"] = y if conf > 0 else None
                         else:
-                            row[f'{prefix}_kp_{kp_name}_x'] = None
-                            row[f'{prefix}_kp_{kp_name}_y'] = None
+                            row[f"{prefix}_kp_{kp_name}_x"] = None
+                            row[f"{prefix}_kp_{kp_name}_y"] = None
                 else:
                     # No keypoints detected
                     for kp_name in KEYPOINT_NAMES:
-                        row[f'{prefix}_kp_{kp_name}_x'] = None
-                        row[f'{prefix}_kp_{kp_name}_y'] = None
+                        row[f"{prefix}_kp_{kp_name}_x"] = None
+                        row[f"{prefix}_kp_{kp_name}_y"] = None
 
             # Ball position
             ball_pos = ball_positions_smooth[frame_idx]
-            row['ball_x'] = ball_pos.x
-            row['ball_y'] = ball_pos.y
+            row["ball_x"] = ball_pos.x
+            row["ball_y"] = ball_pos.y
 
             # Hit flags
-            row['is_wall_hit'] = frame_idx in wall_hit_frames
-            row['is_racket_hit'] = frame_idx in racket_hit_frames
+            row["is_wall_hit"] = 1 if frame_idx in wall_hit_frames else 0
+            row["is_racket_hit"] = 1 if frame_idx in racket_hit_frames else 0
 
             # Racket hit player ID
             if frame_idx in racket_hit_players:
-                row['racket_hit_player_id'] = racket_hit_players[frame_idx]
+                row["racket_hit_player_id"] = int(racket_hit_players[frame_idx])
             else:
-                row['racket_hit_player_id'] = None
+                row["racket_hit_player_id"] = None
 
             # Wall hit positions (pixel and meter coordinates)
             if frame_idx in wall_hit_positions:
                 wall_hit_pos = wall_hit_positions[frame_idx]
-                row['wall_hit_x_pixel'] = wall_hit_pos.x
-                row['wall_hit_y_pixel'] = wall_hit_pos.y
+                row["wall_hit_x_pixel"] = wall_hit_pos.x
+                row["wall_hit_y_pixel"] = wall_hit_pos.y
             else:
-                row['wall_hit_x_pixel'] = None
-                row['wall_hit_y_pixel'] = None
+                row["wall_hit_x_pixel"] = None
+                row["wall_hit_y_pixel"] = None
 
-            if frame_idx in wall_hit_positions_meter and wall_hit_positions_meter[frame_idx] is not None:
+            if (
+                frame_idx in wall_hit_positions_meter
+                and wall_hit_positions_meter[frame_idx] is not None
+            ):
                 wall_hit_pos_meter = wall_hit_positions_meter[frame_idx]
-                row['wall_hit_x_meter'] = wall_hit_pos_meter.x
-                row['wall_hit_y_meter'] = wall_hit_pos_meter.y
+                row["wall_hit_x_meter"] = wall_hit_pos_meter.x
+                row["wall_hit_y_meter"] = wall_hit_pos_meter.y
             else:
-                row['wall_hit_x_meter'] = None
-                row['wall_hit_y_meter'] = None
+                row["wall_hit_x_meter"] = None
+                row["wall_hit_y_meter"] = None
 
             rows.append(row)
 
@@ -410,22 +422,22 @@ class Annotator:
         wall_hits: List,
         racket_hits: List,
         fps: float,
-        num_frames: int
+        num_frames: int,
     ):
         """Create an annotated video with visualizations."""
         # Load visualization config
-        viz_config = self.config.get('visualization', {})
-        ball_trail_length = viz_config.get('ball_trail_length', 30)
+        viz_config = self.config.get("visualization", {})
+        ball_trail_length = viz_config.get("ball_trail_length", 30)
 
         # Get colors (convert from list to tuple for OpenCV)
         player_colors = {
-            1: tuple(viz_config.get('player_colors', {}).get('player_1', [0, 255, 0])),
-            2: tuple(viz_config.get('player_colors', {}).get('player_2', [255, 0, 0]))
+            1: tuple(viz_config.get("player_colors", {}).get("player_1", [0, 255, 0])),
+            2: tuple(viz_config.get("player_colors", {}).get("player_2", [255, 0, 0])),
         }
-        ball_color = tuple(viz_config.get('ball_color', [0, 255, 255]))
-        court_color = tuple(viz_config.get('court_color', [255, 255, 0]))
-        wall_hit_color = tuple(viz_config.get('wall_hit_color', [0, 0, 255]))
-        racket_hit_color = tuple(viz_config.get('racket_hit_color', [255, 0, 255]))
+        ball_color = tuple(viz_config.get("ball_color", [0, 255, 255]))
+        court_color = tuple(viz_config.get("court_color", [255, 255, 0]))
+        wall_hit_color = tuple(viz_config.get("wall_hit_color", [0, 0, 255]))
+        racket_hit_color = tuple(viz_config.get("racket_hit_color", [255, 0, 255]))
 
         # Create dictionaries mapping frame to hit position
         wall_hit_positions = {hit.frame: hit.position for hit in wall_hits}
@@ -444,16 +456,16 @@ class Annotator:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         # Create output video writer
-        codec = self.config.get('output', {}).get('video_codec', 'mp4v')
+        codec = self.config.get("output", {}).get("video_codec", "mp4v")
         fourcc = cv2.VideoWriter_fourcc(*codec)
         out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
 
         # Get drawing parameters from config
-        bbox_thickness = viz_config.get('bbox_thickness', 2)
-        label_font_scale = viz_config.get('label_font_scale', 0.7)
-        label_font_thickness = viz_config.get('label_font_thickness', 2)
-        wall_hit_config = viz_config.get('wall_hit_marker', {})
-        racket_hit_config = viz_config.get('racket_hit_marker', {})
+        bbox_thickness = viz_config.get("bbox_thickness", 2)
+        label_font_scale = viz_config.get("label_font_scale", 0.7)
+        label_font_thickness = viz_config.get("label_font_thickness", 2)
+        wall_hit_config = viz_config.get("wall_hit_marker", {})
+        racket_hit_config = viz_config.get("racket_hit_marker", {})
 
         for frame_idx in tqdm(range(num_frames), desc="Creating video", unit="frame"):
             ret, frame = cap.read()
@@ -477,18 +489,18 @@ class Annotator:
                         (int(bbox.x1), int(bbox.y1)),
                         (int(bbox.x2), int(bbox.y2)),
                         color,
-                        bbox_thickness
+                        bbox_thickness,
                     )
 
                     # Draw player ID
                     cv2.putText(
                         frame,
-                        f'P{player_id}',
+                        f"P{player_id}",
                         (int(bbox.x1), int(bbox.y1) - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         label_font_scale,
                         color,
-                        label_font_thickness
+                        label_font_thickness,
                     )
 
                     # Draw keypoints and skeleton
@@ -504,7 +516,9 @@ class Annotator:
                 p1 = ball_positions[i]
                 p2 = ball_positions[i + 1]
                 # Fade effect
-                alpha = (i - start_idx) / ball_trail_length if ball_trail_length > 0 else 1
+                alpha = (
+                    (i - start_idx) / ball_trail_length if ball_trail_length > 0 else 1
+                )
                 # Create faded version of ball_color
                 faded_color = tuple(int(c * alpha) for c in ball_color)
                 cv2.line(
@@ -512,15 +526,15 @@ class Annotator:
                     (int(p1.x), int(p1.y)),
                     (int(p2.x), int(p2.y)),
                     faded_color,
-                    2
+                    2,
                 )
 
             # Draw hit markers (persist for 1 second)
-            wall_text = wall_hit_config.get('text', 'WALL HIT')
-            wall_radius = wall_hit_config.get('circle_radius', 20)
+            wall_text = wall_hit_config.get("text", "WALL HIT")
+            wall_radius = wall_hit_config.get("circle_radius", 20)
 
-            racket_text = racket_hit_config.get('text', 'RACKET HIT')
-            racket_radius = racket_hit_config.get('circle_radius', 25)
+            racket_text = racket_hit_config.get("text", "RACKET HIT")
+            racket_radius = racket_hit_config.get("circle_radius", 25)
 
             # Small text size for hit labels
             hit_text_scale = 0.5
@@ -530,7 +544,13 @@ class Annotator:
             for hit_frame, hit_pos in wall_hit_positions.items():
                 if hit_frame <= frame_idx < hit_frame + hit_marker_duration:
                     # Draw marker at hit position
-                    cv2.circle(frame, (int(hit_pos.x), int(hit_pos.y)), wall_radius, wall_hit_color, 3)
+                    cv2.circle(
+                        frame,
+                        (int(hit_pos.x), int(hit_pos.y)),
+                        wall_radius,
+                        wall_hit_color,
+                        3,
+                    )
                     # Draw X marker at hit position for better visibility
                     marker_size = 15
                     cv2.line(
@@ -538,14 +558,14 @@ class Annotator:
                         (int(hit_pos.x) - marker_size, int(hit_pos.y) - marker_size),
                         (int(hit_pos.x) + marker_size, int(hit_pos.y) + marker_size),
                         wall_hit_color,
-                        3
+                        3,
                     )
                     cv2.line(
                         frame,
                         (int(hit_pos.x) - marker_size, int(hit_pos.y) + marker_size),
                         (int(hit_pos.x) + marker_size, int(hit_pos.y) - marker_size),
                         wall_hit_color,
-                        3
+                        3,
                     )
                     # Draw small text label above the marker
                     text_offset_y = 30  # Pixels above the marker
@@ -556,18 +576,27 @@ class Annotator:
                         cv2.FONT_HERSHEY_SIMPLEX,
                         hit_text_scale,
                         wall_hit_color,
-                        hit_text_thickness
+                        hit_text_thickness,
                     )
 
             # Set player hit indicator when a racket hit occurs
             if frame_idx in racket_hit_players:
-                player_hit_indicator = (racket_hit_players[frame_idx], hit_marker_duration)
+                player_hit_indicator = (
+                    racket_hit_players[frame_idx],
+                    hit_marker_duration,
+                )
 
             # Draw racket hit markers (persist for hit_marker_duration frames)
             for hit_frame, hit_pos in racket_hit_positions.items():
                 if hit_frame <= frame_idx < hit_frame + hit_marker_duration:
                     # Draw marker at hit position
-                    cv2.circle(frame, (int(hit_pos.x), int(hit_pos.y)), racket_radius, racket_hit_color, 3)
+                    cv2.circle(
+                        frame,
+                        (int(hit_pos.x), int(hit_pos.y)),
+                        racket_radius,
+                        racket_hit_color,
+                        3,
+                    )
                     # Draw X marker at hit position for better visibility
                     marker_size = 15
                     cv2.line(
@@ -575,14 +604,14 @@ class Annotator:
                         (int(hit_pos.x) - marker_size, int(hit_pos.y) - marker_size),
                         (int(hit_pos.x) + marker_size, int(hit_pos.y) + marker_size),
                         racket_hit_color,
-                        3
+                        3,
                     )
                     cv2.line(
                         frame,
                         (int(hit_pos.x) - marker_size, int(hit_pos.y) + marker_size),
                         (int(hit_pos.x) + marker_size, int(hit_pos.y) - marker_size),
                         racket_hit_color,
-                        3
+                        3,
                     )
                     # Draw small text label above the marker
                     text_offset_y = 30  # Pixels above the marker
@@ -593,7 +622,7 @@ class Annotator:
                         cv2.FONT_HERSHEY_SIMPLEX,
                         hit_text_scale,
                         racket_hit_color,
-                        hit_text_thickness
+                        hit_text_thickness,
                     )
 
             # Draw player hit indicator
@@ -612,19 +641,21 @@ class Annotator:
         cap.release()
         out.release()
 
-    def _draw_court_overlay(self, frame: np.ndarray, court_keypoints: Dict, color: tuple):
+    def _draw_court_overlay(
+        self, frame: np.ndarray, court_keypoints: Dict, color: tuple
+    ):
         """Draw court calibration overlay."""
-        viz_config = self.config.get('visualization', {})
-        court_thickness = viz_config.get('court_thickness', 2)
+        viz_config = self.config.get("visualization", {})
+        court_thickness = viz_config.get("court_thickness", 2)
 
         # Draw keypoints for each court element
         for class_name, keypoints in court_keypoints.items():
             # Get the 4 corners
             points = [
-                keypoints.get_point('top_left'),
-                keypoints.get_point('top_right'),
-                keypoints.get_point('bottom_right'),
-                keypoints.get_point('bottom_left')
+                keypoints.get_point("top_left"),
+                keypoints.get_point("top_right"),
+                keypoints.get_point("bottom_right"),
+                keypoints.get_point("bottom_left"),
             ]
 
             # Draw lines connecting the corners
@@ -636,14 +667,16 @@ class Annotator:
             for point in points:
                 cv2.circle(frame, (int(point.x), int(point.y)), 3, color, -1)
 
-    def _draw_keypoints(self, frame: np.ndarray, keypoints_data, color: tuple, viz_config: Dict):
+    def _draw_keypoints(
+        self, frame: np.ndarray, keypoints_data, color: tuple, viz_config: Dict
+    ):
         """Draw player keypoints and skeleton."""
         if not keypoints_data or not keypoints_data.xy:
             return
 
-        skeleton_thickness = viz_config.get('skeleton_thickness', 2)
-        keypoint_radius = viz_config.get('keypoint_radius', 3)
-        keypoint_conf_threshold = viz_config.get('keypoint_confidence_threshold', 0.5)
+        skeleton_thickness = viz_config.get("skeleton_thickness", 2)
+        keypoint_radius = viz_config.get("keypoint_radius", 3)
+        keypoint_conf_threshold = viz_config.get("keypoint_confidence_threshold", 0.5)
 
         # Draw skeleton connections
         for start_idx, end_idx in SKELETON_CONNECTIONS:
@@ -670,7 +703,7 @@ class Annotator:
                         (int(x1), int(y1)),
                         (int(x2), int(y2)),
                         color,
-                        skeleton_thickness
+                        skeleton_thickness,
                     )
 
         # Draw keypoint circles
@@ -688,7 +721,9 @@ class Annotator:
                 if conf > keypoint_conf_threshold:
                     cv2.circle(frame, (int(x), int(y)), keypoint_radius, color, -1)
 
-    def _draw_player_hit_indicator(self, frame: np.ndarray, player_id: int, player_colors: Dict[int, tuple]):
+    def _draw_player_hit_indicator(
+        self, frame: np.ndarray, player_id: int, player_colors: Dict[int, tuple]
+    ):
         """Draw player hit indicator in top-left corner.
 
         Args:
@@ -732,7 +767,11 @@ class Annotator:
             FileNotFoundError: If annotations file doesn't exist
         """
         video_base_name = Path(video_name).stem
-        csv_path = self.annotations_dir / video_base_name / f"{video_base_name}_annotations.csv"
+        csv_path = (
+            self.annotations_dir
+            / video_base_name
+            / f"{video_base_name}_annotations.csv"
+        )
 
         if not csv_path.exists():
             raise FileNotFoundError(f"Annotations not found: {csv_path}")
@@ -747,7 +786,7 @@ if __name__ == "__main__":
     annotator = Annotator()
 
     # Get video name from config
-    video_name = annotator.config.get('video', {}).get('name')
+    video_name = annotator.config.get("video", {}).get("name")
     if not video_name:
         print("Error: No video name specified in config", file=sys.stderr)
         sys.exit(1)
@@ -771,5 +810,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Unexpected error: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

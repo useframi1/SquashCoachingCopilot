@@ -1,31 +1,25 @@
 # Shot Type Classification Configuration
-# Configuration for classifying shot types based on ball trajectory analysis
+# Configuration for classifying shot types based on player positions and wall hits in meters
 
 shot_classification:
-  # Direction Classification Thresholds
-  direction_thresholds:
-    straight_max_angle_deg: 30  # Maximum angle for straight shots (degrees)
-    cross_min_angle_deg: 120  # Minimum angle for cross-court shots (degrees)
+    # Court dimensions
+    court_center_x_m: 3.2 # X coordinate of court center in meters (standard width ~9.14m)
 
-  # Depth Classification Thresholds
-  depth_thresholds:
-    drop_max_rebound_distance_px: 100  # Maximum rebound distance for drop shots (pixels)
-
-  # Feature Extraction Windows
-  feature_windows:
-    velocity_frames: 5  # Number of frames for velocity calculation
-    acceleration_frames: 10  # Number of frames for acceleration calculation
+    # Depth Classification Thresholds
+    depth_thresholds:
+        drop_max_rebound_distance_m: 5.0 # Maximum rebound distance for drop shots (meters)
 
 # Test Configuration
 tests:
-  test_video: video-3
-  tracking:
-    trace_length: 5
-    trace_color: [0, 0, 255]
-    trace_thickness: 10
-  output:
-    output_dir: outputs
-    save_video: true
-    save_plots: true
-    save_metrics: true
-    plot_dpi: 300
+    test_video: video-3
+    annotations_dir: squashcopilot/annotation/annotations
+    tracking:
+        trace_length: 5
+        trace_color: [0, 0, 255]
+        trace_thickness: 10
+    output:
+        output_dir: outputs
+        save_video: true
+        save_plots: true
+        save_metrics: true
+        plot_dpi: 300

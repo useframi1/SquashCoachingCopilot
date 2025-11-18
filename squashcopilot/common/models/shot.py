@@ -21,11 +21,13 @@ class ShotClassificationInput:
     Input for shot type classification.
 
     Attributes:
-        ball_positions: Ball trajectory as sequence of positions
-        wall_hits: Detected wall hit events
-        racket_hits: Detected racket hit events
+        player1_positions_meter: Player 1 positions in meters (x, y court coordinates)
+        player2_positions_meter: Player 2 positions in meters (x, y court coordinates)
+        wall_hits: Detected wall hit events (with position_meter for wall coordinates)
+        racket_hits: Detected racket hit events (with player_id attribution)
     """
-    ball_positions: List[Optional[Point2D]]
+    player1_positions_meter: List[Optional[Point2D]]
+    player2_positions_meter: List[Optional[Point2D]]
     wall_hits: List[WallHit]
     racket_hits: List[RacketHit]
 
@@ -44,8 +46,7 @@ class ShotResult:
         next_racket_hit_pos: Position of next racket hit (if available)
         wall_hit_pos: Position where ball hit the wall (if detected)
         wall_hit_frame: Frame number of wall hit (if detected)
-        vector_angle_deg: Angle between attack and rebound vectors
-        rebound_distance: Distance of ball rebound in pixels
+        rebound_distance: Distance of ball rebound in meters
         confidence: Classification confidence (0.0-1.0)
     """
     frame: int
@@ -56,7 +57,6 @@ class ShotResult:
     next_racket_hit_pos: Optional[Point2D]
     wall_hit_pos: Optional[Point2D]
     wall_hit_frame: Optional[int]
-    vector_angle_deg: Optional[float]
     rebound_distance: Optional[float]
     confidence: float
 
@@ -75,7 +75,6 @@ class ShotResult:
             'next_racket_hit_pos': self.next_racket_hit_pos.to_dict() if self.next_racket_hit_pos else None,
             'wall_hit_pos': self.wall_hit_pos.to_dict() if self.wall_hit_pos else None,
             'wall_hit_frame': self.wall_hit_frame,
-            'vector_angle_deg': self.vector_angle_deg,
             'rebound_distance': self.rebound_distance,
             'confidence': self.confidence
         }
@@ -100,7 +99,6 @@ class ShotResult:
             next_racket_hit_pos=Point2D(**d['next_racket_hit_pos']) if d.get('next_racket_hit_pos') else None,
             wall_hit_pos=Point2D(**d['wall_hit_pos']) if d.get('wall_hit_pos') else None,
             wall_hit_frame=d.get('wall_hit_frame'),
-            vector_angle_deg=d.get('vector_angle_deg'),
             rebound_distance=d.get('rebound_distance'),
             confidence=d.get('confidence', 1.0)
         )
@@ -204,15 +202,13 @@ class ShotStatistics:
         by_direction: Count of shots by direction
         by_depth: Count of shots by depth
         wall_hit_detection_rate: Percentage with detected wall hits
-        average_vector_angle: Average angle between attack/rebound vectors
-        average_rebound_distance: Average rebound distance in pixels
+        average_rebound_distance: Average rebound distance in meters
     """
     total_shots: int
     by_type: Dict[str, int]
     by_direction: Dict[str, int]
     by_depth: Dict[str, int]
     wall_hit_detection_rate: float
-    average_vector_angle: Optional[float]
     average_rebound_distance: Optional[float]
 
     def to_dict(self) -> Dict[str, Any]:
@@ -223,7 +219,6 @@ class ShotStatistics:
             'by_direction': self.by_direction,
             'by_depth': self.by_depth,
             'wall_hit_detection_rate': self.wall_hit_detection_rate,
-            'average_vector_angle': self.average_vector_angle,
             'average_rebound_distance': self.average_rebound_distance
         }
 
@@ -247,7 +242,6 @@ class ShotStatistics:
                 by_direction={},
                 by_depth={},
                 wall_hit_detection_rate=0.0,
-                average_vector_angle=None,
                 average_rebound_distance=None
             )
 
@@ -273,10 +267,6 @@ class ShotStatistics:
         wall_hits = sum(1 for shot in shots if shot.has_wall_hit())
         wall_hit_rate = wall_hits / total_shots
 
-        # Average vector angle
-        angles = [shot.vector_angle_deg for shot in shots if shot.vector_angle_deg is not None]
-        avg_angle = sum(angles) / len(angles) if angles else None
-
         # Average rebound distance
         distances = [shot.rebound_distance for shot in shots if shot.rebound_distance is not None]
         avg_distance = sum(distances) / len(distances) if distances else None
@@ -287,6 +277,5 @@ class ShotStatistics:
             by_direction=by_direction,
             by_depth=by_depth,
             wall_hit_detection_rate=wall_hit_rate,
-            average_vector_angle=avg_angle,
             average_rebound_distance=avg_distance
         )

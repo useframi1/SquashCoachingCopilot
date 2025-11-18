@@ -1,8 +1,8 @@
 """
 Shot classification module for squash ball tracking.
 
-Classifies shots based on trajectory analysis in pixel coordinates,
-combining direction, depth, and speed to determine shot types.
+Classifies shots based on player positions and wall hits in meter coordinates,
+combining direction, depth, and spatial analysis to determine shot types.
 """
 
 import numpy as np
@@ -23,7 +23,7 @@ from squashcopilot.common import (
 
 class ShotClassifier:
     """
-    Classify shots based on pixel-based trajectory analysis.
+    Classify shots based on meter-based player position and wall hit analysis.
 
     Uses rule-based classification to determine shot direction and depth,
     then combines them into specific shot types.
@@ -37,11 +37,14 @@ class ShotClassifier:
             config: Configuration dictionary (loaded from config.json if None)
             fps: Video frame rate (not currently used, kept for compatibility)
         """
-        self.config = config if config else load_config(config_name='shot_type_classification')
+        self.config = (
+            config if config else load_config(config_name="shot_type_classification")
+        )
         self.fps = fps
 
         # Load thresholds from config
         shot_config = self.config.get("shot_classification", {})
+        self.court_center_x = shot_config.get("court_center_x_m", 4.57)
         self.dir_thresholds = shot_config.get("direction_thresholds", {})
         self.depth_thresholds = shot_config.get("depth_thresholds", {})
 
@@ -50,16 +53,11 @@ class ShotClassifier:
         Main classification method.
 
         Args:
-            input_data: ShotClassificationInput with ball positions and hit events
+            input_data: ShotClassificationInput with player positions and hit events
 
         Returns:
             ShotClassificationResult with structured shot classifications
         """
-        # Convert Point2D to tuples for processing
-        positions_tuples = [
-            (p.x, p.y) if p else (None, None) for p in input_data.ball_positions
-        ]
-
         # Convert WallHit/RacketHit to dicts for processing
         wall_hits_dicts = [hit.to_dict() for hit in input_data.wall_hits]
         racket_hits_dicts = [hit.to_dict() for hit in input_data.racket_hits]
@@ -76,7 +74,11 @@ class ShotClassifier:
 
             # Extract features (includes wall hit if detected)
             features = self._extract_shot_features(
-                positions_tuples, start_hit, end_hit, wall_hit
+                start_hit,
+                end_hit,
+                wall_hit,
+                input_data.player1_positions_meter,
+                input_data.player2_positions_meter,
             )
 
             # Classify direction and depth
@@ -84,28 +86,33 @@ class ShotClassifier:
             depth = self._classify_depth(features)
 
             # Combine into shot type
-            shot_type = self._determine_shot_type(direction, depth, features)
+            shot_type = self._determine_shot_type(direction, depth)
 
             # Adjust confidence based on whether wall hit was detected
             confidence = 1.0 if wall_hit is not None else 0.7
 
             # Create ShotResult
+            # For wall_hit_pos, use pixel coordinates from the original wall_hit dict
+            wall_hit_pos_pixel = None
+            if wall_hit is not None:
+                wall_hit_pos_pixel = Point2D(
+                    x=wall_hit["position"]["x"],
+                    y=wall_hit["position"]["y"]
+                )
+
             shot_result = ShotResult(
                 frame=start_hit["frame"],
                 direction=direction,
                 depth=depth,
                 shot_type=shot_type,
-                racket_hit_pos=Point2D(x=start_hit["position"]["x"], y=start_hit["position"]["y"]),
-                next_racket_hit_pos=Point2D(x=end_hit["position"]["x"], y=end_hit["position"]["y"]),
-                wall_hit_pos=(
-                    Point2D(
-                        x=features["wall_hit_pos"][0], y=features["wall_hit_pos"][1]
-                    )
-                    if features["wall_hit_pos"]
-                    else None
+                racket_hit_pos=Point2D(
+                    x=start_hit["position"]["x"], y=start_hit["position"]["y"]
                 ),
+                next_racket_hit_pos=Point2D(
+                    x=end_hit["position"]["x"], y=end_hit["position"]["y"]
+                ),
+                wall_hit_pos=wall_hit_pos_pixel,
                 wall_hit_frame=features.get("wall_hit_frame"),
-                vector_angle_deg=features["vector_angle_deg"],
                 rebound_distance=features["rebound_distance"],
                 confidence=confidence,
             )
@@ -169,34 +176,33 @@ class ShotClassifier:
 
     def _extract_shot_features(
         self,
-        positions: List[Tuple[float, float]],
         start_hit: Dict,
         end_hit: Dict,
         wall_hit: Optional[Dict],
+        player1_positions: List[Optional[Point2D]],
+        player2_positions: List[Optional[Point2D]],
     ) -> Dict:
         """
-        Extract vector-based features for a shot.
+        Extract vector-based features for a shot using player positions in meters.
 
         Constructs two vectors:
-        1. Racket → Wall (attack vector)
-        2. Wall → Next Racket (rebound vector)
+        1. Hitting Player Position → Wall (attack vector)
+        2. Wall → Receiving Player Position (rebound vector)
 
         Args:
-            positions: Ball trajectory positions
-            start_hit: Starting racket hit dict
+            start_hit: Starting racket hit dict (with player_id)
             end_hit: Ending racket hit dict (next player's hit)
-            wall_hit: Optional wall hit dict (front wall)
+            wall_hit: Optional wall hit dict (front wall with position_meter)
+            player1_positions: List of player 1 positions in meters
+            player2_positions: List of player 2 positions in meters
 
         Returns:
-            Dictionary of extracted features including vectors and angle
+            Dictionary of extracted features including vectors and direction
         """
-        start_pos = np.array([start_hit["position"]["x"], start_hit["position"]["y"]])
-        end_pos = np.array([end_hit["position"]["x"], end_hit["position"]["y"]])
-
         # Initialize features
         features = {
             "has_wall_hit": False,
-            "vector_angle_deg": None,
+            "is_cross_court": False,
             "rebound_distance": None,
             "wall_hit_pos": None,
             "wall_hit_frame": None,
@@ -204,42 +210,60 @@ class ShotClassifier:
 
         # Extract vector-based features if wall hit detected
         if wall_hit is not None:
-            wall_pos = np.array([wall_hit["position"]["x"], wall_hit["position"]["y"]])
+            # Get player IDs
+            hitting_player_id = start_hit.get("player_id", 1)
 
-            # Vector 1: Racket → Wall (attack)
-            vec_racket_to_wall = wall_pos - start_pos
+            # Get frame numbers
+            start_frame = start_hit["frame"]
+            end_frame = end_hit["frame"]
 
-            # Vector 2: Wall → Next Racket (rebound)
-            vec_wall_to_next = end_pos - wall_pos
-
-            # Calculate angle between the two vectors (in degrees)
-            # We calculate the exterior angle (rebound angle) which represents
-            # the deviation from a straight bounce. A straight bounce = 0°,
-            # a sharp cross-court = larger angle
-            dot_product = np.dot(vec_racket_to_wall, vec_wall_to_next)
-            mag1 = np.linalg.norm(vec_racket_to_wall)
-            mag2 = np.linalg.norm(vec_wall_to_next)
-
-            if mag1 > 0 and mag2 > 0:
-                cos_angle = dot_product / (mag1 * mag2)
-                # Clamp to [-1, 1] to avoid numerical errors
-                cos_angle = np.clip(cos_angle, -1.0, 1.0)
-                angle_rad = np.arccos(cos_angle)
-                interior_angle_deg = np.degrees(angle_rad)
-                # Get exterior angle (rebound angle)
-                angle_deg = 180.0 - interior_angle_deg
+            # Get player positions at the time of racket hits
+            if hitting_player_id == 1:
+                hitting_player_pos = player1_positions[start_frame]
+                receiving_player_pos = player2_positions[end_frame]
             else:
-                angle_deg = 0.0
+                hitting_player_pos = player2_positions[start_frame]
+                receiving_player_pos = player1_positions[end_frame]
 
-            # Rebound distance (length of wall → next racket vector)
-            rebound_distance = mag2
+            # Check if we have valid positions
+            if hitting_player_pos is None or receiving_player_pos is None:
+                return features
+
+            # Get wall hit position in meters (x, 0) as specified
+            # Use position_meter if available, otherwise fallback to position
+            if "position_meter" in wall_hit and wall_hit["position_meter"] is not None:
+                wall_x_meter = wall_hit["position_meter"]["x"]
+            else:
+                # Fallback to pixel position if meter not available
+                wall_x_meter = wall_hit["position"]["x"]
+
+            # Construct positions as numpy arrays for rebound distance calculation
+            wall_pos = np.array([wall_x_meter, 0.0])  # Wall at (x, 0)
+            receiving_pos = np.array([receiving_player_pos.x, receiving_player_pos.y])
+
+            # Vector: Wall → Receiving Player (rebound)
+            vec_wall_to_player = receiving_pos - wall_pos
+
+            # Determine direction based on court side crossing
+            # Check if the ball went from one side of the court to the other
+            player_x = hitting_player_pos.x
+            wall_x = wall_x_meter
+
+            # Determine if it's a cross-court shot
+            # If player and wall hit are on opposite sides of the court center, it's cross-court
+            player_side = "left" if player_x < self.court_center_x else "right"
+            wall_side = "left" if wall_x < self.court_center_x else "right"
+            is_cross_court = (player_side != wall_side)
+
+            # Rebound distance (length of wall → receiving player vector) in meters
+            rebound_distance = np.linalg.norm(vec_wall_to_player)
 
             features.update(
                 {
                     "has_wall_hit": True,
-                    "vector_angle_deg": float(angle_deg),
+                    "is_cross_court": is_cross_court,
                     "rebound_distance": float(rebound_distance),
-                    "wall_hit_pos": (wall_hit["position"]["x"], wall_hit["position"]["y"]),
+                    "wall_hit_pos": (wall_x_meter, 0.0),
                     "wall_hit_frame": wall_hit["frame"],
                 }
             )
@@ -248,46 +272,40 @@ class ShotClassifier:
 
     def _classify_direction(self, features: Dict) -> ShotDirection:
         """
-        Classify shot direction based on angle between attack and rebound vectors.
+        Classify shot direction based on court side crossing.
 
-        Uses the angle between racket→wall and wall→next racket vectors:
-        - Small angle → Straight shot (ball continues in same direction)
-        - Large angle → Cross-court shot (ball changes direction significantly)
-        - Medium angle → Down-the-line shot
+        Determines if the shot is straight or cross-court by checking if the ball
+        crossed from one side of the court to the other:
+        - Same side → Straight shot
+        - Opposite side → Cross-court shot
 
         Args:
-            features: Extracted shot features with vector_angle_deg
+            features: Extracted shot features with is_cross_court flag
 
         Returns:
-            ShotDirection enum value
+            ShotDirection enum value (STRAIGHT or CROSS_COURT only)
         """
         # Require wall hit for accurate classification
         if not features["has_wall_hit"]:
             return ShotDirection.STRAIGHT  # Default fallback
 
-        angle = features["vector_angle_deg"]
+        is_cross_court = features.get("is_cross_court", False)
 
-        # Angle thresholds
-        straight_max = self.dir_thresholds.get("straight_max_angle_deg", 30)
-        cross_min = self.dir_thresholds.get("cross_min_angle_deg", 120)
-
-        if angle < straight_max:
-            return ShotDirection.STRAIGHT
-        elif angle > cross_min:
+        if is_cross_court:
             return ShotDirection.CROSS_COURT
         else:
-            return ShotDirection.DOWN_THE_LINE
+            return ShotDirection.STRAIGHT
 
     def _classify_depth(self, features: Dict) -> ShotDepth:
         """
-        Classify shot depth based on rebound distance (wall→next racket vector length).
+        Classify shot depth based on rebound distance (wall→receiving player vector length).
 
-        Uses the length of the wall→next racket vector:
-        - Short rebound distance → Drop shot (ball doesn't travel far after wall)
-        - Long rebound distance → Long shot/Drive (ball travels deep into court)
+        Uses the length of the wall→receiving player vector in meters:
+        - Short rebound distance → Drop shot (player doesn't move far from wall)
+        - Long rebound distance → Long shot/Drive (player is deeper in court)
 
         Args:
-            features: Extracted shot features with rebound_distance
+            features: Extracted shot features with rebound_distance in meters
 
         Returns:
             ShotDepth enum value
@@ -298,8 +316,8 @@ class ShotClassifier:
 
         rebound_dist = features["rebound_distance"]
 
-        # Distance threshold
-        drop_max = self.depth_thresholds.get("drop_max_rebound_distance_px", 400)
+        # Distance threshold in meters
+        drop_max = self.depth_thresholds.get("drop_max_rebound_distance_m", 3.0)
 
         if rebound_dist < drop_max:
             return ShotDepth.DROP
@@ -307,27 +325,25 @@ class ShotClassifier:
             return ShotDepth.LONG
 
     def _determine_shot_type(
-        self, direction: ShotDirection, depth: ShotDepth, features: Dict
+        self, direction: ShotDirection, depth: ShotDepth
     ) -> ShotType:
         """
         Combine direction and depth into final shot type.
 
         Args:
-            direction: Classified direction
-            depth: Classified depth
-            features: Extracted features (for future refinement)
+            direction: Classified direction (STRAIGHT or CROSS_COURT)
+            depth: Classified depth (DROP or LONG)
 
         Returns:
             ShotType enum value
         """
         # Mapping from (direction, depth) to ShotType
+        # Only STRAIGHT and CROSS_COURT directions are used
         mapping = {
             (ShotDirection.STRAIGHT, ShotDepth.LONG): ShotType.STRAIGHT_DRIVE,
             (ShotDirection.STRAIGHT, ShotDepth.DROP): ShotType.STRAIGHT_DROP,
             (ShotDirection.CROSS_COURT, ShotDepth.LONG): ShotType.CROSS_COURT_DRIVE,
             (ShotDirection.CROSS_COURT, ShotDepth.DROP): ShotType.CROSS_COURT_DROP,
-            (ShotDirection.DOWN_THE_LINE, ShotDepth.LONG): ShotType.DOWN_LINE_DRIVE,
-            (ShotDirection.DOWN_THE_LINE, ShotDepth.DROP): ShotType.DOWN_LINE_DROP,
         }
 
         return mapping.get((direction, depth), ShotType.STRAIGHT_DRIVE)
