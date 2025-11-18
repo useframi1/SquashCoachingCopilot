@@ -4,10 +4,12 @@ Rally State Detection Evaluator
 Evaluates rally segmentation performance against ground truth annotations.
 """
 
+import cv2
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import List, Dict
+from tqdm import tqdm
 
 from squashcopilot.common.utils import load_config
 from squashcopilot.common.models.rally import (
@@ -218,7 +220,6 @@ class RallyStateEvaluator:
         df: pd.DataFrame,
         predicted_segments: List[RallySegment],
         ground_truth_segments: List[RallySegment],
-        preprocessed_trajectory: List[float],
     ):
         """
         Plot comparison between predicted and ground truth rally segments.
@@ -241,13 +242,6 @@ class RallyStateEvaluator:
             color="lightblue",
             alpha=0.5,
             label="Ball Y (Original)",
-        )
-        ax1.plot(
-            frames,
-            preprocessed_trajectory,
-            linewidth=2.5,
-            color="blue",
-            label="Ball Y (Filtered)",
         )
 
         # Highlight ground truth rally segments
@@ -278,13 +272,6 @@ class RallyStateEvaluator:
             alpha=0.5,
             label="Ball Y (Original)",
         )
-        ax2.plot(
-            frames,
-            preprocessed_trajectory,
-            linewidth=2.5,
-            color="blue",
-            label="Ball Y (Filtered)",
-        )
 
         # Highlight predicted rally segments
         for segment in predicted_segments:
@@ -314,6 +301,136 @@ class RallyStateEvaluator:
         plt.close(fig)
 
         print(f"Comparison plot saved to: {output_path}")
+
+    def create_annotated_video(
+        self,
+        predicted_segments: List[RallySegment],
+    ):
+        """
+        Create an annotated video showing rally states.
+
+        Args:
+            predicted_segments: Predicted rally segments
+        """
+        # Get project root and video path
+        project_root = Path(__file__).parent.parent.parent.parent.parent
+        annotations_base_dir = project_root / self.annotation_config["annotations_dir"]
+        video_dir = annotations_base_dir / self.video_name
+
+        # Look for video file with _annotated.mp4 suffix first, then fallback to .mp4
+        video_path = video_dir / f"{self.video_name}_annotated.mp4"
+        if not video_path.exists():
+            video_path = video_dir / f"{self.video_name}.mp4"
+
+        if not video_path.exists():
+            print(
+                f"Warning: Video file not found at {video_path}, skipping video annotation"
+            )
+            return
+
+        print(f"Reading video from: {video_path}")
+
+        # Open video
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            print(f"Error: Could not open video file {video_path}")
+            return
+
+        # Get video properties
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        print(f"Video properties: {width}x{height} @ {fps}fps, {total_frames} frames")
+
+        # Create output video writer
+        output_path = self.output_dir / f"{self.video_name}_annotated.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+
+        # Create a mapping from frame number to rally state
+        frame_to_state = {}
+        for segment in predicted_segments:
+            for frame_num in range(segment.start_frame, segment.end_frame + 1):
+                frame_to_state[frame_num] = "Rally Active"
+
+        # Process each frame with progress bar
+        frame_idx = 0
+        pbar = tqdm(total=total_frames, desc="Creating annotated video", unit="frame")
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Get rally state for this frame
+            rally_state = frame_to_state.get(frame_idx, "Rally Inactive")
+
+            # Set color based on state
+            if rally_state == "Rally Active":
+                color = (0, 255, 0)  # Green for active
+                text = "RALLY ACTIVE"
+            else:
+                color = (0, 0, 255)  # Red for inactive
+                text = "RALLY INACTIVE"
+
+            # Add text overlay
+            font = cv2.FONT_HERSHEY_COMPLEX
+            font_scale = 1.5
+            thickness = 3
+
+            # Get text size for background rectangle
+            (text_width, text_height), baseline = cv2.getTextSize(
+                text, font, font_scale, thickness
+            )
+
+            # Position text at top center
+            text_x = (width - text_width) // 2
+            text_y = 60
+
+            # Draw semi-transparent background rectangle
+            overlay = frame.copy()
+            cv2.rectangle(
+                overlay,
+                (text_x - 10, text_y - text_height - 10),
+                (text_x + text_width + 10, text_y + baseline + 10),
+                (0, 0, 0),
+                -1,
+            )
+            # Blend the overlay with the frame
+            cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+
+            # Draw text
+            cv2.putText(
+                frame, text, (text_x, text_y), font, font_scale, color, thickness
+            )
+
+            # Draw frame number in bottom left
+            frame_text = f"Frame: {frame_idx}"
+            cv2.putText(
+                frame,
+                frame_text,
+                (10, height - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+            )
+
+            # Write frame to output video
+            out.write(frame)
+
+            frame_idx += 1
+            pbar.update(1)
+
+        pbar.close()
+
+        # Release resources
+        cap.release()
+        out.release()
+
+        print(f"Annotated video saved to: {output_path}")
 
     def print_metrics(self, metrics: Dict[str, float]):
         """
@@ -363,7 +480,12 @@ class RallyStateEvaluator:
         # Prepare input for detector
         print(f"\nRunning rally segmentation...")
         input_data = RallySegmentationInput(
-            ball_positions=df["ball_y"].tolist(), frame_numbers=df["frame"].tolist()
+            ball_positions=df["ball_y"].tolist(),
+            frame_numbers=df["frame"].tolist(),
+            player_1_x=df["player_1_x_meter"].tolist(),
+            player_1_y=df["player_1_y_meter"].tolist(),
+            player_2_x=df["player_2_x_meter"].tolist(),
+            player_2_y=df["player_2_y_meter"].tolist(),
         )
 
         # Run detector
@@ -379,9 +501,11 @@ class RallyStateEvaluator:
 
         # Plot comparison
         print(f"\nGenerating comparison plot...")
-        self.plot_comparison(
-            df, result.segments, ground_truth_segments, result.preprocessed_trajectory
-        )
+        self.plot_comparison(df, result.segments, ground_truth_segments)
+
+        # Create annotated video
+        print(f"\nCreating annotated video...")
+        self.create_annotated_video(result.segments)
 
         print("\n" + "=" * 70)
         print("✓ Evaluation complete!")

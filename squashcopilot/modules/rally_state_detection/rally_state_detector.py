@@ -1,12 +1,14 @@
 """
-Rally State Detector Module
+Rally State Detector
 
-Detects rally segments from ball trajectory using FFT-based analysis.
+This module provides LSTM-based rally state detection for squash videos.
 """
 
+import torch
 import numpy as np
-from scipy.signal import savgol_filter
+from pathlib import Path
 from typing import List
+from tqdm import tqdm
 
 from squashcopilot.common.utils import load_config
 from squashcopilot.common.models.rally import (
@@ -14,231 +16,356 @@ from squashcopilot.common.models.rally import (
     RallySegmentationResult,
     RallySegment,
 )
+from squashcopilot.modules.rally_state_detection.models.lstm_model import (
+    RallyStateLSTM,
+)
 
 
 class RallyStateDetector:
     """
-    Detects rally segments from ball trajectory using frequency analysis.
+    LSTM-based rally state detector.
 
-    The detector uses FFT to identify consistent oscillation patterns in the ball
-    trajectory that indicate active rally periods, as opposed to random/erratic
-    movement during inactive periods.
+    Uses a trained LSTM model to detect rally states from ball and player trajectories.
     """
 
     def __init__(self, config: dict = None):
         """
-        Initialize rally state detector.
+        Initialize the rally state detector.
 
         Args:
-            config: Configuration dictionary. If None, loads from config.yaml
+            config: Configuration dictionary. If None, loads from rally_state_detection.yaml
         """
+        # Load configuration
         self.config = (
             config if config else load_config(config_name="rally_state_detection")
         )
 
-        # Load preprocessing parameters
-        preprocess_config = self.config["preprocessing"]
-        self.savgol_window = preprocess_config["savgol_window_length"]
-        self.savgol_poly = preprocess_config["savgol_polyorder"]
+        # Get inference configuration
+        self.inference_config = self.config["inference"]
+        self.min_segment_length = self.inference_config["min_segment_length"]
+        self.merge_gap_threshold = self.inference_config["merge_gap_threshold"]
 
-        # Load segmentation parameters
-        seg_config = self.config["segmentation"]
-        self.fft_window_size = seg_config["fft_window_size"]
-        self.frequency_threshold = seg_config["frequency_threshold"]
-        self.min_rally_duration = seg_config["min_rally_duration"]
-        self.merge_gap_threshold = seg_config["merge_gap_threshold"]
+        # Get project root and model path
+        project_root = Path(__file__).parent.parent.parent.parent
+        model_path = project_root / self.inference_config["model_path"]
 
-    def preprocess(self, ball_positions: List[float]) -> np.ndarray:
+        # Device configuration
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Load model (this will also set sequence_length and features from checkpoint)
+        self.model = self._load_model(model_path)
+
+    def _load_model(self, model_path: Path) -> RallyStateLSTM:
         """
-        Preprocess ball trajectory using Savitzky-Golay filter.
+        Load trained LSTM model from checkpoint.
+
+        Sets self.sequence_length and self.features from the checkpoint config.
 
         Args:
-            ball_positions: List of ball y-coordinates
+            model_path: Path to model checkpoint file
 
         Returns:
-            Smoothed trajectory as numpy array
-        """
-        # Convert to numpy array
-        trajectory = np.array(ball_positions)
+            Loaded LSTM model in evaluation mode
 
-        # Check if we have enough data points
-        if len(trajectory) < self.savgol_window:
-            print(
-                f"Warning: Not enough data points ({len(trajectory)}) for "
-                f"Savgol filter (window={self.savgol_window}). Using original values."
+        Raises:
+            FileNotFoundError: If model file doesn't exist
+            RuntimeError: If model loading fails
+        """
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Trained model not found at: {model_path}\n"
+                f"Please train a model first using RallyStateTrainer."
             )
-            return trajectory
 
-        # Apply Savitzky-Golay filter
-        smoothed = savgol_filter(
-            trajectory, window_length=self.savgol_window, polyorder=self.savgol_poly
-        )
+        try:
+            # Load checkpoint
+            checkpoint = torch.load(
+                model_path, map_location=self.device, weights_only=False
+            )
 
-        return smoothed
+            # Get model configuration
+            model_config = checkpoint["config"]
 
-    def _compute_local_frequency_content(self, trajectory: np.ndarray) -> np.ndarray:
+            # Set sequence_length and features from checkpoint
+            # These must match what the model was trained with
+            self.sequence_length = model_config["sequence_length"]
+            self.features = model_config["features"]
+
+            # Initialize model
+            model = RallyStateLSTM(
+                input_size=model_config["input_size"],
+                hidden_size=model_config["hidden_size"],
+                num_layers=model_config["num_layers"],
+                dropout=model_config["dropout"],
+                bidirectional=model_config["bidirectional"],
+            ).to(self.device)
+
+            # Load weights
+            model.load_state_dict(checkpoint["model_state_dict"])
+
+            # Set to evaluation mode
+            model.eval()
+
+            print(f"Loaded LSTM model from: {model_path}")
+            print(f"Model features: {model_config['features']}")
+            print(f"Sequence length: {model_config['sequence_length']}")
+
+            return model
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model from {model_path}: {str(e)}")
+
+    def _predict_frames(self, features: np.ndarray, batch_size: int = 32) -> np.ndarray:
         """
-        Compute local frequency content using sliding window FFT.
+        Run LSTM inference on feature array to get frame-by-frame predictions.
 
-        During active rallies, the ball trajectory has consistent oscillations
-        (regular peaks/valleys). During inactive periods, the trajectory is
-        erratic with high-frequency noise.
+        Uses sliding window approach with batched processing for efficiency.
 
         Args:
-            trajectory: Smoothed ball trajectory
+            features: Feature array of shape (num_frames, num_features)
+            batch_size: Number of sequences to process in parallel (default: 32)
 
         Returns:
-            Array of frequency content scores (higher = more consistent oscillation)
+            Binary predictions array of shape (num_frames,) with values 0 or 1
+
+        Note:
+            For frames at the beginning/end where full sequence isn't available,
+            uses padding or nearest available prediction.
         """
-        n_frames = len(trajectory)
-        frequency_scores = np.zeros(n_frames)
-        half_window = self.fft_window_size // 2
+        num_frames = len(features)
+        predictions = np.zeros(num_frames, dtype=int)
 
-        for i in range(n_frames):
-            # Define window boundaries
-            start = max(0, i - half_window)
-            end = min(n_frames, i + half_window)
-            window = trajectory[start:end]
+        # Handle case where video is shorter than sequence length
+        if num_frames < self.sequence_length:
+            # For very short videos, predict all as inactive (0)
+            return predictions
 
-            if len(window) < self.fft_window_size // 2:
-                # Skip if window too small
-                frequency_scores[i] = 0.0
-                continue
+        # Total number of sliding windows
+        num_windows = num_frames - self.sequence_length + 1
+        middle_idx = self.sequence_length // 2
 
-            # Compute FFT
-            fft = np.fft.fft(window)
-            freqs = np.fft.fftfreq(len(window))
+        # Sliding window inference with batching
+        with torch.no_grad():
+            # Create progress bar
+            num_batches = (num_windows + batch_size - 1) // batch_size
+            pbar = tqdm(
+                total=num_batches,
+                desc="Predicting rally states",
+                unit="batch"
+            )
 
-            # Get power spectrum (magnitude)
-            power = np.abs(fft) ** 2
+            for batch_start in range(0, num_windows, batch_size):
+                batch_end = min(batch_start + batch_size, num_windows)
 
-            # Focus on low-to-mid frequencies (consistent oscillations)
-            # High frequencies indicate noise/erratic movement
-            low_freq_mask = (np.abs(freqs) > 0.05) & (np.abs(freqs) < 0.3)
-            high_freq_mask = np.abs(freqs) > 0.3
+                # Extract batch of sequences
+                batch_sequences = []
+                for i in range(batch_start, batch_end):
+                    sequence = features[i : i + self.sequence_length]
+                    batch_sequences.append(sequence)
 
-            low_freq_power = np.sum(power[low_freq_mask])
-            high_freq_power = np.sum(power[high_freq_mask])
+                # Stack into batch tensor
+                batch_tensor = torch.FloatTensor(np.stack(batch_sequences)).to(self.device)
 
-            # Score: ratio of low-freq to high-freq power
-            # High score = consistent oscillation (active rally)
-            # Low score = erratic movement (inactive)
-            if high_freq_power > 0:
-                frequency_scores[i] = low_freq_power / (high_freq_power + 1e-10)
-            else:
-                frequency_scores[i] = low_freq_power
+                # Get model predictions for the batch
+                outputs = self.model(batch_tensor)  # shape: (batch_size, seq_len, 1)
 
-        return frequency_scores
+                # Extract middle predictions for each sequence in batch
+                for idx, i in enumerate(range(batch_start, batch_end)):
+                    middle_pred = (outputs[idx, middle_idx, 0] > 0.5).int().item()
+                    frame_idx = i + middle_idx
+                    predictions[frame_idx] = middle_pred
 
-    def segment_rallies(
-        self, input_data: RallySegmentationInput
-    ) -> RallySegmentationResult:
+                pbar.update(1)
+
+            pbar.close()
+
+            # Handle edge frames at the beginning
+            if self.sequence_length // 2 > 0:
+                # Use first available prediction for frames before middle of first window
+                first_pred_idx = self.sequence_length // 2
+                predictions[:first_pred_idx] = predictions[first_pred_idx]
+
+            # Handle edge frames at the end
+            last_pred_idx = (
+                num_frames - self.sequence_length + self.sequence_length // 2
+            )
+            if last_pred_idx < num_frames:
+                predictions[last_pred_idx:] = predictions[last_pred_idx - 1]
+
+        return predictions
+
+    def _predictions_to_segments(
+        self, predictions: np.ndarray, frame_numbers: List[int]
+    ) -> List[RallySegment]:
         """
-        Segment rallies from ball trajectory using FFT-based analysis.
+        Convert binary frame predictions to rally segments.
+
+        A rally segment is defined from the first frame with label 1 (start)
+        to the first frame with label 0 (end).
 
         Args:
-            input_data: RallySegmentationInput with ball positions and frame numbers
+            predictions: Binary array of shape (num_frames,) with 0s and 1s
+            frame_numbers: List of frame numbers corresponding to predictions
 
         Returns:
-            RallySegmentationResult with detected rally segments
+            List of RallySegment objects
         """
-        # Step 1: Preprocess trajectory
-        smoothed_trajectory = self.preprocess(input_data.ball_positions)
-
-        # Step 2: Compute frequency content
-        frequency_scores = self._compute_local_frequency_content(smoothed_trajectory)
-
-        # Step 3: Threshold to identify rally periods
-        # High frequency score = active rally (consistent oscillation)
-        rally_mask = frequency_scores > self.frequency_threshold
-
-        # Step 4: Extract segments from binary mask
         segments = []
+        rally_id = 0
         in_rally = False
         rally_start = None
-        rally_id = 0
 
-        for i, frame_num in enumerate(input_data.frame_numbers):
-            if rally_mask[i] and not in_rally:
-                # Start of new rally
-                rally_start = frame_num
+        for pred, frame_num in zip(predictions, frame_numbers):
+            if pred == 1 and not in_rally:
+                # Rally starts
                 in_rally = True
+                rally_start = frame_num
 
-            elif not rally_mask[i] and in_rally:
-                # End of rally
-                rally_end = input_data.frame_numbers[i - 1]
-                duration = rally_end - rally_start + 1
-
-                # Only keep rallies that meet minimum duration
-                if duration >= self.min_rally_duration:
-                    segments.append(
-                        RallySegment(
-                            rally_id=rally_id,
-                            start_frame=rally_start,
-                            end_frame=rally_end,
-                        )
-                    )
-                    rally_id += 1
-
-                in_rally = False
-                rally_start = None
-
-        # Handle case where trajectory ends during a rally
-        if in_rally and rally_start is not None:
-            rally_end = input_data.frame_numbers[-1]
-            duration = rally_end - rally_start + 1
-            if duration >= self.min_rally_duration:
+            elif pred == 0 and in_rally:
+                # Rally ends
+                rally_end = frame_num
                 segments.append(
                     RallySegment(
-                        rally_id=rally_id, start_frame=rally_start, end_frame=rally_end
+                        rally_id=rally_id,
+                        start_frame=rally_start,
+                        end_frame=rally_end,
                     )
                 )
+                rally_id += 1
+                in_rally = False
 
-        # Step 5: Merge nearby segments
-        segments = self._merge_nearby_segments(segments)
+        # Handle case where video ends during a rally
+        if in_rally and rally_start is not None:
+            segments.append(
+                RallySegment(
+                    rally_id=rally_id,
+                    start_frame=rally_start,
+                    end_frame=frame_numbers[-1],
+                )
+            )
 
-        # Re-assign rally IDs after merging
-        for i, segment in enumerate(segments):
-            segment.rally_id = i
+        return segments
 
-        return RallySegmentationResult(
-            segments=segments,
-            total_frames=len(input_data.frame_numbers),
-            preprocessed_trajectory=smoothed_trajectory.tolist(),
-        )
-
-    def _merge_nearby_segments(self, segments: List[RallySegment]) -> List[RallySegment]:
+    def _filter_short_segments(
+        self, segments: List[RallySegment]
+    ) -> List[RallySegment]:
         """
-        Merge rally segments that are close together.
+        Remove segments shorter than minimum segment length.
 
         Args:
             segments: List of rally segments
 
         Returns:
-            Merged list of segments
+            Filtered list of segments
         """
-        if len(segments) <= 1:
-            return segments
+        filtered = [
+            seg for seg in segments if seg.duration_frames >= self.min_segment_length
+        ]
+
+        # Reassign rally IDs
+        for i, seg in enumerate(filtered):
+            seg.rally_id = i
+
+        return filtered
+
+    def _merge_nearby_segments(
+        self, segments: List[RallySegment]
+    ) -> List[RallySegment]:
+        """
+        Merge rally segments that are close together.
+
+        Segments separated by less than merge_gap_threshold frames are merged.
+
+        Args:
+            segments: List of rally segments (must be sorted by start_frame)
+
+        Returns:
+            List of merged segments
+        """
+        if not segments:
+            return []
 
         merged = []
         current = segments[0]
 
-        for next_segment in segments[1:]:
-            gap = next_segment.start_frame - current.end_frame
+        for next_seg in segments[1:]:
+            gap = next_seg.start_frame - current.end_frame
 
             if gap <= self.merge_gap_threshold:
                 # Merge segments
                 current = RallySegment(
                     rally_id=current.rally_id,
                     start_frame=current.start_frame,
-                    end_frame=next_segment.end_frame,
+                    end_frame=next_seg.end_frame,
                 )
             else:
-                # Keep current and move to next
+                # Save current and move to next
                 merged.append(current)
-                current = next_segment
+                current = next_seg
 
-        # Add the last segment
+        # Don't forget the last segment
         merged.append(current)
 
+        # Reassign rally IDs
+        for i, seg in enumerate(merged):
+            seg.rally_id = i
+
         return merged
+
+    def segment_rallies(
+        self, input_data: RallySegmentationInput
+    ) -> RallySegmentationResult:
+        """
+        Detect rally segments from ball and player trajectories using LSTM.
+
+        Args:
+            input_data: RallySegmentationInput containing ball positions and
+                       optional player positions
+
+        Returns:
+            RallySegmentationResult with detected rally segments
+
+        Raises:
+            ValueError: If required features are not provided in input
+            RuntimeError: If model prediction fails
+
+        Example:
+            >>> detector = RallyStateDetector()
+            >>> input_data = RallySegmentationInput(
+            ...     ball_positions=[245.3, 248.1, ...],
+            ...     frame_numbers=[0, 1, 2, ...]
+            ... )
+            >>> result = detector.segment_rallies(input_data)
+            >>> print(f"Detected {result.num_rallies} rallies")
+        """
+        # Extract features using the new get_features_array method
+        try:
+            features = input_data.get_features_array(self.features)
+        except ValueError as e:
+            raise ValueError(
+                f"Failed to extract features from input: {str(e)}\n"
+                f"Required features: {self.features}"
+            )
+
+        # Run LSTM inference
+        try:
+            predictions = self._predict_frames(features)
+        except Exception as e:
+            raise RuntimeError(f"Model prediction failed: {str(e)}")
+
+        # Convert predictions to segments
+        segments = self._predictions_to_segments(predictions, input_data.frame_numbers)
+
+        # Filter short segments
+        segments = self._filter_short_segments(segments)
+
+        # Merge nearby segments
+        segments = self._merge_nearby_segments(segments)
+
+        # Create result
+        result = RallySegmentationResult(
+            segments=segments,
+            total_frames=len(input_data.frame_numbers),
+        )
+
+        return result

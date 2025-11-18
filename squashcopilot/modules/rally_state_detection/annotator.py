@@ -200,7 +200,8 @@ class RallyStateAnnotator:
         cv2.resizeWindow(window_name, 1280, 720)
 
         # Calculate delay for proper FPS playback (in milliseconds)
-        delay = int(1000 / fps) if fps > 0 else 30
+        # Use a minimal delay of 1ms to allow video to play at natural speed
+        delay = 1
 
         while True:
             if not self.paused:
@@ -221,7 +222,7 @@ class RallyStateAnnotator:
 
                 frame_number += 1
 
-            # Handle key presses with proper FPS delay
+            # Handle key presses with minimal delay for smooth playback
             key = cv2.waitKey(delay if not self.paused else 30) & 0xFF
 
             if key == ord("s"):

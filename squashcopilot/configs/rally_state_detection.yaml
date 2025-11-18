@@ -1,30 +1,20 @@
 # Rally State Detection Configuration
 
-# Preprocessing parameters
-preprocessing:
-    # Savitzky-Golay filter parameters
-    savgol_window_length: 11 # Must be odd number
-    savgol_polyorder: 3 # Polynomial order for fitting
+# LSTM Inference Configuration
+inference:
+    # Detection method (currently only lstm supported)
+    method: lstm
 
-# FFT-based rally segmentation parameters
-segmentation:
-    # FFT window size for analyzing trajectory oscillations
-    fft_window_size: 100
+    # Path to trained LSTM model weights (relative to project root)
+    model_path: squashcopilot/modules/rally_state_detection/models/weights/rally_state_lstm_best.pt
 
-    # Frequency threshold for distinguishing active rallies from inactive periods
-    # Higher values = more strict (fewer rallies detected)
-    # Lower values = more lenient (more rallies detected)
-    frequency_threshold: 0.01
-
-    # Minimum rally duration in frames
-    min_rally_duration: 30
-
-    # Maximum gap between rallies to merge (in frames)
-    merge_gap_threshold: 20
+    # Post-processing parameters
+    min_segment_length: 120 # Minimum frames for a valid rally segment
+    merge_gap_threshold: 60 # Merge segments separated by fewer than this many frames
 
 annotation:
     # Video name to annotate (will look for files in annotations_dir/{video_name}/)
-    video_name: video-1
+    video_name: video-5
 
     # Directory containing annotation data
     annotations_dir: squashcopilot/annotation/annotations
@@ -36,6 +26,10 @@ annotation:
     # These features will be included in the output annotated CSV
     features:
         - ball_y # Y coordinate of ball position
+        - player_1_x_meter # X coordinate of player 1 in meters
+        - player_1_y_meter # Y coordinate of player 1 in meters
+        - player_2_x_meter # X coordinate of player 2 in meters
+        - player_2_y_meter # Y coordinate of player 2 in meters
 
     # Label column name in output CSV
     label_column: rally_state
@@ -47,7 +41,7 @@ annotation:
 
 evaluator:
     # Video name to evaluate
-    video_name: video-1
+    video_name: video-5
 
     # Directory containing annotated CSV files
     data_dir: squashcopilot/modules/rally_state_detection/tests/data
@@ -57,66 +51,58 @@ evaluator:
 
     # Tolerance for boundary matching (in frames)
     # A predicted boundary within +/- tolerance of ground truth is considered correct
-    boundary_tolerance: 15
+    boundary_tolerance: 60
 
-# Ground truth analysis parameters
-analysis:
-    # Video name to analyze
-    video_name: video-1
-
-    # Directory containing annotated CSV files
+# LSTM Training Configuration
+training:
+    # Directory containing annotated CSV files for training
     data_dir: squashcopilot/modules/rally_state_detection/tests/data
 
-    # Output directory for analysis plots and results
-    output_dir: squashcopilot/modules/rally_state_detection/tests/outputs
+    # Features to use for training (must exist in CSV files)
+    features:
+        - ball_y # Y coordinate of ball position
+        - player_1_x_meter # X coordinate of player 1 in meters
+        - player_1_y_meter # Y coordinate of player 1 in meters
+        - player_2_x_meter # X coordinate of player 2 in meters
+        - player_2_y_meter # Y coordinate of player 2 in meters
 
-    # Window sizes for computing metrics (in frames)
-    windows:
-        # Small window for fine-grained velocity analysis
-        velocity_small: 30
-        # Medium window for general velocity metrics
-        velocity_medium: 60
-        # Large window for position and trajectory analysis
-        position: 120
-        # Window for autocorrelation analysis
-        autocorrelation: 50
+    # Label column name in CSV files
+    label_column: rally_state
 
-    # Thresholds for classification
-    thresholds:
-        # Threshold for large movements (px/frame)
-        large_movement: 10
-        # Threshold for stationary frames (px/frame)
-        stationary: 1
-        # Threshold for significant acceleration (px/frame^2)
-        high_acceleration: 3
+    # Label mapping (start = rally active = 1, end = rally inactive = 0)
+    labels:
+        start: 1
+        end: 0
 
-    # Metric categories to compute (true/false)
-    compute_metrics:
-        velocity: true
-        position: true
-        motion_patterns: true
-        oscillation: true
-        temporal: true
-        distributions: true
+    # Sequence parameters
+    sequence_length: 180 # Number of frames in each sequence
 
-    # Visualization settings
-    visualization:
-        # Figure sizes (width, height in inches)
-        figure_size_large: [16, 10]
-        figure_size_medium: [14, 8]
-        figure_size_small: [10, 6]
-        # DPI for saved figures
-        dpi: 300
-        # Color scheme for rally vs non-rally
-        colors:
-            rally: green
-            non_rally: red
-        # Number of bins for histograms
-        histogram_bins: 50
+    # Data splitting
+    train_test_split: 0.8 # Ratio of videos for training vs testing
+    validation_split: 0.2 # Ratio of training data for validation (0 = no validation)
 
-    # Statistical analysis settings
-    statistics:
-        # Percentiles to compute
-        percentiles: [5, 25, 50, 75, 95]
-        # Lag values for autocorrelation
-        autocorrelation_lags: [1, 2, 3, 5, 10]
+    # Training hyperparameters
+    batch_size: 32
+    epochs: 100
+    learning_rate: 0.001
+
+    # Early stopping configuration
+    early_stopping:
+        enabled: true # Enable early stopping
+        patience: 10 # Number of epochs to wait for improvement
+        min_delta: 0.0001 # Minimum change to qualify as improvement
+
+    # Performance settings
+    num_threads: 8 # Number of threads for CPU training (null = use all cores)
+    num_workers: 0 # Number of worker processes for data loading (0 = main process only)
+
+    # Model architecture
+    model:
+        hidden_size: 64 # LSTM hidden layer size
+        num_layers: 2 # Number of stacked LSTM layers
+        dropout: 0.2 # Dropout rate for regularization
+        bidirectional: true # Use bidirectional LSTM
+
+    # Model saving
+    model_save_path: squashcopilot/modules/rally_state_detection/models/weights
+    checkpoint_name: rally_state_lstm.pt
