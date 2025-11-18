@@ -1,0 +1,1850 @@
+============================================================
+SHOT TYPE CLASSIFICATION - DETAILED REPORT
+============================================================
+
+Video: video-2
+Total frames: 18000
+Player 1 detected: 18000
+Player 2 detected: 18000
+Wall hits: 170
+Racket hits: 166
+Classified shots: 165
+
+SHOT STATISTICS:
+------------------------------------------------------------
+
+By Type:
+  cross_court_drive             :  59 ( 35.8%)
+  straight_drive                : 105 ( 63.6%)
+  straight_drop                 :   1 (  0.6%)
+
+By Direction:
+  cross_court                   :  59 ( 35.8%)
+  straight                      : 106 ( 64.2%)
+
+By Depth:
+  drop                          :   1 (  0.6%)
+  long                          : 164 ( 99.4%)
+
+Wall hit detection rate: 100.0%
+Average rebound distance: 7.82m
+
+============================================================
+SHOT-BY-SHOT BREAKDOWN
+============================================================
+
+Shot #1
+  Frame:              30
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (809, 219)
+  Next racket pos:    (503, 461)
+  Confidence:         1.00
+  Wall hit:           (585, 65) at frame 60
+  Rebound distance:   9.06m
+
+Shot #2
+  Frame:              168
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (503, 461)
+  Next racket pos:    (321, 619)
+  Confidence:         1.00
+  Wall hit:           (483, 145) at frame 194
+  Rebound distance:   9.35m
+
+Shot #3
+  Frame:              294
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (321, 619)
+  Next racket pos:    (815, 481)
+  Confidence:         1.00
+  Wall hit:           (729, 247) at frame 314
+  Rebound distance:   7.73m
+
+Shot #4
+  Frame:              369
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (815, 481)
+  Next racket pos:    (947, 471)
+  Confidence:         1.00
+  Wall hit:           (801, 265) at frame 383
+  Rebound distance:   7.64m
+
+Shot #5
+  Frame:              437
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (947, 471)
+  Next racket pos:    (562, 370)
+  Confidence:         1.00
+  Wall hit:           (627, 209) at frame 457
+  Rebound distance:   9.12m
+
+Shot #6
+  Frame:              562
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (562, 370)
+  Next racket pos:    (329, 537)
+  Confidence:         1.00
+  Wall hit:           (527, 209) at frame 577
+  Rebound distance:   8.99m
+
+Shot #7
+  Frame:              642
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (329, 537)
+  Next racket pos:    (367, 420)
+  Confidence:         1.00
+  Wall hit:           (433, 183) at frame 664
+  Rebound distance:   8.25m
+
+Shot #8
+  Frame:              729
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (367, 420)
+  Next racket pos:    (203, 543)
+  Confidence:         1.00
+  Wall hit:           (467, 187) at frame 744
+  Rebound distance:   8.69m
+
+Shot #9
+  Frame:              840
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (203, 543)
+  Next racket pos:    (419, 306)
+  Confidence:         1.00
+  Wall hit:           (463, 229) at frame 856
+  Rebound distance:   7.21m
+
+Shot #10
+  Frame:              902
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (419, 306)
+  Next racket pos:    (301, 453)
+  Confidence:         1.00
+  Wall hit:           (437, 211) at frame 917
+  Rebound distance:   7.65m
+
+Shot #11
+  Frame:              988
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (301, 453)
+  Next racket pos:    (1035, 661)
+  Confidence:         1.00
+  Wall hit:           (627, 223) at frame 1002
+  Rebound distance:   9.02m
+
+Shot #12
+  Frame:              1097
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1035, 661)
+  Next racket pos:    (1071, 501)
+  Confidence:         1.00
+  Wall hit:           (855, 187) at frame 1127
+  Rebound distance:   8.01m
+
+Shot #13
+  Frame:              1183
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1071, 501)
+  Next racket pos:    (1095, 541)
+  Confidence:         1.00
+  Wall hit:           (899, 161) at frame 1212
+  Rebound distance:   9.06m
+
+Shot #14
+  Frame:              1304
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1095, 541)
+  Next racket pos:    (580, 310)
+  Confidence:         1.00
+  Wall hit:           (399, 297) at frame 1328
+  Rebound distance:   7.80m
+
+Shot #15
+  Frame:              1386
+  Type:               STRAIGHT_DROP
+  Direction:          STRAIGHT
+  Depth:              DROP
+  Racket hit pos:     (580, 310)
+  Next racket pos:    (484, 363)
+  Confidence:         1.00
+  Wall hit:           (499, 257) at frame 1397
+  Rebound distance:   4.30m
+
+Shot #16
+  Frame:              1444
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (484, 363)
+  Next racket pos:    (363, 493)
+  Confidence:         1.00
+  Wall hit:           (487, 261) at frame 1455
+  Rebound distance:   7.87m
+
+Shot #17
+  Frame:              1518
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (363, 493)
+  Next racket pos:    (315, 491)
+  Confidence:         1.00
+  Wall hit:           (415, 187) at frame 1539
+  Rebound distance:   8.65m
+
+Shot #18
+  Frame:              1606
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (315, 491)
+  Next racket pos:    (263, 451)
+  Confidence:         1.00
+  Wall hit:           (474, 177) at frame 1629
+  Rebound distance:   7.95m
+
+Shot #19
+  Frame:              1688
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (263, 451)
+  Next racket pos:    (955, 585)
+  Confidence:         1.00
+  Wall hit:           (867, 301) at frame 1737
+  Rebound distance:   8.97m
+
+Shot #20
+  Frame:              1775
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (955, 585)
+  Next racket pos:    (369, 443)
+  Confidence:         1.00
+  Wall hit:           (513, 113) at frame 1809
+  Rebound distance:   7.82m
+
+Shot #21
+  Frame:              1859
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (369, 443)
+  Next racket pos:    (293, 595)
+  Confidence:         1.00
+  Wall hit:           (477, 201) at frame 1878
+  Rebound distance:   8.96m
+
+Shot #22
+  Frame:              1969
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (293, 595)
+  Next racket pos:    (927, 509)
+  Confidence:         1.00
+  Wall hit:           (741, 115) at frame 2008
+  Rebound distance:   8.49m
+
+Shot #23
+  Frame:              2080
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (927, 509)
+  Next racket pos:    (910, 344)
+  Confidence:         1.00
+  Wall hit:           (857, 331) at frame 2096
+  Rebound distance:   7.04m
+
+Shot #24
+  Frame:              2164
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (910, 344)
+  Next racket pos:    (895, 463)
+  Confidence:         1.00
+  Wall hit:           (847, 269) at frame 2188
+  Rebound distance:   8.70m
+
+Shot #25
+  Frame:              2601
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (895, 463)
+  Next racket pos:    (897, 369)
+  Confidence:         1.00
+  Wall hit:           (881, 389) at frame 2638
+  Rebound distance:   6.10m
+
+Shot #26
+  Frame:              2758
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (897, 369)
+  Next racket pos:    (665, 371)
+  Confidence:         1.00
+  Wall hit:           (17, 57) at frame 2786
+  Rebound distance:   10.97m
+
+Shot #27
+  Frame:              2839
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (665, 371)
+  Next racket pos:    (237, 395)
+  Confidence:         1.00
+  Wall hit:           (503, 103) at frame 2870
+  Rebound distance:   7.34m
+
+Shot #28
+  Frame:              2912
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (237, 395)
+  Next racket pos:    (353, 581)
+  Confidence:         1.00
+  Wall hit:           (639, 117) at frame 2945
+  Rebound distance:   8.98m
+
+Shot #29
+  Frame:              3065
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (353, 581)
+  Next racket pos:    (877, 397)
+  Confidence:         1.00
+  Wall hit:           (605, 213) at frame 3100
+  Rebound distance:   5.18m
+
+Shot #30
+  Frame:              3186
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (877, 397)
+  Next racket pos:    (1093, 549)
+  Confidence:         1.00
+  Wall hit:           (867, 245) at frame 3203
+  Rebound distance:   8.83m
+
+Shot #31
+  Frame:              3264
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1093, 549)
+  Next racket pos:    (1051, 487)
+  Confidence:         1.00
+  Wall hit:           (869, 195) at frame 3284
+  Rebound distance:   8.77m
+
+Shot #32
+  Frame:              3344
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1051, 487)
+  Next racket pos:    (575, 437)
+  Confidence:         1.00
+  Wall hit:           (525, 223) at frame 3363
+  Rebound distance:   7.68m
+
+Shot #33
+  Frame:              3416
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (575, 437)
+  Next racket pos:    (277, 439)
+  Confidence:         1.00
+  Wall hit:           (537, 215) at frame 3430
+  Rebound distance:   7.71m
+
+Shot #34
+  Frame:              3468
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (277, 439)
+  Next racket pos:    (476, 565)
+  Confidence:         1.00
+  Wall hit:           (181, 113) at frame 3518
+  Rebound distance:   10.51m
+
+Shot #35
+  Frame:              3624
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (476, 565)
+  Next racket pos:    (957, 425)
+  Confidence:         1.00
+  Wall hit:           (503, 311) at frame 3635
+  Rebound distance:   7.53m
+
+Shot #36
+  Frame:              3670
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (957, 425)
+  Next racket pos:    (917, 393)
+  Confidence:         1.00
+  Wall hit:           (967, 365) at frame 3689
+  Rebound distance:   6.54m
+
+Shot #37
+  Frame:              3761
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (917, 393)
+  Next racket pos:    (945, 327)
+  Confidence:         1.00
+  Wall hit:           (129, 19) at frame 3777
+  Rebound distance:   9.65m
+
+Shot #38
+  Frame:              3826
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (945, 327)
+  Next racket pos:    (436, 154)
+  Confidence:         1.00
+  Wall hit:           (597, 51) at frame 3863
+  Rebound distance:   6.67m
+
+Shot #39
+  Frame:              3894
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (436, 154)
+  Next racket pos:    (775, 593)
+  Confidence:         1.00
+  Wall hit:           (685, 77) at frame 3915
+  Rebound distance:   6.78m
+
+Shot #40
+  Frame:              4020
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (775, 593)
+  Next racket pos:    (973, 547)
+  Confidence:         1.00
+  Wall hit:           (797, 241) at frame 4034
+  Rebound distance:   7.76m
+
+Shot #41
+  Frame:              4094
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (973, 547)
+  Next racket pos:    (433, 515)
+  Confidence:         1.00
+  Wall hit:           (599, 209) at frame 4111
+  Rebound distance:   7.41m
+
+Shot #42
+  Frame:              4172
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (433, 515)
+  Next racket pos:    (349, 459)
+  Confidence:         1.00
+  Wall hit:           (511, 241) at frame 4183
+  Rebound distance:   8.28m
+
+Shot #43
+  Frame:              4228
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (349, 459)
+  Next racket pos:    (313, 491)
+  Confidence:         1.00
+  Wall hit:           (455, 249) at frame 4242
+  Rebound distance:   7.41m
+
+Shot #44
+  Frame:              4301
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (313, 491)
+  Next racket pos:    (401, 499)
+  Confidence:         1.00
+  Wall hit:           (435, 217) at frame 4317
+  Rebound distance:   8.00m
+
+Shot #45
+  Frame:              4362
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (401, 499)
+  Next racket pos:    (275, 507)
+  Confidence:         1.00
+  Wall hit:           (453, 219) at frame 4378
+  Rebound distance:   7.54m
+
+Shot #46
+  Frame:              4453
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (275, 507)
+  Next racket pos:    (107, 593)
+  Confidence:         1.00
+  Wall hit:           (439, 185) at frame 4472
+  Rebound distance:   7.71m
+
+Shot #47
+  Frame:              4543
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (107, 593)
+  Next racket pos:    (255, 587)
+  Confidence:         1.00
+  Wall hit:           (175, 535) at frame 4558
+  Rebound distance:   10.35m
+
+Shot #48
+  Frame:              4576
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (255, 587)
+  Next racket pos:    (989, 431)
+  Confidence:         1.00
+  Wall hit:           (675, 57) at frame 4620
+  Rebound distance:   7.10m
+
+Shot #49
+  Frame:              4712
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (989, 431)
+  Next racket pos:    (390, 298)
+  Confidence:         1.00
+  Wall hit:           (617, 79) at frame 4751
+  Rebound distance:   6.49m
+
+Shot #50
+  Frame:              4791
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (390, 298)
+  Next racket pos:    (843, 525)
+  Confidence:         1.00
+  Wall hit:           (703, 81) at frame 4824
+  Rebound distance:   6.76m
+
+Shot #51
+  Frame:              4911
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (843, 525)
+  Next racket pos:    (1037, 555)
+  Confidence:         1.00
+  Wall hit:           (811, 235) at frame 4923
+  Rebound distance:   7.66m
+
+Shot #52
+  Frame:              5015
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1037, 555)
+  Next racket pos:    (333, 441)
+  Confidence:         1.00
+  Wall hit:           (647, 257) at frame 5028
+  Rebound distance:   6.90m
+
+Shot #53
+  Frame:              5097
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (333, 441)
+  Next racket pos:    (237, 531)
+  Confidence:         1.00
+  Wall hit:           (455, 83) at frame 5130
+  Rebound distance:   7.51m
+
+Shot #54
+  Frame:              5235
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (237, 531)
+  Next racket pos:    (207, 591)
+  Confidence:         1.00
+  Wall hit:           (425, 209) at frame 5253
+  Rebound distance:   7.53m
+
+Shot #55
+  Frame:              5349
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (207, 591)
+  Next racket pos:    (343, 413)
+  Confidence:         1.00
+  Wall hit:           (489, 87) at frame 5390
+  Rebound distance:   6.38m
+
+Shot #56
+  Frame:              5509
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (343, 413)
+  Next racket pos:    (939, 273)
+  Confidence:         1.00
+  Wall hit:           (650, 7) at frame 5551
+  Rebound distance:   7.36m
+
+Shot #57
+  Frame:              5602
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (939, 273)
+  Next racket pos:    (363, 568)
+  Confidence:         1.00
+  Wall hit:           (665, 169) at frame 5616
+  Rebound distance:   9.14m
+
+Shot #58
+  Frame:              5715
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (363, 568)
+  Next racket pos:    (391, 372)
+  Confidence:         1.00
+  Wall hit:           (417, 117) at frame 5748
+  Rebound distance:   7.88m
+
+Shot #59
+  Frame:              5822
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (391, 372)
+  Next racket pos:    (181, 603)
+  Confidence:         1.00
+  Wall hit:           (479, 217) at frame 5834
+  Rebound distance:   8.72m
+
+Shot #60
+  Frame:              5923
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (181, 603)
+  Next racket pos:    (351, 403)
+  Confidence:         1.00
+  Wall hit:           (447, 251) at frame 5950
+  Rebound distance:   6.10m
+
+Shot #61
+  Frame:              6007
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (351, 403)
+  Next racket pos:    (1077, 517)
+  Confidence:         1.00
+  Wall hit:           (563, 233) at frame 6018
+  Rebound distance:   9.00m
+
+Shot #62
+  Frame:              6115
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1077, 517)
+  Next racket pos:    (587, 571)
+  Confidence:         1.00
+  Wall hit:           (783, 9) at frame 6145
+  Rebound distance:   9.02m
+
+Shot #63
+  Frame:              6282
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (587, 571)
+  Next racket pos:    (195, 569)
+  Confidence:         1.00
+  Wall hit:           (559, 249) at frame 6294
+  Rebound distance:   8.82m
+
+Shot #64
+  Frame:              6361
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (195, 569)
+  Next racket pos:    (391, 351)
+  Confidence:         1.00
+  Wall hit:           (463, 145) at frame 6393
+  Rebound distance:   6.77m
+
+Shot #65
+  Frame:              6434
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (391, 351)
+  Next racket pos:    (752, 467)
+  Confidence:         1.00
+  Wall hit:           (453, 281) at frame 6447
+  Rebound distance:   7.64m
+
+Shot #66
+  Frame:              6639
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (752, 467)
+  Next racket pos:    (281, 342)
+  Confidence:         1.00
+  Wall hit:           (753, 375) at frame 6650
+  Rebound distance:   7.20m
+
+Shot #67
+  Frame:              6678
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (281, 342)
+  Next racket pos:    (521, 448)
+  Confidence:         1.00
+  Wall hit:           (123, 93) at frame 6727
+  Rebound distance:   11.64m
+
+Shot #68
+  Frame:              6783
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (521, 448)
+  Next racket pos:    (639, 341)
+  Confidence:         1.00
+  Wall hit:           (533, 407) at frame 6794
+  Rebound distance:   5.73m
+
+Shot #69
+  Frame:              6891
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (639, 341)
+  Next racket pos:    (367, 344)
+  Confidence:         1.00
+  Wall hit:           (767, 151) at frame 6912
+  Rebound distance:   7.35m
+
+Shot #70
+  Frame:              7057
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (367, 344)
+  Next racket pos:    (269, 509)
+  Confidence:         1.00
+  Wall hit:           (453, 233) at frame 7068
+  Rebound distance:   8.15m
+
+Shot #71
+  Frame:              7124
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (269, 509)
+  Next racket pos:    (321, 269)
+  Confidence:         1.00
+  Wall hit:           (413, 99) at frame 7155
+  Rebound distance:   8.67m
+
+Shot #72
+  Frame:              7193
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (321, 269)
+  Next racket pos:    (1085, 555)
+  Confidence:         1.00
+  Wall hit:           (623, 175) at frame 7215
+  Rebound distance:   6.93m
+
+Shot #73
+  Frame:              7290
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1085, 555)
+  Next racket pos:    (788, 312)
+  Confidence:         1.00
+  Wall hit:           (857, 275) at frame 7309
+  Rebound distance:   8.14m
+
+Shot #74
+  Frame:              7367
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (788, 312)
+  Next racket pos:    (466, 307)
+  Confidence:         1.00
+  Wall hit:           (541, 173) at frame 7394
+  Rebound distance:   6.14m
+
+Shot #75
+  Frame:              7464
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (466, 307)
+  Next racket pos:    (443, 297)
+  Confidence:         1.00
+  Wall hit:           (455, 255) at frame 7482
+  Rebound distance:   5.60m
+
+Shot #76
+  Frame:              7532
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (443, 297)
+  Next racket pos:    (905, 515)
+  Confidence:         1.00
+  Wall hit:           (671, 115) at frame 7569
+  Rebound distance:   7.70m
+
+Shot #77
+  Frame:              7654
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (905, 515)
+  Next racket pos:    (195, 529)
+  Confidence:         1.00
+  Wall hit:           (645, 251) at frame 7668
+  Rebound distance:   8.48m
+
+Shot #78
+  Frame:              7738
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (195, 529)
+  Next racket pos:    (863, 389)
+  Confidence:         1.00
+  Wall hit:           (135, 75) at frame 7769
+  Rebound distance:   9.79m
+
+Shot #79
+  Frame:              7969
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (863, 389)
+  Next racket pos:    (923, 473)
+  Confidence:         1.00
+  Wall hit:           (953, 327) at frame 7988
+  Rebound distance:   8.45m
+
+Shot #80
+  Frame:              8065
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (923, 473)
+  Next racket pos:    (789, 189)
+  Confidence:         1.00
+  Wall hit:           (941, 401) at frame 8115
+  Rebound distance:   6.79m
+
+Shot #81
+  Frame:              8293
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (789, 189)
+  Next racket pos:    (493, 619)
+  Confidence:         1.00
+  Wall hit:           (599, 69) at frame 8319
+  Rebound distance:   9.03m
+
+Shot #82
+  Frame:              8420
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (493, 619)
+  Next racket pos:    (299, 607)
+  Confidence:         1.00
+  Wall hit:           (475, 103) at frame 8462
+  Rebound distance:   9.08m
+
+Shot #83
+  Frame:              8553
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (299, 607)
+  Next racket pos:    (297, 445)
+  Confidence:         1.00
+  Wall hit:           (447, 225) at frame 8571
+  Rebound distance:   7.99m
+
+Shot #84
+  Frame:              8633
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (297, 445)
+  Next racket pos:    (337, 491)
+  Confidence:         1.00
+  Wall hit:           (435, 85) at frame 8670
+  Rebound distance:   7.80m
+
+Shot #85
+  Frame:              8754
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (337, 491)
+  Next racket pos:    (1129, 639)
+  Confidence:         1.00
+  Wall hit:           (615, 247) at frame 8768
+  Rebound distance:   6.69m
+
+Shot #86
+  Frame:              8868
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1129, 639)
+  Next racket pos:    (1083, 557)
+  Confidence:         1.00
+  Wall hit:           (545, 425) at frame 8891
+  Rebound distance:   9.30m
+
+Shot #87
+  Frame:              8927
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1083, 557)
+  Next racket pos:    (655, 343)
+  Confidence:         1.00
+  Wall hit:           (731, 281) at frame 8964
+  Rebound distance:   6.21m
+
+Shot #88
+  Frame:              9097
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (655, 343)
+  Next racket pos:    (553, 493)
+  Confidence:         1.00
+  Wall hit:           (785, 127) at frame 9122
+  Rebound distance:   7.62m
+
+Shot #89
+  Frame:              9235
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (553, 493)
+  Next racket pos:    (480, 497)
+  Confidence:         1.00
+  Wall hit:           (515, 319) at frame 9284
+  Rebound distance:   7.45m
+
+Shot #90
+  Frame:              9375
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (480, 497)
+  Next racket pos:    (587, 503)
+  Confidence:         1.00
+  Wall hit:           (313, 319) at frame 9425
+  Rebound distance:   7.28m
+
+Shot #91
+  Frame:              9477
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (587, 503)
+  Next racket pos:    (973, 519)
+  Confidence:         1.00
+  Wall hit:           (695, 449) at frame 9494
+  Rebound distance:   8.17m
+
+Shot #92
+  Frame:              9577
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (973, 519)
+  Next racket pos:    (875, 493)
+  Confidence:         1.00
+  Wall hit:           (999, 419) at frame 9601
+  Rebound distance:   6.80m
+
+Shot #93
+  Frame:              9644
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (875, 493)
+  Next racket pos:    (665, 383)
+  Confidence:         1.00
+  Wall hit:           (911, 411) at frame 9674
+  Rebound distance:   9.31m
+
+Shot #94
+  Frame:              9830
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (665, 383)
+  Next racket pos:    (283, 363)
+  Confidence:         1.00
+  Wall hit:           (525, 109) at frame 9860
+  Rebound distance:   7.05m
+
+Shot #95
+  Frame:              9899
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (283, 363)
+  Next racket pos:    (889, 499)
+  Confidence:         1.00
+  Wall hit:           (623, 149) at frame 9917
+  Rebound distance:   7.94m
+
+Shot #96
+  Frame:              10026
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (889, 499)
+  Next racket pos:    (309, 463)
+  Confidence:         1.00
+  Wall hit:           (651, 259) at frame 10037
+  Rebound distance:   8.18m
+
+Shot #97
+  Frame:              10248
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (309, 463)
+  Next racket pos:    (957, 313)
+  Confidence:         1.00
+  Wall hit:           (335, 381) at frame 10266
+  Rebound distance:   9.10m
+
+Shot #98
+  Frame:              10476
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (957, 313)
+  Next racket pos:    (513, 497)
+  Confidence:         1.00
+  Wall hit:           (615, 105) at frame 10504
+  Rebound distance:   9.01m
+
+Shot #99
+  Frame:              10609
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (513, 497)
+  Next racket pos:    (357, 375)
+  Confidence:         1.00
+  Wall hit:           (471, 275) at frame 10629
+  Rebound distance:   5.49m
+
+Shot #100
+  Frame:              10722
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (357, 375)
+  Next racket pos:    (841, 485)
+  Confidence:         1.00
+  Wall hit:           (391, 287) at frame 10741
+  Rebound distance:   8.59m
+
+Shot #101
+  Frame:              10911
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (841, 485)
+  Next racket pos:    (677, 383)
+  Confidence:         1.00
+  Wall hit:           (533, 319) at frame 10937
+  Rebound distance:   7.57m
+
+Shot #102
+  Frame:              10993
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (677, 383)
+  Next racket pos:    (361, 627)
+  Confidence:         1.00
+  Wall hit:           (499, 85) at frame 11027
+  Rebound distance:   7.20m
+
+Shot #103
+  Frame:              11123
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (361, 627)
+  Next racket pos:    (219, 557)
+  Confidence:         1.00
+  Wall hit:           (485, 227) at frame 11141
+  Rebound distance:   7.28m
+
+Shot #104
+  Frame:              11234
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (219, 557)
+  Next racket pos:    (857, 647)
+  Confidence:         1.00
+  Wall hit:           (737, 23) at frame 11279
+  Rebound distance:   6.99m
+
+Shot #105
+  Frame:              11388
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (857, 647)
+  Next racket pos:    (1017, 583)
+  Confidence:         1.00
+  Wall hit:           (817, 183) at frame 11410
+  Rebound distance:   7.53m
+
+Shot #106
+  Frame:              11506
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1017, 583)
+  Next racket pos:    (1033, 533)
+  Confidence:         1.00
+  Wall hit:           (827, 257) at frame 11517
+  Rebound distance:   8.20m
+
+Shot #107
+  Frame:              11576
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1033, 533)
+  Next racket pos:    (199, 571)
+  Confidence:         1.00
+  Wall hit:           (661, 237) at frame 11589
+  Rebound distance:   7.00m
+
+Shot #108
+  Frame:              11662
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (199, 571)
+  Next racket pos:    (272, 436)
+  Confidence:         1.00
+  Wall hit:           (427, 179) at frame 11686
+  Rebound distance:   8.51m
+
+Shot #109
+  Frame:              11749
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (272, 436)
+  Next racket pos:    (273, 441)
+  Confidence:         1.00
+  Wall hit:           (445, 221) at frame 11764
+  Rebound distance:   8.21m
+
+Shot #110
+  Frame:              11815
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (273, 441)
+  Next racket pos:    (267, 583)
+  Confidence:         1.00
+  Wall hit:           (453, 205) at frame 11836
+  Rebound distance:   7.66m
+
+Shot #111
+  Frame:              11928
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (267, 583)
+  Next racket pos:    (333, 467)
+  Confidence:         1.00
+  Wall hit:           (481, 261) at frame 11942
+  Rebound distance:   8.20m
+
+Shot #112
+  Frame:              11990
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (333, 467)
+  Next racket pos:    (522, 207)
+  Confidence:         1.00
+  Wall hit:           (367, 19) at frame 12040
+  Rebound distance:   7.34m
+
+Shot #113
+  Frame:              12112
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (522, 207)
+  Next racket pos:    (883, 467)
+  Confidence:         1.00
+  Wall hit:           (543, 39) at frame 12161
+  Rebound distance:   6.04m
+
+Shot #114
+  Frame:              12340
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (883, 467)
+  Next racket pos:    (913, 475)
+  Confidence:         1.00
+  Wall hit:           (905, 393) at frame 12351
+  Rebound distance:   6.13m
+
+Shot #115
+  Frame:              12360
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (913, 475)
+  Next racket pos:    (682, 182)
+  Confidence:         1.00
+  Wall hit:           (949, 419) at frame 12407
+  Rebound distance:   10.05m
+
+Shot #116
+  Frame:              12572
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (682, 182)
+  Next racket pos:    (285, 563)
+  Confidence:         1.00
+  Wall hit:           (631, 101) at frame 12595
+  Rebound distance:   6.95m
+
+Shot #117
+  Frame:              12661
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (285, 563)
+  Next racket pos:    (297, 483)
+  Confidence:         1.00
+  Wall hit:           (491, 187) at frame 12686
+  Rebound distance:   7.83m
+
+Shot #118
+  Frame:              12746
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (297, 483)
+  Next racket pos:    (1061, 475)
+  Confidence:         1.00
+  Wall hit:           (643, 223) at frame 12759
+  Rebound distance:   7.49m
+
+Shot #119
+  Frame:              12823
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1061, 475)
+  Next racket pos:    (295, 483)
+  Confidence:         1.00
+  Wall hit:           (719, 35) at frame 12865
+  Rebound distance:   7.16m
+
+Shot #120
+  Frame:              12950
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (295, 483)
+  Next racket pos:    (1041, 517)
+  Confidence:         1.00
+  Wall hit:           (637, 245) at frame 12964
+  Rebound distance:   7.28m
+
+Shot #121
+  Frame:              13031
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1041, 517)
+  Next racket pos:    (931, 437)
+  Confidence:         1.00
+  Wall hit:           (885, 359) at frame 13067
+  Rebound distance:   8.46m
+
+Shot #122
+  Frame:              13086
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (931, 437)
+  Next racket pos:    (363, 489)
+  Confidence:         1.00
+  Wall hit:           (647, 69) at frame 13132
+  Rebound distance:   6.75m
+
+Shot #123
+  Frame:              13229
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (363, 489)
+  Next racket pos:    (281, 489)
+  Confidence:         1.00
+  Wall hit:           (477, 237) at frame 13243
+  Rebound distance:   7.13m
+
+Shot #124
+  Frame:              13300
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (281, 489)
+  Next racket pos:    (383, 357)
+  Confidence:         1.00
+  Wall hit:           (465, 173) at frame 13323
+  Rebound distance:   7.36m
+
+Shot #125
+  Frame:              13363
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (383, 357)
+  Next racket pos:    (365, 405)
+  Confidence:         1.00
+  Wall hit:           (487, 247) at frame 13375
+  Rebound distance:   7.17m
+
+Shot #126
+  Frame:              13424
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (365, 405)
+  Next racket pos:    (179, 641)
+  Confidence:         1.00
+  Wall hit:           (417, 113) at frame 13455
+  Rebound distance:   7.23m
+
+Shot #127
+  Frame:              13509
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (179, 641)
+  Next racket pos:    (231, 615)
+  Confidence:         1.00
+  Wall hit:           (139, 523) at frame 13544
+  Rebound distance:   10.77m
+
+Shot #128
+  Frame:              13564
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (231, 615)
+  Next racket pos:    (913, 253)
+  Confidence:         1.00
+  Wall hit:           (695, 75) at frame 13604
+  Rebound distance:   7.42m
+
+Shot #129
+  Frame:              13636
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (913, 253)
+  Next racket pos:    (549, 402)
+  Confidence:         1.00
+  Wall hit:           (621, 149) at frame 13655
+  Rebound distance:   9.04m
+
+Shot #130
+  Frame:              13759
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (549, 402)
+  Next racket pos:    (203, 565)
+  Confidence:         1.00
+  Wall hit:           (547, 195) at frame 13777
+  Rebound distance:   8.78m
+
+Shot #131
+  Frame:              13875
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (203, 565)
+  Next racket pos:    (211, 507)
+  Confidence:         1.00
+  Wall hit:           (443, 227) at frame 13890
+  Rebound distance:   8.00m
+
+Shot #132
+  Frame:              13945
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (211, 507)
+  Next racket pos:    (299, 611)
+  Confidence:         1.00
+  Wall hit:           (403, 79) at frame 13982
+  Rebound distance:   7.35m
+
+Shot #133
+  Frame:              14039
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (299, 611)
+  Next racket pos:    (777, 393)
+  Confidence:         1.00
+  Wall hit:           (627, 281) at frame 14088
+  Rebound distance:   7.37m
+
+Shot #134
+  Frame:              14115
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (777, 393)
+  Next racket pos:    (973, 363)
+  Confidence:         1.00
+  Wall hit:           (869, 255) at frame 14164
+  Rebound distance:   7.55m
+
+Shot #135
+  Frame:              14248
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (973, 363)
+  Next racket pos:    (513, 339)
+  Confidence:         1.00
+  Wall hit:           (611, 123) at frame 14276
+  Rebound distance:   7.23m
+
+Shot #136
+  Frame:              14354
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (513, 339)
+  Next racket pos:    (467, 363)
+  Confidence:         1.00
+  Wall hit:           (453, 251) at frame 14375
+  Rebound distance:   5.94m
+
+Shot #137
+  Frame:              14428
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (467, 363)
+  Next racket pos:    (591, 505)
+  Confidence:         1.00
+  Wall hit:           (643, 255) at frame 14445
+  Rebound distance:   6.26m
+
+Shot #138
+  Frame:              14803
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (591, 505)
+  Next racket pos:    (517, 423)
+  Confidence:         1.00
+  Wall hit:           (135, 101) at frame 14849
+  Rebound distance:   11.45m
+
+Shot #139
+  Frame:              15085
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (517, 423)
+  Next racket pos:    (525, 463)
+  Confidence:         1.00
+  Wall hit:           (543, 37) at frame 15130
+  Rebound distance:   5.79m
+
+Shot #140
+  Frame:              15320
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (525, 463)
+  Next racket pos:    (535, 463)
+  Confidence:         1.00
+  Wall hit:           (537, 385) at frame 15331
+  Rebound distance:   8.63m
+
+Shot #141
+  Frame:              15386
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (535, 463)
+  Next racket pos:    (661, 252)
+  Confidence:         1.00
+  Wall hit:           (481, 401) at frame 15433
+  Rebound distance:   5.80m
+
+Shot #142
+  Frame:              15554
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (661, 252)
+  Next racket pos:    (1031, 643)
+  Confidence:         1.00
+  Wall hit:           (791, 121) at frame 15578
+  Rebound distance:   8.72m
+
+Shot #143
+  Frame:              15648
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1031, 643)
+  Next racket pos:    (675, 239)
+  Confidence:         1.00
+  Wall hit:           (939, 563) at frame 15663
+  Rebound distance:   7.87m
+
+Shot #144
+  Frame:              15757
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (675, 239)
+  Next racket pos:    (1003, 323)
+  Confidence:         1.00
+  Wall hit:           (773, 141) at frame 15780
+  Rebound distance:   6.62m
+
+Shot #145
+  Frame:              15814
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1003, 323)
+  Next racket pos:    (454, 350)
+  Confidence:         1.00
+  Wall hit:           (178, 131) at frame 15845
+  Rebound distance:   9.35m
+
+Shot #146
+  Frame:              15931
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (454, 350)
+  Next racket pos:    (371, 364)
+  Confidence:         1.00
+  Wall hit:           (489, 219) at frame 15945
+  Rebound distance:   7.46m
+
+Shot #147
+  Frame:              16047
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (371, 364)
+  Next racket pos:    (285, 473)
+  Confidence:         1.00
+  Wall hit:           (455, 221) at frame 16059
+  Rebound distance:   7.47m
+
+Shot #148
+  Frame:              16158
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (285, 473)
+  Next racket pos:    (1023, 295)
+  Confidence:         1.00
+  Wall hit:           (723, 7) at frame 16208
+  Rebound distance:   7.49m
+
+Shot #149
+  Frame:              16251
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1023, 295)
+  Next racket pos:    (395, 401)
+  Confidence:         1.00
+  Wall hit:           (709, 179) at frame 16274
+  Rebound distance:   6.39m
+
+Shot #150
+  Frame:              16362
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (395, 401)
+  Next racket pos:    (749, 423)
+  Confidence:         1.00
+  Wall hit:           (439, 245) at frame 16382
+  Rebound distance:   6.89m
+
+Shot #151
+  Frame:              16445
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (749, 423)
+  Next racket pos:    (943, 459)
+  Confidence:         1.00
+  Wall hit:           (669, 201) at frame 16470
+  Rebound distance:   7.53m
+
+Shot #152
+  Frame:              16561
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (943, 459)
+  Next racket pos:    (135, 551)
+  Confidence:         1.00
+  Wall hit:           (667, 217) at frame 16574
+  Rebound distance:   8.53m
+
+Shot #153
+  Frame:              16656
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (135, 551)
+  Next racket pos:    (873, 467)
+  Confidence:         1.00
+  Wall hit:           (657, 191) at frame 16692
+  Rebound distance:   7.43m
+
+Shot #154
+  Frame:              16760
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (873, 467)
+  Next racket pos:    (971, 465)
+  Confidence:         1.00
+  Wall hit:           (781, 251) at frame 16771
+  Rebound distance:   7.07m
+
+Shot #155
+  Frame:              16818
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (971, 465)
+  Next racket pos:    (1059, 513)
+  Confidence:         1.00
+  Wall hit:           (839, 261) at frame 16829
+  Rebound distance:   8.04m
+
+Shot #156
+  Frame:              16884
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (1059, 513)
+  Next racket pos:    (389, 565)
+  Confidence:         1.00
+  Wall hit:           (663, 229) at frame 16900
+  Rebound distance:   8.32m
+
+Shot #157
+  Frame:              16962
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (389, 565)
+  Next racket pos:    (389, 481)
+  Confidence:         1.00
+  Wall hit:           (517, 177) at frame 16985
+  Rebound distance:   8.18m
+
+Shot #158
+  Frame:              17080
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (389, 481)
+  Next racket pos:    (545, 447)
+  Confidence:         1.00
+  Wall hit:           (461, 265) at frame 17100
+  Rebound distance:   6.07m
+
+Shot #159
+  Frame:              17189
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (545, 447)
+  Next racket pos:    (655, 385)
+  Confidence:         1.00
+  Wall hit:           (609, 319) at frame 17222
+  Rebound distance:   9.70m
+
+Shot #160
+  Frame:              17251
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (655, 385)
+  Next racket pos:    (733, 357)
+  Confidence:         1.00
+  Wall hit:           (543, 39) at frame 17288
+  Rebound distance:   8.29m
+
+Shot #161
+  Frame:              17372
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (733, 357)
+  Next racket pos:    (893, 471)
+  Confidence:         1.00
+  Wall hit:           (733, 309) at frame 17384
+  Rebound distance:   5.74m
+
+Shot #162
+  Frame:              17546
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (893, 471)
+  Next racket pos:    (770, 181)
+  Confidence:         1.00
+  Wall hit:           (911, 397) at frame 17557
+  Rebound distance:   9.08m
+
+Shot #163
+  Frame:              17671
+  Type:               STRAIGHT_DRIVE
+  Direction:          STRAIGHT
+  Depth:              LONG
+  Racket hit pos:     (770, 181)
+  Next racket pos:    (384, 204)
+  Confidence:         1.00
+  Wall hit:           (605, 95) at frame 17694
+  Rebound distance:   6.53m
+
+Shot #164
+  Frame:              17722
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (384, 204)
+  Next racket pos:    (1083, 609)
+  Confidence:         1.00
+  Wall hit:           (641, 107) at frame 17745
+  Rebound distance:   6.56m
+
+Shot #165
+  Frame:              17793
+  Type:               CROSS_COURT_DRIVE
+  Direction:          CROSS_COURT
+  Depth:              LONG
+  Racket hit pos:     (1083, 609)
+  Next racket pos:    (987, 615)
+  Confidence:         1.00
+  Wall hit:           (1176, 549) at frame 17815
+  Rebound distance:   11.35m
+

@@ -11,7 +11,7 @@ shot_classification:
 
 # Test Configuration
 tests:
-    test_video: video-3
+    test_video: video-2
     annotations_dir: squashcopilot/annotation/annotations
     tracking:
         trace_length: 5

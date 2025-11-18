@@ -1,67 +1,158 @@
-# Player Tracking Pipeline
+# Player Tracking Module
 
-A Python package for detecting and tracking two squash players in video footage using YOLO object detection and ResNet50-based re-identification.
+The player tracking module detects and tracks two squash players in video footage, extracting their positions, bounding boxes, and pose keypoints over time.
+
+## Overview
+
+This module provides comprehensive player tracking for squash videos by:
+
+-   **Player Detection**: Using YOLOv8 for robust person detection
+-   **Pose Estimation**: Extracting 17 COCO keypoints for body pose
+-   **Re-identification**: Using ResNet50 features to maintain player identities
+-   **Trajectory Smoothing**: Cubic spline interpolation for smooth position tracking
+-   **Court Masking**: Filtering out audience/non-court detections
+-   **Coordinate Transformation**: Converting pixel positions to real-world meters
+
+The module is part of the SquashCoachingCopilot package and provides essential player data used by stroke detection, shot classification, and rally analysis modules.
 
 ## Features
 
 -   **Real-time player detection** using YOLOv8
+-   **COCO pose keypoints** (17 points per player)
 -   **Player re-identification** with ResNet50 feature extraction
 -   **Robust tracking** combining appearance and position-based matching
--   **Clean API** with simple frame-by-frame processing
--   **Configurable parameters** via JSON configuration
+-   **Trajectory postprocessing** with cubic spline interpolation
+-   **Keypoint interpolation** for missing detections
+-   **Court masking** to filter non-player detections
+-   **Coordinate transformation** via floor homography
+-   **GPU acceleration** support
 
-## Installation
+## Components
 
-### From source
+### PlayerTracker (`player_tracker.py`)
 
-```bash
-pip install -e .
-```
+The main class for player detection, tracking, and postprocessing.
 
-### Using pip (if published to PyPI)
+**Key Methods:**
+- `process_frame(input: PlayerTrackingInput)`: Detect players in a single frame
+- `postprocess(input: PlayerPostprocessingInput)`: Smooth trajectories and interpolate keypoints
+- `reset()`: Reset tracker state for new video
+- `floor_homography`: Property to access/set the floor homography matrix
+- `wall_homography`: Property to access/set the wall homography matrix
 
-```bash
-pip install player-tracking-pipeline
-```
+**Processing Pipeline:**
+1. **Detection**: YOLO detects all persons in frame
+2. **Court Filtering**: Apply court mask to remove audience
+3. **Pose Estimation**: Extract 17 COCO keypoints per detection
+4. **Feature Extraction**: ResNet50 generates appearance features
+5. **Player Assignment**: Match detections to player IDs (1, 2)
+6. **Position Calculation**: Compute bottom-center foot position
+7. **Coordinate Transform**: Convert to real-world meters using homography
 
-### Requirements
+**Postprocessing:**
+- Smooth position trajectories using cubic spline interpolation
+- Fill gaps in keypoint data through temporal interpolation
+- Handle missing detections gracefully
 
--   Python >= 3.7
--   CUDA-compatible GPU (optional, for faster inference)
+### Dependencies
 
-## Quick Start
+-   **Ultralytics**: YOLOv8 for detection and pose estimation
+-   **PyTorch**: ResNet50 for re-identification
+-   **NumPy**: Numerical operations
+-   **SciPy**: Cubic spline interpolation
+-   **OpenCV**: Image processing and coordinate transformation
+
+## Data Models
+
+The module uses standardized data models from `squashcopilot.common.models.player`:
+
+### Input Models
+- **PlayerTrackingInput**: Single frame for player detection
+  - `frame`: Frame object with image data
+  - `court_mask`: Optional binary mask to filter non-court regions
+
+- **PlayerPostprocessingInput**: Collection of raw detections for smoothing
+  - `detections`: Dictionary mapping frames to PlayerDetectionResult
+  - `floor_homography`: Homography for coordinate transformation
+
+### Output Models
+- **PlayerDetectionResult**: Raw detection for a single frame
+  - `detections`: Dictionary mapping player IDs (1, 2) to detection data
+  - Each detection contains:
+    - `position`: Point2D (x, y) in pixels
+    - `position_meters`: Point2D in real-world meters
+    - `bbox`: BoundingBox (x1, y1, x2, y2)
+    - `keypoints`: PlayerKeypointsData (17 COCO points)
+    - `confidence`: Detection confidence score (0-1)
+
+- **PlayerKeypointsData**: COCO 17-point pose keypoints
+  - `keypoints`: List of Point2D for each body part
+  - `confidences`: Confidence score per keypoint
+  - Keypoint order: nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles
+
+- **PlayerTrajectory**: Smoothed trajectory for one player
+  - `positions`: List of smoothed Point2D positions (pixels)
+  - `positions_meters`: List of positions in meters
+  - `keypoints`: List of interpolated PlayerKeypointsData
+  - `bboxes`: List of BoundingBox objects
+  - `confidences`: List of confidence scores
+
+- **PlayerPostprocessingResult**: Dictionary of trajectories
+  - Maps player IDs (1, 2) to PlayerTrajectory objects
+
+## Usage
+
+### Using Standard Data Models
 
 ```python
-import cv2
-from player_tracking_pipeline import PlayerTracker
+from squashcopilot import PlayerTracker, CourtCalibrator
+from squashcopilot import PlayerTrackingInput, PlayerPostprocessingInput, Frame
 
-# Initialize tracker
+# Initialize tracker and calibrator
 tracker = PlayerTracker()
+calibrator = CourtCalibrator()
 
-# Open video
-cap = cv2.VideoCapture("squash_match.mp4")
+# Calibrate court on first frame
+first_frame = Frame(image=first_frame_img, frame_number=0, timestamp=0.0)
+calibration = calibrator.process_frame(CourtCalibrationInput(frame=first_frame))
 
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
+# Set homography for coordinate transformation
+tracker.floor_homography = calibration.floor_homography
 
-    # Track players in frame
-    results = tracker.process_frame(frame)
+# Process frames
+detections = {}
+for frame_num, frame_img in enumerate(video_frames):
+    frame = Frame(image=frame_img, frame_number=frame_num, timestamp=frame_num/fps)
+    input_data = PlayerTrackingInput(frame=frame)
+    result = tracker.process_frame(input_data)
+    detections[frame_num] = result
 
-    # Access player positions
-    player1_pos = results[1]["position"]  # (x, y) or None
-    player2_pos = results[2]["position"]  # (x, y) or None
+# Postprocess trajectories
+postprocess_input = PlayerPostprocessingInput(
+    detections=detections,
+    floor_homography=calibration.floor_homography
+)
+trajectories = tracker.postprocess(postprocess_input)
 
-    # Access bounding boxes
-    player1_bbox = results[1]["bbox"]  # [x1, y1, x2, y2] or None
-    player2_bbox = results[2]["bbox"]  # [x1, y1, x2, y2] or None
+# Access smoothed data
+player1_trajectory = trajectories[1]
+player2_trajectory = trajectories[2]
 
-    # Access detection confidence
-    player1_conf = results[1]["confidence"]  # float or None
-    player2_conf = results[2]["confidence"]  # float or None
+print(f"Player 1 positions: {len(player1_trajectory.positions)} frames")
+print(f"Player 2 positions: {len(player2_trajectory.positions)} frames")
+```
 
-cap.release()
+### Integration with Other Modules
+
+```python
+from squashcopilot import Annotator
+
+# Annotator handles player tracking automatically
+annotator = Annotator()
+results = annotator.annotate_video("video.mp4", "output_directory")
+
+# Access player trajectories
+player_trajectories = results['player_trajectories']
 ```
 
 ## API Reference
@@ -139,97 +230,174 @@ tracker.reset()
 
 ## Configuration
 
-The tracker behavior can be customized via the configuration file:
+Configuration file: `squashcopilot/configs/player_tracking.yaml`
 
-### Models Configuration
+```yaml
+model:
+  yolo_model: "yolov8m-pose.pt"
+  device: "auto"  # auto, cuda, or cpu
+  confidence_threshold: 0.5
 
--   `yolo_model`: Path to YOLO weights file (relative to package directory)
--   `reid_feature_size`: Dimension of re-identification feature vectors (default: 512)
--   `reid_input_size`: Input size for ResNet50 model (default: [224, 224])
+reid:
+  feature_size: 512
+  input_size: [224, 224]
+  threshold: 0.07
+  weight: 0.1  # Appearance matching weight
 
-### Tracker Configuration
+tracker:
+  max_history: 30
+  position_weight: 0.9  # Position-based matching weight
 
--   `max_history`: Maximum number of historical positions to keep (default: 30)
--   `reid_threshold`: Threshold for re-identification matching (default: 0.07)
--   `reid_weight`: Weight for appearance-based matching (default: 0.1)
--   `position_weight`: Weight for position-based matching (default: 0.9)
+preprocessing:
+  use_court_mask: true
+  mask_dilation_kernel: 15
 
-## How It Works
-
-1. **Detection**: YOLOv8 detects people in each frame
-2. **Feature Extraction**: ResNet50 extracts appearance features from detected bounding boxes
-3. **Player Assignment**:
-    - First frame: Players assigned by left-right position
-    - Subsequent frames: Combined appearance and position matching
-4. **Tracking**: Exponential moving average updates player features over time
-
-## Example: Visualizing Results
-
-```python
-import cv2
-from player_tracking_pipeline import PlayerTracker
-
-tracker = PlayerTracker()
-cap = cv2.VideoCapture("squash_match.mp4")
-
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
-
-    results = tracker.process_frame(frame)
-
-    # Draw bounding boxes and positions
-    for player_id in [1, 2]:
-        if results[player_id]["bbox"]:
-            x1, y1, x2, y2 = map(int, results[player_id]["bbox"])
-            color = (0, 255, 0) if player_id == 1 else (255, 0, 0)
-
-            # Draw bbox
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-            # Draw position
-            pos = results[player_id]["position"]
-            cv2.circle(frame, (int(pos[0]), int(pos[1])), 5, color, -1)
-
-            # Draw label
-            label = f"P{player_id}: {results[player_id]['confidence']:.2f}"
-            cv2.putText(frame, label, (x1, y1-10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-    cv2.imshow("Player Tracking", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+postprocessing:
+  smoothing_window: 5
+  interpolation_method: "cubic"  # linear, cubic
+  max_gap_frames: 30  # Maximum gap to interpolate
 ```
 
-## License
+### Configuration Parameters
 
-This project is part of a thesis on Squash Coaching Copilot.
+**Model:**
+- `yolo_model`: YOLOv8 model variant (yolov8n/s/m/l/x-pose.pt)
+- `device`: Inference device (auto/cuda/cpu)
+- `confidence_threshold`: Minimum confidence for person detection (0.5)
+
+**Re-identification:**
+- `feature_size`: ResNet50 feature dimension (512)
+- `input_size`: Input size for feature extractor [224, 224]
+- `threshold`: Cosine distance threshold for matching (0.07)
+- `weight`: Weight for appearance-based matching (0.1)
+
+**Tracker:**
+- `max_history`: Maximum frames of tracking history (30)
+- `position_weight`: Weight for position-based matching (0.9)
+
+**Preprocessing:**
+- `use_court_mask`: Enable court masking to filter audience (true)
+- `mask_dilation_kernel`: Kernel size for mask dilation (15)
+
+**Postprocessing:**
+- `smoothing_window`: Window size for trajectory smoothing (5)
+- `interpolation_method`: Spline type (cubic/linear)
+- `max_gap_frames`: Maximum frames to interpolate missing detections (30)
+
+## Algorithm Details
+
+### Player Detection and Tracking
+1. **YOLO Detection**: YOLOv8-pose detects persons and extracts 17 COCO keypoints
+2. **Court Masking**: Apply court mask (from court calibration) to filter audience
+3. **Feature Extraction**: ResNet50 extracts 512-d appearance features from crops
+4. **Player Assignment**:
+   - **First Frame**: Assign IDs based on left-right position
+   - **Subsequent Frames**: Hybrid matching:
+     - Compute cosine distance for appearance similarity
+     - Compute Euclidean distance for position proximity
+     - Combined score = `reid_weight * appearance + position_weight * position`
+     - Assign to player with lowest combined distance
+5. **Feature Update**: Exponential moving average of appearance features
+
+### Trajectory Postprocessing
+1. **Position Smoothing**:
+   - Extract raw positions for each player
+   - Apply cubic spline interpolation to smooth trajectory
+   - Handle missing frames through interpolation (up to max_gap_frames)
+
+2. **Keypoint Interpolation**:
+   - For frames with missing keypoints, interpolate from neighboring frames
+   - Use temporal coherence to maintain pose consistency
+   - Apply confidence-weighted interpolation
+
+3. **Coordinate Transformation**:
+   - Transform pixel positions to meters using floor homography
+   - Store both pixel and meter coordinates
+
+### COCO Keypoint Order
+The 17 COCO keypoints are:
+1. Nose
+2. Left Eye
+3. Right Eye
+4. Left Ear
+5. Right Ear
+6. Left Shoulder
+7. Right Shoulder
+8. Left Elbow
+9. Right Elbow
+10. Left Wrist
+11. Right Wrist
+12. Left Hip
+13. Right Hip
+14. Left Knee
+15. Right Knee
+16. Left Ankle
+17. Right Ankle
+
+## Module Structure
+
+```
+player_tracking/
+├── __init__.py                # Package exports
+├── player_tracker.py          # Main PlayerTracker class
+├── model/                     # Model implementations
+│   ├── __init__.py
+│   ├── yolo_detector.py       # YOLO wrapper
+│   └── reid_extractor.py      # ResNet50 feature extractor
+└── tests/                     # Evaluation suite
+    ├── evaluator.py           # Evaluation script
+    ├── data/                  # Test videos
+    └── outputs/               # Results and metrics
+```
+
+## Testing and Evaluation
+
+The `tests/` directory contains evaluation tools:
+
+- **evaluator.py**: Tests tracking accuracy and identity consistency
+- **data/**: Test videos with ground truth player positions
+- **outputs/**: Tracking visualizations and metrics
+
+### Running Tests
+
+```python
+from squashcopilot.modules.player_tracking.tests.evaluator import PlayerTrackingEvaluator
+
+evaluator = PlayerTrackingEvaluator()
+results = evaluator.evaluate(video_path="tests/data/video-1.mp4")
+evaluator.generate_report(results)
+```
+
+## Performance Considerations
+
+- **YOLO Inference**: ~20-40 FPS on GPU (YOLOv8m-pose), ~3-5 FPS on CPU
+- **ResNet50 Re-ID**: ~50 FPS on GPU, ~10 FPS on CPU
+- **Postprocessing**: Real-time (>100 FPS)
+- **Recommendation**: Use GPU for real-time processing
+
+## Limitations
+
+- Requires two players visible in frame for accurate tracking
+- Identity switches may occur during occlusions or close proximity
+- Pose estimation quality degrades with motion blur
+- Court mask required for accurate filtering of audience
+- Interpolation quality depends on gap length and motion complexity
+
+## Dependencies on Other Modules
+
+This module integrates with:
+- **Court Calibration**: Requires floor homography for coordinate transformation
+- Used by **Racket Hit Detection**: Provides player positions for hit attribution
+- Used by **Stroke Detection**: Provides keypoints for stroke classification
+- Used by **Shot Classification**: Provides player positions for shot analysis
+- Used by **Rally Segmentation**: Provides player positions for rally detection
 
 ## Author
 
 Youssef Elhagg (yousseframi@aucegypt.edu)
 
-## Version
+## License
 
-0.2.3
+MIT License
 
-## Building and Publishing
-
-This package uses modern Python packaging with `pyproject.toml`.
-
-### Build the package
-
-```bash
-pip install build
-python -m build
-```
-
-### Install locally for development
-
-```bash
-pip install -e .
-```
+This module is part of the SquashCoachingCopilot thesis project at the American University in Cairo.
