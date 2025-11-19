@@ -41,7 +41,8 @@ class RacketHitDetector:
         self.slope_threshold = racket_config.get("slope_threshold", 15.0)
         self.min_distance = racket_config.get("min_distance", 15)
         self.lookback_frames = racket_config.get("lookback_frames", 20)
-
+        self.confidence_ratio = racket_config.get("confidence_ratio", 0.7)
+        
     def detect(self, input_data: RacketHitInput) -> RacketHitDetectionResult:
         """Detect racket hits using steep negative slopes (downward) before wall hits.
 
@@ -137,7 +138,7 @@ class RacketHitDetector:
 
         return RacketHitDetectionResult(racket_hits=racket_hits)
 
-    def _attribute_hits_to_players(self, racket_hits, player_positions):
+    def _attribute_hits_to_players(self, racket_hits, player_positions, confidence_ratio=0.7):
         """Attribute racket hits to players based on distance comparison.
 
         For the first hit, determine player by comparing distances to both players.
@@ -147,6 +148,9 @@ class RacketHitDetector:
         Args:
             racket_hits: List of RacketHit objects
             player_positions: Dict mapping player_id to list of positions
+            confidence_ratio: Threshold ratio for distance validation (default: 0.7)
+                         If min_distance/max_distance < confidence_ratio, the closer
+                         player is clearly correct
 
         Returns:
             List of RacketHit objects with player_id assigned
@@ -177,11 +181,46 @@ class RacketHitDetector:
 
         # Assign to the closest player (no threshold check)
         current_player = first_player
-
         # Assign player IDs with alternation
         updated_hits = []
+        
         for hit in racket_hits:
-            # Create new RacketHit with updated player_id
+            hit_pos = hit.position
+            hit_frame = hit.frame
+
+            # Calculate distances to both players
+            distances = {}
+            for player_id, positions in player_positions.items():
+                if hit_frame < len(positions) and positions[hit_frame] is not None:
+                    player_pos = positions[hit_frame]
+                    dx = hit_pos.x - player_pos.x
+                    dy = hit_pos.y - player_pos.y
+                    distance = np.sqrt(dx**2 + dy**2)
+                    distances[player_id] = distance
+
+            # Validate assignment if we have both player positions
+            if len(distances) == 2:
+                player_1_dist = distances.get(1, float('inf'))
+                player_2_dist = distances.get(2, float('inf'))
+                
+                # Determine which player is closer
+                if player_1_dist < player_2_dist:
+                    closer_player = 1
+                    min_dist = player_1_dist
+                    max_dist = player_2_dist
+                else:
+                    closer_player = 2
+                    min_dist = player_2_dist
+                    max_dist = player_1_dist
+
+                # Check if there's a clear winner (one player is significantly closer)
+                if max_dist > 0 and (min_dist / max_dist) < confidence_ratio:
+                    # Clear distance discrepancy exists
+                    if closer_player != current_player:
+                        # The alternation prediction is wrong, correct it
+                        current_player = closer_player
+
+            # Assign the validated player
             updated_hit = RacketHit(
                 frame=hit.frame,
                 position=hit.position,

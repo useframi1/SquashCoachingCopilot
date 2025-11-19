@@ -25,6 +25,7 @@ racket_hit_detection:
     slope_threshold: 3.0 # Minimum negative slope to detect racket hit
     min_distance: 15 # Minimum distance between consecutive hits (frames)
     lookback_frames: 50 # Number of frames to look back from wall hit
+    confidence_ratio: 0.7 # Closer player must be <70% of farther player's distance
 
 # Test Configuration
 tests:

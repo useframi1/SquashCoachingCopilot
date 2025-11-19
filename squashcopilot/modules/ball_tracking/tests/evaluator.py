@@ -138,7 +138,8 @@ class BallTrackingEvaluator:
                     frame_number=frame_count,
                     timestamp=frame_count / self.fps,
                 ),
-                homography=self.floor_homography
+                floor_homography=self.floor_homography,
+                wall_homography=self.wall_homography
             )
             player_result = self.player_tracker.process_frame(player_input)
 
