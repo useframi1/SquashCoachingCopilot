@@ -177,7 +177,11 @@ class Annotator:
 
             # Track players
             player_result = self.player_tracker.process_frame(
-                PlayerTrackingInput(frame=frame, homography=floor_homography)
+                PlayerTrackingInput(
+                    frame=frame,
+                    floor_homography=floor_homography,
+                    wall_homography=wall_homography,
+                )
             )
 
             for player_id in [1, 2]:

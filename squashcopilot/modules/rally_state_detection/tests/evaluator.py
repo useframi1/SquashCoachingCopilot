@@ -42,6 +42,10 @@ class RallyStateEvaluator:
         data_base_dir = project_root / self.config["data_dir"]
         self.data_dir = data_base_dir / self.video_name
 
+        # Video directory (where video files are stored)
+        video_base_dir = project_root / self.config["video_dir"]
+        self.video_path = video_base_dir / f"{self.video_name}.mp4"
+
         # Output directory (where plots will be saved)
         output_base_dir = project_root / self.config["output_dir"]
         self.output_dir = output_base_dir / self.video_name
@@ -312,28 +316,19 @@ class RallyStateEvaluator:
         Args:
             predicted_segments: Predicted rally segments
         """
-        # Get project root and video path
-        project_root = Path(__file__).parent.parent.parent.parent.parent
-        annotations_base_dir = project_root / self.annotation_config["annotations_dir"]
-        video_dir = annotations_base_dir / self.video_name
-
-        # Look for video file with _annotated.mp4 suffix first, then fallback to .mp4
-        video_path = video_dir / f"{self.video_name}_annotated.mp4"
-        if not video_path.exists():
-            video_path = video_dir / f"{self.video_name}.mp4"
-
-        if not video_path.exists():
+        # Use the video path from config
+        if not self.video_path.exists():
             print(
-                f"Warning: Video file not found at {video_path}, skipping video annotation"
+                f"Warning: Video file not found at {self.video_path}, skipping video annotation"
             )
             return
 
-        print(f"Reading video from: {video_path}")
+        print(f"Reading video from: {self.video_path}")
 
         # Open video
-        cap = cv2.VideoCapture(str(video_path))
+        cap = cv2.VideoCapture(str(self.video_path))
         if not cap.isOpened():
-            print(f"Error: Could not open video file {video_path}")
+            print(f"Error: Could not open video file {self.video_path}")
             return
 
         # Get video properties

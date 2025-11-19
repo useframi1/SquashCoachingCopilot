@@ -51,8 +51,6 @@ from squashcopilot.common import (
     StrokeDetectionInput,
     StrokeResult,
     StrokeDetectionResult,
-    StrokeEvent,
-    StrokeSequence,
     # Shot Models
     ShotClassificationInput,
     ShotResult,
@@ -130,8 +128,6 @@ __all__ = [
     "StrokeDetectionInput",
     "StrokeResult",
     "StrokeDetectionResult",
-    "StrokeEvent",
-    "StrokeSequence",
     # Shot
     "ShotClassifier",
     "ShotClassificationInput",

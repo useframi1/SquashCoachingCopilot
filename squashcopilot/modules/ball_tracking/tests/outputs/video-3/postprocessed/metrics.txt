@@ -2,11 +2,11 @@ BALL TRACKING METRICS
 ==================================================
 
 Detection Performance:
-  Total frames:          0
-  Detected frames:       0
-  Detection rate:        0.00%
+  Total frames:          5000
+  Detected frames:       5000
+  Detection rate:        100.00%
 
 Wall Hit Detection:
-  Total hits:            0
+  Total hits:            49
 Racket Hit Detection:
-  Total hits:            0
+  Total hits:            47

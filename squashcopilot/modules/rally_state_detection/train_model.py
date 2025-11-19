@@ -66,6 +66,10 @@ class RallyStateTrainer:
         self.model_save_path = project_root / self.training_config["model_save_path"]
         self.model_save_path.mkdir(parents=True, exist_ok=True)
 
+        # self.annotations_dir = project_root / self.training_config.get(
+        #     "annotations_dir", "squashcopilot/annotation/annotations"
+        # )
+
         # Extract configuration
         self.features = self.training_config["features"]
         self.label_column = self.training_config["label_column"]
@@ -119,30 +123,55 @@ class RallyStateTrainer:
 
     def _load_video_data(self, video_path: Path) -> pd.DataFrame:
         """
-        Load data from a single video CSV file.
+        Load data from a single video CSV file by joining test data with annotations.
 
         Args:
-            video_path: Path to the CSV file
+            video_path: Path to the video directory in tests/data
 
         Returns:
-            DataFrame containing the video data
+            DataFrame containing the merged video data with required features
         """
-        csv_file = video_path / f"{video_path.name}_annotations.csv"
-        if not csv_file.exists():
-            raise FileNotFoundError(f"CSV file not found: {csv_file}")
+        # Load test data CSV
+        test_csv = video_path / f"{video_path.name}_annotations.csv"
+        if not test_csv.exists():
+            raise FileNotFoundError(f"Test CSV file not found: {test_csv}")
 
-        df = pd.read_csv(csv_file)
+        # # Load annotation CSV
+        # annotation_csv = (
+        #     self.annotations_dir
+        #     / video_path.name
+        #     / f"{video_path.name}_annotations.csv"
+        # )
+        # if not annotation_csv.exists():
+        #     raise FileNotFoundError(f"Annotation CSV file not found: {annotation_csv}")
 
-        # Verify required columns exist
+        # Read both CSVs
+        df = pd.read_csv(test_csv)
+        # annotation_df = pd.read_csv(annotation_csv)
+
+        # # Inner join on frame column
+        # df = pd.merge(
+        #     test_df,
+        #     annotation_df,
+        #     on="frame",
+        #     how="inner",
+        # )
+
+        # Select only required features and label column
+        # Prefer columns from test data if they exist in both
+        # required_columns = ["frame"] + self.features + [self.label_column]
+
+        # Keep only required columns
+        # df = df[required_columns]
+
+        # Verify all required features exist
         missing_features = [f for f in self.features if f not in df.columns]
         if missing_features:
-            raise ValueError(
-                f"Missing features in {csv_file}: {missing_features}"
-            )
+            raise ValueError(f"Missing features after merge: {missing_features}")
 
         if self.label_column not in df.columns:
             raise ValueError(
-                f"Label column '{self.label_column}' not found in {csv_file}"
+                f"Label column '{self.label_column}' not found after merge"
             )
 
         return df
@@ -454,8 +483,10 @@ class RallyStateTrainer:
         print("=" * 60)
 
         if self.early_stopping_enabled:
-            print(f"Early stopping enabled: patience={self.early_stopping_patience}, "
-                  f"min_delta={self.early_stopping_min_delta}")
+            print(
+                f"Early stopping enabled: patience={self.early_stopping_patience}, "
+                f"min_delta={self.early_stopping_min_delta}"
+            )
 
         # Initialize model
         self._initialize_model()
@@ -502,13 +533,20 @@ class RallyStateTrainer:
                 else:
                     epochs_without_improvement += 1
                     if self.early_stopping_enabled:
-                        print(f"  --> No improvement for {epochs_without_improvement} epoch(s)")
+                        print(
+                            f"  --> No improvement for {epochs_without_improvement} epoch(s)"
+                        )
 
                 # Early stopping check
-                if self.early_stopping_enabled and epochs_without_improvement >= self.early_stopping_patience:
+                if (
+                    self.early_stopping_enabled
+                    and epochs_without_improvement >= self.early_stopping_patience
+                ):
                     print(f"\n{'=' * 60}")
                     print(f"Early stopping triggered after {epoch} epochs")
-                    print(f"No improvement for {self.early_stopping_patience} consecutive epochs")
+                    print(
+                        f"No improvement for {self.early_stopping_patience} consecutive epochs"
+                    )
                     print(f"Best F1: {best_val_f1:.4f} at epoch {best_epoch}")
                     print(f"{'=' * 60}")
                     break
@@ -526,13 +564,20 @@ class RallyStateTrainer:
                 else:
                     epochs_without_improvement += 1
                     if self.early_stopping_enabled:
-                        print(f"  --> No improvement for {epochs_without_improvement} epoch(s)")
+                        print(
+                            f"  --> No improvement for {epochs_without_improvement} epoch(s)"
+                        )
 
                 # Early stopping check (for training F1 when no validation)
-                if self.early_stopping_enabled and epochs_without_improvement >= self.early_stopping_patience:
+                if (
+                    self.early_stopping_enabled
+                    and epochs_without_improvement >= self.early_stopping_patience
+                ):
                     print(f"\n{'=' * 60}")
                     print(f"Early stopping triggered after {epoch} epochs")
-                    print(f"No improvement for {self.early_stopping_patience} consecutive epochs")
+                    print(
+                        f"No improvement for {self.early_stopping_patience} consecutive epochs"
+                    )
                     print(f"Best F1: {best_val_f1:.4f} at epoch {best_epoch}")
                     print(f"{'=' * 60}")
                     break

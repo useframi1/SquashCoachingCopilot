@@ -6,49 +6,92 @@ This module defines input and output models for the stroke-detection module.
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+import numpy as np
 
 from squashcopilot.common.types import StrokeType
-from squashcopilot.common.models.player import PlayerKeypointsData
 
 
 # ============================================================================
 # Stroke Detection Models
 # ============================================================================
 
+
 @dataclass
 class StrokeDetectionInput:
     """
-    Input for stroke detection on a single frame.
+    Input for stroke detection across multiple frames.
+
+    This model is designed for evaluation where we have racket hit frames
+    and need to predict stroke types using a window of keypoints around each hit.
 
     Attributes:
-        player_keypoints: Dictionary mapping player_id to keypoints data
-        frame_number: Frame index
+        player_keypoints: Dictionary mapping player_id to array of keypoints (frames x keypoints x 2)
+        racket_hits: List of frame numbers where racket hits occurred
+        racket_hit_player_ids: List of player IDs corresponding to each racket hit
+        frame_numbers: List of all frame numbers in the sequence
     """
-    player_keypoints: Dict[int, PlayerKeypointsData]
-    frame_number: int
+
+    player_keypoints: Dict[
+        int, np.ndarray
+    ]  # player_id -> (num_frames, num_keypoints, 2)
+    racket_hits: List[int]  # Frame numbers of racket hits
+    racket_hit_player_ids: List[int]  # Player ID for each racket hit
+    frame_numbers: List[int]  # All frame numbers in sequence
+
+    def __post_init__(self):
+        """Validate input data consistency."""
+        if len(self.racket_hits) != len(self.racket_hit_player_ids):
+            raise ValueError(
+                f"Mismatch between racket_hits ({len(self.racket_hits)}) "
+                f"and racket_hit_player_ids ({len(self.racket_hit_player_ids)})"
+            )
+
+        # Validate player IDs in racket hits exist in player_keypoints
+        for player_id in self.racket_hit_player_ids:
+            if player_id not in self.player_keypoints:
+                raise ValueError(
+                    f"Player ID {player_id} in racket_hit_player_ids "
+                    f"not found in player_keypoints keys: {list(self.player_keypoints.keys())}"
+                )
+
+    def get_racket_hit_at_frame(self, frame: int) -> Optional[int]:
+        """
+        Get the player ID who hit at a specific frame.
+
+        Args:
+            frame: Frame number
+
+        Returns:
+            Player ID if there's a racket hit at this frame, None otherwise
+        """
+        for i, hit_frame in enumerate(self.racket_hits):
+            if hit_frame == frame:
+                return self.racket_hit_player_ids[i]
+        return None
 
 
 @dataclass
 class StrokeResult:
     """
-    Result of stroke detection for a single player.
+    Result of stroke detection for a single racket hit.
+
+    Similar to ShotResult in shot type classification.
 
     Attributes:
-        player_id: Player identifier
-        stroke_type: Detected stroke type
+        frame: Frame number where racket hit occurred
+        player_id: Player identifier who made the stroke
+        stroke_type: Detected stroke type (forehand/backhand)
         confidence: Detection confidence (0.0-1.0)
-        frame_number: Frame where stroke was detected
-        in_cooldown: Whether detector is in cooldown period
     """
+
+    frame: int
     player_id: int
     stroke_type: StrokeType
     confidence: float
-    frame_number: int
-    in_cooldown: bool = False
 
-    def is_stroke_detected(self) -> bool:
+    def is_valid_stroke(self) -> bool:
         """
-        Check if an actual stroke was detected (not 'neither').
+        Check if this is a valid stroke (not 'neither').
 
         Returns:
             True if stroke is forehand or backhand
@@ -58,15 +101,14 @@ class StrokeResult:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
-            'player_id': self.player_id,
-            'stroke': str(self.stroke_type),
-            'confidence': self.confidence,
-            'frame_number': self.frame_number,
-            'in_cooldown': self.in_cooldown
+            "frame": self.frame,
+            "player_id": self.player_id,
+            "stroke_type": str(self.stroke_type),
+            "confidence": self.confidence,
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> 'StrokeResult':
+    def from_dict(cls, d: Dict[str, Any]) -> "StrokeResult":
         """
         Create StrokeResult from dictionary.
 
@@ -77,225 +119,97 @@ class StrokeResult:
             StrokeResult instance
         """
         return cls(
-            player_id=d['player_id'],
-            stroke_type=StrokeType.from_string(d['stroke']),
-            confidence=d.get('confidence', 0.0),
-            frame_number=d.get('frame_number', 0),
-            in_cooldown=d.get('in_cooldown', False)
-        )
-
-    @classmethod
-    def no_stroke(cls, player_id: int, frame_number: int) -> 'StrokeResult':
-        """
-        Create a result for when no stroke is detected.
-
-        Args:
-            player_id: Player identifier
-            frame_number: Frame index
-
-        Returns:
-            StrokeResult with stroke_type=NEITHER
-        """
-        return cls(
-            player_id=player_id,
-            stroke_type=StrokeType.NEITHER,
-            confidence=0.0,
-            frame_number=frame_number,
-            in_cooldown=False
+            frame=d["frame"],
+            player_id=d["player_id"],
+            stroke_type=StrokeType.from_string(d["stroke_type"]),
+            confidence=d.get("confidence", 0.0),
         )
 
 
 @dataclass
 class StrokeDetectionResult:
     """
-    Result of stroke detection for all players in a frame.
+    Result of stroke detection containing all detected strokes.
+
+    Similar to ShotClassificationResult in shot type classification.
 
     Attributes:
-        strokes: Dictionary mapping player_id to stroke result
-        frame_number: Frame index
+        strokes: List of all detected stroke results
     """
-    strokes: Dict[int, StrokeResult]
-    frame_number: int
 
-    def get_stroke(self, player_id: int) -> Optional[StrokeResult]:
+    strokes: List[StrokeResult] = field(default_factory=list)
+
+    def get_stroke_at_frame(self, frame: int) -> Optional[StrokeResult]:
         """
-        Get stroke result for a specific player.
+        Get stroke result for a specific frame.
 
         Args:
-            player_id: Player identifier
+            frame: Frame number
 
         Returns:
             StrokeResult or None if not found
         """
-        return self.strokes.get(player_id)
+        for stroke in self.strokes:
+            if stroke.frame == frame:
+                return stroke
+        return None
 
-    def has_any_stroke(self) -> bool:
+    def get_strokes_for_player(self, player_id: int) -> List[StrokeResult]:
         """
-        Check if any player performed a stroke.
-
-        Returns:
-            True if at least one player has a detected stroke
-        """
-        return any(stroke.is_stroke_detected() for stroke in self.strokes.values())
-
-    def get_detected_strokes(self) -> List[StrokeResult]:
-        """
-        Get all detected strokes (excluding 'neither').
-
-        Returns:
-            List of StrokeResult with actual strokes
-        """
-        return [
-            stroke for stroke in self.strokes.values()
-            if stroke.is_stroke_detected()
-        ]
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            'strokes': {
-                player_id: stroke.to_dict()
-                for player_id, stroke in self.strokes.items()
-            },
-            'frame_number': self.frame_number,
-            'has_stroke': self.has_any_stroke()
-        }
-
-    @classmethod
-    def no_strokes(cls, player_ids: List[int], frame_number: int) -> 'StrokeDetectionResult':
-        """
-        Create a result for when no strokes are detected.
-
-        Args:
-            player_ids: List of player identifiers
-            frame_number: Frame index
-
-        Returns:
-            StrokeDetectionResult with NEITHER for all players
-        """
-        return cls(
-            strokes={
-                pid: StrokeResult.no_stroke(pid, frame_number)
-                for pid in player_ids
-            },
-            frame_number=frame_number
-        )
-
-
-# ============================================================================
-# Stroke Sequence Models
-# ============================================================================
-
-@dataclass
-class StrokeEvent:
-    """
-    A detected stroke event with timing information.
-
-    Attributes:
-        player_id: Player who performed the stroke
-        stroke_type: Type of stroke
-        frame_number: Frame where stroke occurred
-        timestamp: Timestamp in seconds (if available)
-        confidence: Detection confidence
-    """
-    player_id: int
-    stroke_type: StrokeType
-    frame_number: int
-    timestamp: Optional[float] = None
-    confidence: float = 1.0
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        result = {
-            'player_id': self.player_id,
-            'stroke_type': str(self.stroke_type),
-            'frame_number': self.frame_number,
-            'confidence': self.confidence
-        }
-        if self.timestamp is not None:
-            result['timestamp'] = self.timestamp
-        return result
-
-
-@dataclass
-class StrokeSequence:
-    """
-    Sequence of stroke events over time.
-
-    Attributes:
-        events: List of stroke events in chronological order
-    """
-    events: List[StrokeEvent] = field(default_factory=list)
-
-    def add_event(self, event: StrokeEvent) -> None:
-        """Add a stroke event to the sequence."""
-        self.events.append(event)
-
-    def get_events_for_player(self, player_id: int) -> List[StrokeEvent]:
-        """
-        Get all stroke events for a specific player.
+        Get all stroke results for a specific player.
 
         Args:
             player_id: Player identifier
 
         Returns:
-            List of StrokeEvent for that player
+            List of StrokeResult for that player
         """
-        return [e for e in self.events if e.player_id == player_id]
+        return [stroke for stroke in self.strokes if stroke.player_id == player_id]
 
-    def get_events_in_range(
-        self,
-        start_frame: int,
-        end_frame: int
-    ) -> List[StrokeEvent]:
+    def get_valid_strokes(self) -> List[StrokeResult]:
         """
-        Get stroke events within a frame range.
-
-        Args:
-            start_frame: Start frame (inclusive)
-            end_frame: End frame (inclusive)
+        Get all valid strokes (excluding 'neither').
 
         Returns:
-            List of StrokeEvent in range
+            List of StrokeResult with actual strokes (forehand/backhand)
         """
-        return [
-            e for e in self.events
-            if start_frame <= e.frame_number <= end_frame
-        ]
+        return [stroke for stroke in self.strokes if stroke.is_valid_stroke()]
 
-    def get_stroke_count_by_type(self) -> Dict[StrokeType, int]:
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "strokes": [stroke.to_dict() for stroke in self.strokes],
+            "total_strokes": len(self.strokes),
+            "valid_strokes": len(self.get_valid_strokes()),
+        }
+
+    @property
+    def total_strokes(self) -> int:
+        """Get total number of stroke detections."""
+        return len(self.strokes)
+
+    @property
+    def stroke_count_by_type(self) -> Dict[StrokeType, int]:
         """
         Count strokes by type.
 
         Returns:
             Dictionary mapping stroke type to count
         """
-        counts = {}
-        for event in self.events:
-            counts[event.stroke_type] = counts.get(event.stroke_type, 0) + 1
+        counts: Dict[StrokeType, int] = {}
+        for stroke in self.strokes:
+            counts[stroke.stroke_type] = counts.get(stroke.stroke_type, 0) + 1
         return counts
 
-    def get_stroke_count_by_player(self) -> Dict[int, int]:
+    @property
+    def stroke_count_by_player(self) -> Dict[int, int]:
         """
         Count strokes by player.
 
         Returns:
             Dictionary mapping player_id to count
         """
-        counts = {}
-        for event in self.events:
-            counts[event.player_id] = counts.get(event.player_id, 0) + 1
+        counts: Dict[int, int] = {}
+        for stroke in self.strokes:
+            counts[stroke.player_id] = counts.get(stroke.player_id, 0) + 1
         return counts
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            'events': [e.to_dict() for e in self.events],
-            'total_strokes': len(self.events),
-            'by_type': {str(k): v for k, v in self.get_stroke_count_by_type().items()},
-            'by_player': self.get_stroke_count_by_player()
-        }
-
-    def __len__(self) -> int:
-        """Get number of stroke events."""
-        return len(self.events)

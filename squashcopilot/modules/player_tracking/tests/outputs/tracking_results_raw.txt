@@ -3,11 +3,11 @@ TRACKING EVALUATION RESULTS
 ============================================================
 
 OVERALL PERFORMANCE:
-   • Precision: 0.977
-   • Recall: 0.959
-   • F1-Score: 0.968
-   • MOTA: 0.934
-   • ID Switches: 6
+   • Precision: 0.072
+   • Recall: 0.071
+   • F1-Score: 0.071
+   • MOTA: -1.733
+   • ID Switches: 1932
    • Frames Evaluated: 1083
 
 ID MAPPING (Confidence: 0.969):
@@ -16,12 +16,12 @@ ID MAPPING (Confidence: 0.969):
 
 PER-PLAYER PERFORMANCE:
    player_1:
-      - Precision: 0.959
-      - Recall: 0.934
-      - F1: 0.946
+      - Precision: 0.071
+      - Recall: 0.070
+      - F1: 0.070
       - GT Instances: 1083
    player_2:
-      - Precision: 0.993
-      - Recall: 0.985
-      - F1: 0.989
+      - Precision: 0.073
+      - Recall: 0.071
+      - F1: 0.072
       - GT Instances: 1084

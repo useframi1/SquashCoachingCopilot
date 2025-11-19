@@ -1,0 +1,20 @@
+Stroke Detection Evaluation - video-3
+======================================================================
+
+Overall Metrics:
+  Accuracy:  0.9907
+  Precision: 0.9909
+  Recall:    0.9907
+  F1 Score:  0.9907
+
+Per-Class Metrics:
+
+  BACKHAND:
+    Precision: 0.9870
+    Recall:    1.0000
+    F1 Score:  0.9935
+
+  FOREHAND:
+    Precision: 1.0000
+    Recall:    0.9688
+    F1 Score:  0.9841

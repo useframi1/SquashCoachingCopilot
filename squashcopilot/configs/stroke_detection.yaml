@@ -1,51 +1,42 @@
 # Stroke Detection Configuration
 # Configuration for detecting stroke types using LSTM-based pose analysis
 
-# Model Configuration
-model:
-    model_path: model/weights/lstm_model.pt # Path to trained LSTM model weights
-
-# Detection Parameters
-detection:
-    window_size: 15 # Sliding window size for temporal sequence (frames)
-    confidence_threshold: 0.5 # Minimum confidence for stroke detection (0-1)
-    cooldown_frames: 5 # Minimum frames between consecutive stroke detections
-
-# # Keypoint Configuration (COCO format indices)
-# keypoints:
-#   # COCO keypoint indices for upper body and legs
-#   relevant_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-
-#   # Human-readable names for the keypoints
-#   relevant_names:
-#     - left_shoulder   # Index 5
-#     - right_shoulder  # Index 6
-#     - left_elbow      # Index 7
-#     - right_elbow     # Index 8
-#     - left_wrist      # Index 9
-#     - right_wrist     # Index 10
-#     - left_hip        # Index 11
-#     - right_hip       # Index 12
-#     - left_knee       # Index 13
-#     - right_knee      # Index 14
-#     - left_ankle      # Index 15
-#     - right_ankle     # Index 16
+# Inference Configuration
+inference:
+    method: lstm
+    model_path: squashcopilot/modules/stroke_detection/model/weights/lstm_model.pt
 
 # Normalization Settings
 normalization:
     method: hip_torso # Normalization method: relative to hip center and torso length
     min_torso_length: 1.0e-6 # Minimum torso length to avoid division by zero
 
-# Annotation Settings
+# Annotation Settings (for generating training data from raw annotations)
 annotation:
-    video_name: video-5 # Name of the video to annotate (e.g., video-1, video-2, etc.)
-    annotation_dir: squashcopilot/annotation/annotations # Directory containing annotation folders
-    output_dir: squashcopilot/modules/stroke_detection/data # Directory to save annotated stroke data
-    frame_window: 15 # Number of frames before/after racket hit to show
+    video_name: video-1 # Name of the video to annotate (e.g., video-1, video-2, etc.)
+    annotations_dir: squashcopilot/annotation/annotations # Directory containing annotation folders
+    output_dir: squashcopilot/modules/stroke_detection/stroke_annotations # Directory to save annotated stroke data
 
-# Inference Settings
-inference:
-    video_path: squashcopilot/annotation/annotations/video-2/video-2_annotated.mp4 # Path to video for inference (dummy path for now)
-    output_dir: squashcopilot/modules/stroke_detection/inference_output # Directory to save inference results
-    visualize: true # Whether to visualize stroke predictions on video
-    save_predictions: true # Whether to save predictions to CSV
+# Evaluator Configuration
+evaluator:
+    video_name: video-3 # Video to evaluate on
+    data_dir: squashcopilot/modules/stroke_detection/tests/data # Directory with test annotations
+    output_dir: squashcopilot/modules/stroke_detection/tests/outputs # Directory to save evaluation results
+    ground_truth_path: null # Optional: path to ground truth stroke labels CSV (if separate from annotations)
+    create_video: true # Whether to create annotated video with predictions
+
+# Training Configuration
+training:
+    data_dir: squashcopilot/modules/stroke_detection/tests/data # Directory with windowed training data (video-level organization)
+    model_save_dir: squashcopilot/modules/stroke_detection/model/weights # Directory to save trained models
+    sequence_length: 31 # Total sequence length (centered on racket hit: ±15 frames + 1)
+    num_features: 24 # Number of input features (12 keypoints × 2 coordinates)
+    train_test_split: 0.8 # Train/test split ratio (applied at video level)
+    validation_split: 0.1 # Validation split from training data (applied at video level)
+    batch_size: 32
+    epochs: 100
+    learning_rate: 0.001
+    model:
+        hidden_size: 128
+        num_layers: 2 # Number of LSTM layers
+        dropout: 0.3

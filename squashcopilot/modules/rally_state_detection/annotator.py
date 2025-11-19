@@ -36,9 +36,13 @@ class RallyStateAnnotator:
         self.labels = self.config["annotation"]["labels"]
 
         # Build paths
-        self.video_dir = self.annotations_dir / self.video_name
-        self.csv_path = self.video_dir / f"{self.video_name}_annotations.csv"
-        self.video_path = self.video_dir / f"{self.video_name}_annotated.mp4"
+        # CSV path from annotations directory
+        csv_dir = self.annotations_dir / self.video_name
+        self.csv_path = csv_dir / f"{self.video_name}_annotations.csv"
+
+        # Video path from video directory
+        video_base_dir = project_root / self.config["annotation"]["video_dir"]
+        self.video_path = video_base_dir / f"{self.video_name}.mp4"
 
         # Output path from config
         output_base_dir = project_root / self.config["annotation"]["output_dir"]

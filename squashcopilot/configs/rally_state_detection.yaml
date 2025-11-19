@@ -16,8 +16,11 @@ annotation:
     # Video name to annotate (will look for files in annotations_dir/{video_name}/)
     video_name: video-5
 
-    # Directory containing annotation data
+    # Directory containing annotation data (CSV files with features)
     annotations_dir: squashcopilot/annotation/annotations
+
+    # Directory containing video files
+    video_dir: squashcopilot/annotation/data
 
     # Output directory for annotated CSV files
     output_dir: squashcopilot/modules/rally_state_detection/tests/data
@@ -46,6 +49,9 @@ evaluator:
     # Directory containing annotated CSV files
     data_dir: squashcopilot/modules/rally_state_detection/tests/data
 
+    # Directory containing video files
+    video_dir: squashcopilot/annotation/data
+
     # Output directory for plots and results
     output_dir: squashcopilot/modules/rally_state_detection/tests/outputs
 
@@ -57,6 +63,7 @@ evaluator:
 training:
     # Directory containing annotated CSV files for training
     data_dir: squashcopilot/modules/rally_state_detection/tests/data
+    # annotations_dir: squashcopilot/annotation/annotations
 
     # Features to use for training (must exist in CSV files)
     features:
@@ -98,7 +105,7 @@ training:
 
     # Model architecture
     model:
-        hidden_size: 64 # LSTM hidden layer size
+        hidden_size: 128 # LSTM hidden layer size
         num_layers: 2 # Number of stacked LSTM layers
         dropout: 0.2 # Dropout rate for regularization
         bidirectional: true # Use bidirectional LSTM

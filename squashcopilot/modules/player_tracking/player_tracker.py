@@ -30,7 +30,12 @@ class PlayerTracker:
     Returns the bottom-center position of each player's bounding box.
     """
 
-    def __init__(self, config: dict = None, floor_homography: np.ndarray = None, wall_homography: np.ndarray = None):
+    def __init__(
+        self,
+        config: dict = None,
+        floor_homography: np.ndarray = None,
+        wall_homography: np.ndarray = None,
+    ):
         """
         Initialize the player tracker.
         Args:
@@ -106,11 +111,11 @@ class PlayerTracker:
         wall_pixels = cv2.perspectiveTransform(wall_real.reshape(-1, 1, 2), H_inv)
 
         return wall_pixels.reshape(-1, 2)
-    
+
     def _create_court_mask(self, frame_shape):
         """Create expanded court mask to filter out audience."""
         h, w = frame_shape[:2]
-        
+
         # Get floor boundary if floor homography is available
         if self.floor_homography is not None:
             floor_points = self._get_floor_from_homography(self.floor_homography)
@@ -128,7 +133,7 @@ class PlayerTracker:
             cv2.fillPoly(wall_mask, [wall_points_int], 255)
         else:
             wall_mask = np.zeros((h, w), dtype=np.uint8)
-            
+
         combined_mask = cv2.bitwise_or(floor_mask, wall_mask)
         return combined_mask
 
@@ -167,13 +172,21 @@ class PlayerTracker:
 
             # Process real positions (with interpolation and smoothing) if available
             real_positions = None
-            if input_data.real_positions_history and player_id in input_data.real_positions_history:
+            if (
+                input_data.real_positions_history
+                and player_id in input_data.real_positions_history
+            ):
                 real_positions_raw = input_data.real_positions_history[player_id]
-                real_positions = self._interpolate_and_smooth_positions(real_positions_raw)
+                real_positions = self._interpolate_and_smooth_positions(
+                    real_positions_raw
+                )
 
             # Process keypoints (interpolation only, no smoothing) if available
             interpolated_keypoints = None
-            if input_data.keypoints_history and player_id in input_data.keypoints_history:
+            if (
+                input_data.keypoints_history
+                and player_id in input_data.keypoints_history
+            ):
                 keypoints_raw = input_data.keypoints_history[player_id]
                 interpolated_keypoints = self._interpolate_keypoints(keypoints_raw)
 
@@ -193,19 +206,22 @@ class PlayerTracker:
                 real_positions=real_positions,
                 original_real_positions=(
                     input_data.real_positions_history[player_id]
-                    if input_data.real_positions_history and player_id in input_data.real_positions_history
+                    if input_data.real_positions_history
+                    and player_id in input_data.real_positions_history
                     else None
                 ),
                 keypoints=interpolated_keypoints,
                 original_keypoints=(
                     input_data.keypoints_history[player_id]
-                    if input_data.keypoints_history and player_id in input_data.keypoints_history
+                    if input_data.keypoints_history
+                    and player_id in input_data.keypoints_history
                     else None
                 ),
                 bboxes=interpolated_bboxes,
                 original_bboxes=(
                     input_data.bboxes_history[player_id]
-                    if input_data.bboxes_history and player_id in input_data.bboxes_history
+                    if input_data.bboxes_history
+                    and player_id in input_data.bboxes_history
                     else None
                 ),
                 gaps_filled=gaps_filled,
@@ -292,7 +308,11 @@ class PlayerTracker:
             return []
 
         # Find valid keypoint indices
-        valid_indices = [i for i, kp in enumerate(keypoints_list) if kp is not None and kp.xy is not None]
+        valid_indices = [
+            i
+            for i, kp in enumerate(keypoints_list)
+            if kp is not None and kp.xy is not None
+        ]
 
         if len(valid_indices) == 0:
             return keypoints_list
@@ -309,7 +329,10 @@ class PlayerTracker:
         interpolated_keypoints = []
 
         for frame_idx in range(len(keypoints_list)):
-            if keypoints_list[frame_idx] is not None and keypoints_list[frame_idx].xy is not None:
+            if (
+                keypoints_list[frame_idx] is not None
+                and keypoints_list[frame_idx].xy is not None
+            ):
                 # Keep original keypoints
                 interpolated_keypoints.append(keypoints_list[frame_idx])
             else:
@@ -321,12 +344,26 @@ class PlayerTracker:
                     # Extract x, y coordinates for this keypoint across all valid frames
                     # xy format is [x0, y0, x1, y1, ...] so x is at kp_idx*2, y is at kp_idx*2+1
                     valid_x = [keypoints_list[i].xy[kp_idx * 2] for i in valid_indices]
-                    valid_y = [keypoints_list[i].xy[kp_idx * 2 + 1] for i in valid_indices]
+                    valid_y = [
+                        keypoints_list[i].xy[kp_idx * 2 + 1] for i in valid_indices
+                    ]
 
                     # Interpolate for current frame
                     if len(valid_indices) > 1:
-                        interp_x = interp1d(valid_indices, valid_x, kind="linear", fill_value="extrapolate", bounds_error=False)
-                        interp_y = interp1d(valid_indices, valid_y, kind="linear", fill_value="extrapolate", bounds_error=False)
+                        interp_x = interp1d(
+                            valid_indices,
+                            valid_x,
+                            kind="linear",
+                            fill_value="extrapolate",
+                            bounds_error=False,
+                        )
+                        interp_y = interp1d(
+                            valid_indices,
+                            valid_y,
+                            kind="linear",
+                            fill_value="extrapolate",
+                            bounds_error=False,
+                        )
 
                         interpolated_xy.append(float(interp_x(frame_idx)))
                         interpolated_xy.append(float(interp_y(frame_idx)))
@@ -336,9 +373,17 @@ class PlayerTracker:
 
                     # Interpolate confidence if available
                     if keypoints_list[valid_indices[0]].conf is not None:
-                        valid_conf = [keypoints_list[i].conf[kp_idx] for i in valid_indices]
+                        valid_conf = [
+                            keypoints_list[i].conf[kp_idx] for i in valid_indices
+                        ]
                         if len(valid_indices) > 1:
-                            interp_conf = interp1d(valid_indices, valid_conf, kind="linear", fill_value="extrapolate", bounds_error=False)
+                            interp_conf = interp1d(
+                                valid_indices,
+                                valid_conf,
+                                kind="linear",
+                                fill_value="extrapolate",
+                                bounds_error=False,
+                            )
                             interpolated_conf.append(float(interp_conf(frame_idx)))
                         else:
                             interpolated_conf.append(valid_conf[0])
@@ -346,7 +391,7 @@ class PlayerTracker:
                 interpolated_keypoints.append(
                     PlayerKeypointsData(
                         xy=interpolated_xy,
-                        conf=interpolated_conf if interpolated_conf else None
+                        conf=interpolated_conf if interpolated_conf else None,
                     )
                 )
 
@@ -384,10 +429,34 @@ class PlayerTracker:
         valid_y2 = [bboxes_list[i].y2 for i in valid_indices]
 
         # Create interpolation functions
-        interp_x1 = interp1d(valid_indices, valid_x1, kind="linear", fill_value="extrapolate", bounds_error=False)
-        interp_y1 = interp1d(valid_indices, valid_y1, kind="linear", fill_value="extrapolate", bounds_error=False)
-        interp_x2 = interp1d(valid_indices, valid_x2, kind="linear", fill_value="extrapolate", bounds_error=False)
-        interp_y2 = interp1d(valid_indices, valid_y2, kind="linear", fill_value="extrapolate", bounds_error=False)
+        interp_x1 = interp1d(
+            valid_indices,
+            valid_x1,
+            kind="linear",
+            fill_value="extrapolate",
+            bounds_error=False,
+        )
+        interp_y1 = interp1d(
+            valid_indices,
+            valid_y1,
+            kind="linear",
+            fill_value="extrapolate",
+            bounds_error=False,
+        )
+        interp_x2 = interp1d(
+            valid_indices,
+            valid_x2,
+            kind="linear",
+            fill_value="extrapolate",
+            bounds_error=False,
+        )
+        interp_y2 = interp1d(
+            valid_indices,
+            valid_y2,
+            kind="linear",
+            fill_value="extrapolate",
+            bounds_error=False,
+        )
 
         # Interpolate for all frames
         interpolated_bboxes = []
@@ -402,7 +471,7 @@ class PlayerTracker:
                         x1=float(interp_x1(frame_idx)),
                         y1=float(interp_y1(frame_idx)),
                         x2=float(interp_x2(frame_idx)),
-                        y2=float(interp_y2(frame_idx))
+                        y2=float(interp_y2(frame_idx)),
                     )
                 )
 
@@ -425,6 +494,10 @@ class PlayerTracker:
         # Update floor_homography if provided
         if input_data.floor_homography:
             self.floor_homography = input_data.floor_homography.matrix
+
+        # Update wall_homography if provided
+        if input_data.wall_homography:
+            self.wall_homography = input_data.wall_homography.matrix
 
         # Detect people in frame
         detections, keypoints = self._detect_people(frame)
@@ -488,12 +561,11 @@ class PlayerTracker:
         # Create mask on first frame
         if self.court_mask is None and self.floor_homography is not None:
             self.court_mask = self._create_court_mask(frame.shape)
-        
+
         # Apply mask before detection
         detection_frame = frame
         if self.court_mask is not None:
             detection_frame = cv2.bitwise_and(frame, frame, mask=self.court_mask)
-    
 
         results = self.detector(detection_frame, verbose=False)[0]
         detections = results.boxes.xyxy.cpu().numpy()

@@ -47,8 +47,6 @@ from .stroke import (
     StrokeDetectionInput,
     StrokeResult,
     StrokeDetectionResult,
-    StrokeEvent,
-    StrokeSequence,
 )
 
 # Shot classification models
@@ -92,8 +90,6 @@ __all__ = [
     "StrokeDetectionInput",
     "StrokeResult",
     "StrokeDetectionResult",
-    "StrokeEvent",
-    "StrokeSequence",
     # Shot
     "ShotClassificationInput",
     "ShotResult",

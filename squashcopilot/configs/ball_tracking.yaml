@@ -31,7 +31,7 @@ racket_hit_detection:
 tests:
     video:
         input_path: data/video-3.mp4
-        max_frames: 1000
+        max_frames: 5000
     tracking:
         trace_length: 5
         trace_color: [0, 0, 255]
