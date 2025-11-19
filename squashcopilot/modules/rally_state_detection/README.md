@@ -1,18 +1,18 @@
 # Rally State Detection Module
 
-The rally state detection module segments squash videos into individual rallies using LSTM-based temporal analysis of ball and player trajectories.
+The rally state detection module segments squash videos into individual rallies using LSTM-based batch analysis of complete ball and player trajectories.
 
 ## Overview
 
 This module provides automated rally segmentation for squash videos by:
 
--   **LSTM-based Detection**: Uses recurrent neural network to detect rally START and END states
+-   **LSTM-based Batch Processing**: Uses recurrent neural network on complete video trajectories
 -   **Multi-feature Input**: Analyzes ball Y-position and player positions in meters
--   **Temporal Modeling**: Learns temporal patterns of rally transitions
+-   **Temporal Modeling**: Learns temporal patterns of rally transitions across entire video
 -   **Post-processing**: Merges short segments and applies minimum rally length constraints
 -   **Training Support**: Includes trainer for custom datasets
 
-The module is part of the SquashCoachingCopilot package and enables rally-level analysis and statistics.
+The module is part of the SquashCoachingCopilot package and operates at **Stage 4** of the processing pipeline - after all trajectories are complete. It enables rally-level analysis by dividing the video into rally segments that are then used for hit detection and shot classification.
 
 ## Features
 
@@ -31,17 +31,15 @@ The module is part of the SquashCoachingCopilot package and enables rally-level 
 The main class for rally segmentation.
 
 **Key Methods:**
-- `detect(input: RallySegmentationInput)`: Frame-by-frame LSTM inference
-- `segment_video(input: RallySegmentationInput)`: Generate rally segments
-- `reset()`: Reset detector state
+- `segment_rallies(input: RallySegmentationInput)`: Segment rallies using batch LSTM processing
 
 **Processing Pipeline:**
-1. **Feature Extraction**: Collect ball Y and player positions per frame
-2. **Normalization**: Normalize features to [0, 1] range
-3. **LSTM Inference**: Predict rally state (START/END) per frame
+1. **Feature Extraction**: Extract features from ball Y and player positions using entire video trajectory
+2. **LSTM Batch Inference**: Process complete trajectory through LSTM using sliding window approach
+3. **Prediction to Segments**: Convert frame-by-frame predictions to rally segments
 4. **Post-processing**:
-   - Minimum segment length filtering (120 frames)
-   - Gap merging (merge segments separated by <60 frames)
+   - Minimum segment length filtering (120 frames default)
+   - Gap merging (merge segments separated by less than threshold)
    - Rally ID assignment
 
 ### RallyStateLSTM (`models/rally_state_lstm.py`)
@@ -61,23 +59,28 @@ The module uses standardized data models from `squashcopilot.common.models.rally
 
 ### Input Models
 - **RallySegmentationInput**: Trajectory data for rally detection
-  - `ball_y_positions`: List of ball Y-coordinates (meters) per frame
-  - `player_positions`: Optional dict of player positions (meters) per frame
-  - `fps`: Video frame rate for duration calculation
+  - `ball_positions`: List of ball Y-coordinates (meters) per frame (required)
+  - `frame_numbers`: List of frame numbers corresponding to positions (required)
+  - `player_1_x`: Optional list of player 1 X-coordinates in meters
+  - `player_1_y`: Optional list of player 1 Y-coordinates in meters
+  - `player_2_x`: Optional list of player 2 X-coordinates in meters
+  - `player_2_y`: Optional list of player 2 Y-coordinates in meters
+  - `config`: Optional configuration object
 
 ### Output Models
 - **RallySegment**: Single rally segment
-  - `rally_id`: Unique identifier (1, 2, 3, ...)
+  - `rally_id`: Unique identifier (0, 1, 2, ...)
   - `start_frame`: First frame of rally
   - `end_frame`: Last frame of rally
-  - `duration_seconds`: Rally length in seconds
-  - `frame_count`: Number of frames in rally
+  - `duration_frames`: Number of frames in rally (computed automatically)
+  - `contains_frame(frame_number)`: Method to check if frame is in rally
+  - `to_dict()`: Convert to dictionary
 
 - **RallySegmentationResult**: Complete segmentation results
   - `segments`: List of RallySegment objects
-  - `total_rallies`: Total number of rallies detected
-  - `average_duration`: Mean rally duration in seconds
-  - `total_duration`: Sum of all rally durations
+  - `total_frames`: Total number of frames processed
+  - `num_rallies`: Property returning total number of rallies detected
+  - `get_rally_at_frame(frame_number)`: Method to get rally containing a specific frame
 
 ## Usage
 
@@ -90,26 +93,27 @@ from squashcopilot import RallySegmentationInput
 # Initialize detector
 detector = RallyStateDetector()
 
-# Prepare input (ball Y positions + player positions)
+# Prepare input (ball Y positions + optional player positions)
 input_data = RallySegmentationInput(
-    ball_y_positions=ball_trajectory_y_meters,  # List[float]
-    player_positions=player_positions_meters,    # Dict[frame] -> Dict[player_id] -> Point2D
-    fps=30.0
+    ball_positions=ball_y_positions_meters,  # List[float] - required
+    frame_numbers=frame_numbers,              # List[int] - required
+    player_1_x=player1_x_meters,             # List[float] - optional
+    player_1_y=player1_y_meters,             # List[float] - optional
+    player_2_x=player2_x_meters,             # List[float] - optional
+    player_2_y=player2_y_meters              # List[float] - optional
 )
 
 # Segment video into rallies
-result = detector.segment_video(input_data)
+result = detector.segment_rallies(input_data)
 
 # Access rally segments
 for rally in result.segments:
     print(f"Rally {rally.rally_id}:")
     print(f"  Frames: {rally.start_frame} to {rally.end_frame}")
-    print(f"  Duration: {rally.duration_seconds:.2f}s")
-    print(f"  Frame count: {rally.frame_count}")
+    print(f"  Duration: {rally.duration_frames} frames")
 
 # Get statistics
-print(f"Total rallies: {result.total_rallies}")
-print(f"Average duration: {result.average_duration:.2f}s")
+print(f"Total rallies: {result.num_rallies}")
 ```
 
 ### Integration with Other Modules

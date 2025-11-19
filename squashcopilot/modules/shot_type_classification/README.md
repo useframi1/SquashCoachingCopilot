@@ -32,8 +32,6 @@ The main class for shot classification.
 
 **Key Methods:**
 - `classify(input: ShotClassificationInput)`: Classify all shots in a video
-- `get_statistics(result: ShotClassificationResult)`: Compute shot statistics
-- `reset()`: Reset classifier state
 
 **Classification Pipeline:**
 1. **Shot Window Definition**: Find consecutive racket hits to define shot boundaries
@@ -53,37 +51,41 @@ The module uses standardized data models from `squashcopilot.common.models.shot`
 
 ### Input Models
 - **ShotClassificationInput**: Complete shot analysis data
-  - `player_positions`: Dict of player positions in meters per frame
-  - `wall_hits`: WallHitDetectionResult with all wall hits
-  - `racket_hits`: RacketHitDetectionResult with all racket hits
-  - `floor_homography`: Homography for coordinate transformation
+  - `player1_positions_meter`: List of player 1 positions in meters (Point2D objects)
+  - `player2_positions_meter`: List of player 2 positions in meters (Point2D objects)
+  - `wall_hits`: List of WallHit objects with detected wall hits
+  - `racket_hits`: List of RacketHit objects with detected racket hits
 
 ### Output Models
 - **ShotResult**: Single shot classification
   - `frame`: Frame number of racket hit
-  - `player_id`: Player who made the shot (1 or 2)
   - `direction`: ShotDirection (STRAIGHT or CROSS_COURT)
   - `depth`: ShotDepth (DROP or LONG)
   - `shot_type`: ShotType (combined classification)
-  - `confidence`: Classification confidence (0.7-1.0)
-  - `racket_hit_position`: Point2D in meters
-  - `wall_hit_position`: Point2D in meters (if detected)
-  - `next_racket_hit_position`: Point2D in meters
-  - `rebound_distance`: Distance in meters
+  - `racket_hit_pos`: Point2D in meters (position where racket hit the ball)
+  - `next_racket_hit_pos`: Optional Point2D in meters (position of next racket hit)
+  - `wall_hit_pos`: Optional Point2D in meters (position where ball hit wall, if detected)
+  - `wall_hit_frame`: Optional int (frame number of wall hit, if detected)
+  - `rebound_distance`: Optional float (distance of ball rebound in meters)
+  - `confidence`: Classification confidence (0.0-1.0)
+  - `has_wall_hit()`: Method to check if shot has an associated wall hit
+  - `to_dict()`: Method to convert to dictionary
 
 - **ShotClassificationResult**: Complete classification results
   - `shots`: List of ShotResult objects
-  - `statistics`: ShotStatistics with aggregated metrics
+  - `num_shots`: Number of shots classified (computed automatically)
+  - `wall_hit_detection_rate`: Percentage of shots with detected wall hits (computed automatically)
+  - `get_statistics()`: Method to generate ShotStatistics from results
+  - `to_dict()`: Method to convert to dictionary
 
-- **ShotStatistics**: Aggregated shot analysis
-  - `total_shots`: Total number of shots detected
-  - `straight_shots`: Count of straight shots
-  - `cross_court_shots`: Count of cross-court shots
-  - `drop_shots`: Count of drop shots
-  - `drive_shots`: Count of drive shots
-  - `straight_drop_rate`: Percentage
-  - `cross_court_drive_rate`: Percentage
-  - Per shot type counts and rates
+- **ShotStatistics**: Aggregated shot analysis (generated via `get_statistics()`)
+  - `total_shots`: Total number of shots
+  - `by_type`: Dict mapping shot type names to counts
+  - `by_direction`: Dict mapping directions to counts (STRAIGHT, CROSS_COURT)
+  - `by_depth`: Dict mapping depths to counts (DROP, LONG)
+  - `wall_hit_detection_rate`: Percentage of shots with detected wall hits
+  - `average_rebound_distance`: Average rebound distance in meters (optional)
+  - `to_dict()`: Method to convert to dictionary
 
 ## Shot Types
 
@@ -107,10 +109,10 @@ classifier = ShotClassifier()
 
 # Prepare input (from annotation results)
 input_data = ShotClassificationInput(
-    player_positions=player_trajectories_meters,  # Dict[frame] -> Dict[player_id] -> Point2D
-    wall_hits=wall_hit_results,                   # WallHitDetectionResult
-    racket_hits=racket_hit_results,               # RacketHitDetectionResult
-    floor_homography=calibration.floor_homography
+    player1_positions_meter=player1_positions_meters,  # List[Point2D]
+    player2_positions_meter=player2_positions_meters,  # List[Point2D]
+    wall_hits=wall_hit_results.hits,                  # List[WallHit]
+    racket_hits=racket_hit_results.hits               # List[RacketHit]
 )
 
 # Classify all shots
@@ -118,18 +120,21 @@ result = classifier.classify(input_data)
 
 # Access shot details
 for shot in result.shots:
-    print(f"Frame {shot.frame}: Player {shot.player_id}")
+    print(f"Frame {shot.frame}")
     print(f"  Type: {shot.shot_type.name}")
     print(f"  Direction: {shot.direction.name}")
     print(f"  Depth: {shot.depth.name}")
     print(f"  Confidence: {shot.confidence:.2f}")
-    print(f"  Rebound distance: {shot.rebound_distance:.2f}m")
+    if shot.rebound_distance:
+        print(f"  Rebound distance: {shot.rebound_distance:.2f}m")
 
 # Get statistics
-stats = result.statistics
+stats = result.get_statistics()
 print(f"Total shots: {stats.total_shots}")
-print(f"Straight drop rate: {stats.straight_drop_rate:.1f}%")
-print(f"Cross-court drive rate: {stats.cross_court_drive_rate:.1f}%")
+print(f"By type: {stats.by_type}")
+print(f"By direction: {stats.by_direction}")
+print(f"By depth: {stats.by_depth}")
+print(f"Wall hit detection rate: {stats.wall_hit_detection_rate:.1%}")
 ```
 
 ### Integration with Other Modules

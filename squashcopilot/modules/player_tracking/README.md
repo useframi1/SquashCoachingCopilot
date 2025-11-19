@@ -37,8 +37,10 @@ The main class for player detection, tracking, and postprocessing.
 - `process_frame(input: PlayerTrackingInput)`: Detect players in a single frame
 - `postprocess(input: PlayerPostprocessingInput)`: Smooth trajectories and interpolate keypoints
 - `reset()`: Reset tracker state for new video
-- `floor_homography`: Property to access/set the floor homography matrix
-- `wall_homography`: Property to access/set the wall homography matrix
+
+**Key Attributes:**
+- `floor_homography`: Floor homography matrix (3x3 NumPy array) for coordinate transformation
+- `wall_homography`: Wall homography matrix (3x3 NumPy array) for coordinate transformation
 
 **Processing Pipeline:**
 1. **Detection**: YOLO detects all persons in frame
