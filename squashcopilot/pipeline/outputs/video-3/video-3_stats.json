@@ -1,0 +1,55 @@
+{
+  "video_info": {
+    "filename": "video-3",
+    "duration_seconds": 5.0,
+    "fps": 60.0,
+    "total_frames": 300,
+    "resolution": [
+      1280,
+      720
+    ]
+  },
+  "rallies": {
+    "total_rallies": 1,
+    "avg_duration_seconds": 5.0,
+    "total_play_time_seconds": 5.0,
+    "longest_rally": {
+      "rally_id": 0,
+      "duration": 5.0
+    },
+    "shortest_rally": {
+      "rally_id": 0,
+      "duration": 5.0
+    }
+  },
+  "shots": {
+    "total_shots": 1,
+    "by_type": {
+      "straight_drive": 1
+    },
+    "by_direction": {
+      "straight": 1
+    },
+    "by_depth": {
+      "long": 1
+    }
+  },
+  "strokes": {
+    "player_2": {
+      "total": 1,
+      "forehand": 0,
+      "backhand": 1,
+      "forehand_pct": 0.0
+    },
+    "player_1": {
+      "total": 1,
+      "forehand": 0,
+      "backhand": 1,
+      "forehand_pct": 0.0
+    }
+  },
+  "hits": {
+    "wall_hits": 2,
+    "racket_hits": 2
+  }
+}

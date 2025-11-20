@@ -1,18 +1,18 @@
 # Stroke Detection Module
 
-The stroke detection module identifies player stroke types (forehand, backhand) in squash videos using LSTM-based analysis of player pose keypoints.
+The stroke detection module identifies player stroke types (forehand, backhand) in squash videos using LSTM-based analysis of player pose keypoints around racket hit events.
 
 ## Overview
 
 This module provides automated stroke detection for squash videos by:
 
--   **LSTM-based Classification**: Uses recurrent neural network to classify stroke types
--   **Pose Keypoint Analysis**: Processes player body keypoints (COCO 17-point format)
--   **Windowed Approach**: Analyzes temporal sequences of keypoints around racket hits
--   **Normalization**: Keypoint normalization relative to body proportions
--   **Multi-player Support**: Independent predictions for both players
+-   **LSTM-based Classification**: Uses recurrent neural network to classify stroke types from temporal keypoint sequences
+-   **Pose Keypoint Analysis**: Processes 12 player body keypoints (subset of COCO format: shoulders, elbows, wrists, hips, knees, ankles)
+-   **Windowed Approach**: Analyzes 31-frame sequences (±15 frames) around each racket hit
+-   **Normalization**: Hip-torso normalization for scale and position invariance
+-   **Multi-player Support**: Independent predictions for both players using player-specific keypoints
 
-The module is part of the SquashCoachingCopilot package and provides essential data for shot analysis and player technique evaluation.
+The module is part of the SquashCoachingCopilot package (Stage 6) and provides stroke type information essential for comprehensive shot analysis and player technique evaluation.
 
 ## Features
 
@@ -272,75 +272,107 @@ training:
 
 ## Algorithm Details
 
-### Keypoint Normalization
-1. **Hip Center Calculation**: Average of left and right hip positions
-2. **Shoulder Center Calculation**: Average of left and right shoulder positions
-3. **Torso Length Calculation**: Distance between hip center and shoulder center
-4. **Normalization**: Translate keypoints relative to hip center, scale by torso length
-5. **Result**: Scale and position-invariant representation
+### Keypoint Normalization (Hip-Torso Method)
+The normalization process makes keypoints scale and position-invariant:
 
-### Windowed Prediction
-1. **Window Extraction**: For each racket hit at frame F, extract frames [F-15, F+15] (31 frames total)
-2. **Player Selection**: Use racket_hit_player_id to get the correct player's keypoints
-3. **Normalization**: Normalize keypoints relative to hip center and torso length
-4. **LSTM Forward Pass**: Process 31-frame sequence through LSTMStrokeClassifier
-5. **Classification**: Softmax output over classes (forehand, backhand)
-6. **Result Creation**: Return StrokeResult with prediction and confidence score
+1. **Hip Center Calculation**: Average of left and right hip positions → (hip_center_x, hip_center_y)
+2. **Shoulder Center Calculation**: Average of left and right shoulder positions → (shoulder_center_x, shoulder_center_y)
+3. **Torso Length Calculation**: Euclidean distance between hip center and shoulder center
+4. **Normalization**: For each keypoint (x, y):
+   - Translate: `x' = x - hip_center_x`, `y' = y - hip_center_y`
+   - Scale: `x_norm = x' / torso_length`, `y_norm = y' / torso_length`
+5. **Result**: Scale and position-invariant representation centered at origin
+
+**Note**: Minimum torso length threshold (1.0e-6) prevents division by zero in edge cases.
+
+### Windowed Prediction Pipeline
+For each detected racket hit, the module:
+
+1. **Window Extraction**: For racket hit at frame F, extract frames [F-15, F+15] (31 frames total)
+   - Validates that all 31 frames exist in the input data
+   - Skips hits without sufficient surrounding frames
+2. **Player Selection**: Uses `racket_hit_player_id` to select the correct player's keypoints
+3. **Keypoint Extraction**: Retrieves 12 keypoints × 2 coordinates = 24 features per frame
+4. **Normalization**: Applies hip-torso normalization to the 31-frame sequence
+5. **LSTM Forward Pass**: Processes sequence through 2-layer LSTM (128 hidden units)
+6. **Classification**: Applies softmax to get class probabilities (forehand/backhand)
+7. **Result Creation**: Returns StrokeResult with predicted type and confidence score
 
 ### Training Data Format
 
-Training data in `stroke_annotations/` directory:
+Training data is organized in video-level subdirectories under `tests/data/`:
 
-```csv
-hit_frame,frame,player_id,stroke_type,kp_left_shoulder_x,kp_left_shoulder_y,...
-251,236.0,2,backhand,535.43,427.32,...
-251,237.0,2,backhand,536.21,428.15,...
-...
+```
+tests/data/
+├── video-1/
+│   └── video-1_annotations.csv
+├── video-2/
+│   └── video-2_annotations.csv
+└── ...
 ```
 
-Each sequence:
-- Grouped by `hit_frame` (the racket hit frame)
-- Contains `sequence_length` frames around the hit
-- Has player keypoints for the player who made the stroke
-- Labeled with `stroke_type` (forehand/backhand)
+Each annotations CSV must contain:
+- **Frame metadata**: `frame`, `hit_frame` (groups 31-frame sequences)
+- **Player info**: `player_id` (1 or 2)
+- **Stroke label**: `stroke_type` (forehand, backhand)
+- **Keypoints**: `kp_{keypoint_name}_x`, `kp_{keypoint_name}_y` for all 12 keypoints
+
+Example CSV structure:
+```csv
+hit_frame,frame,player_id,stroke_type,kp_left_shoulder_x,kp_left_shoulder_y,...
+251,236,2,backhand,535.43,427.32,...
+251,237,2,backhand,536.21,428.15,...
+251,238,2,backhand,537.05,428.90,...
+...
+251,266,2,backhand,545.12,435.67,...
+```
+
+**Training Data Characteristics**:
+- Each `hit_frame` groups exactly 31 consecutive frames (sequence_length)
+- Frames are centered on racket hit: [hit_frame-15, ..., hit_frame, ..., hit_frame+15]
+- Only the player who made the stroke has keypoints in each sequence
+- All frames in a sequence share the same `stroke_type` label
+- Training script performs video-level splitting to prevent data leakage
 
 ## Module Structure
 
 ```
 stroke_detection/
-├── __init__.py                  # Package exports
+├── __init__.py                  # Package exports (StrokeDetector)
 ├── README.md                    # This file
 ├── stroke_detector.py           # Main StrokeDetector class
-├── train_model.py               # Training script
-├── stroke_annotator.py          # Manual annotation tool
+├── train_model.py               # Training script with StrokeTrainer
+├── stroke_annotator.py          # Manual annotation tool (optional)
 ├── model/                       # Model implementations
 │   ├── __init__.py
-│   ├── lstm_classifier.py       # LSTM architecture
+│   ├── lstm_classifier.py       # LSTMStrokeClassifier (2-layer LSTM)
 │   └── weights/                 # Model checkpoints
-│       └── lstm_model.pt        # Trained model
-├── stroke_annotations/          # Training data (windowed & labeled sequences)
-│   ├── video-1_strokes_annotated.csv
-│   ├── video-2_strokes_annotated.csv
-│   └── ...
+│       ├── lstm_model.pt        # Trained model (used by detector)
+│       └── stroke_lstm_best.pt  # Best checkpoint from training
 └── tests/                       # Testing and evaluation
-    ├── evaluator.py             # Evaluation script
-    ├── data/                    # Test annotations (symlink or copy from annotation module)
+    ├── evaluator.py             # StrokeDetectionEvaluator
+    ├── data/                    # Training/test annotations (video-level organization)
     │   ├── video-1/
-    │   │   └── video-1_annotations.csv
-    │   └── video-2/
-    │       └── video-2_annotations.csv
+    │   │   └── video-1_annotations.csv  # Contains hit_frame, frame, stroke_type, keypoints
+    │   ├── video-2/
+    │   │   └── video-2_annotations.csv
+    │   └── ...
     └── outputs/                 # Evaluation results
-        └── video-1/
-            ├── video-1_predictions.csv
-            ├── video-1_confusion_matrix.png
-            ├── video-1_metrics.txt
-            └── video-1_strokes_annotated.mp4
+        └── video-{N}/
+            ├── video-{N}_predictions.csv        # Frame-by-frame predictions
+            ├── video-{N}_confusion_matrix.png   # Classification performance
+            ├── video-{N}_metrics.txt            # Accuracy, precision, recall, F1
+            └── video-{N}_strokes_annotated.mp4  # Annotated video
 ```
 
-**Note on Data Directories:**
-- `stroke_annotations/`: Contains windowed sequences with stroke labels (for training)
-- `tests/data/`: Contains raw annotation CSVs from the annotation module (for evaluation)
-- Videos are loaded from `squashcopilot/annotation/annotations/{video_name}/` when creating annotated output videos
+**Data Organization**:
+- `tests/data/`: Contains video-level subdirectories with annotated stroke sequences
+  - Each CSV has 31-frame windows grouped by `hit_frame` with stroke labels
+  - Used by both training (train_model.py) and evaluation (tests/evaluator.py)
+- `model/weights/`: Stores trained LSTM model checkpoints
+  - `lstm_model.pt`: Model loaded by StrokeDetector for inference
+  - `stroke_lstm_best.pt`: Best model saved during training
+- Training performs video-level splitting to prevent data leakage between train/val/test sets
 
 ## Testing and Evaluation
 
@@ -371,18 +403,40 @@ Ground truth can be provided in two ways:
 
 ## Training Custom Models
 
+### Prerequisites
+Training data must be organized as video-level subdirectories in `tests/data/`, with each subdirectory containing a CSV file with 31-frame stroke sequences (see Training Data Format above).
+
+### Training Steps
+
 ```bash
-# 1. Prepare training data using stroke_annotator.py
-python stroke_annotator.py
+# 1. Configure training in stroke_detection.yaml
+# Set data_dir, epochs, batch_size, train_test_split, validation_split, etc.
 
-# 2. Configure training in stroke_detection.yaml
-# Set data_dir, epochs, batch_size, etc.
-
-# 3. Run training
+# 2. Run training script
+cd squashcopilot/modules/stroke_detection
 python train_model.py
 
-# 4. Model will be saved to model/weights/stroke_lstm_best.pt
+# 3. Model checkpoints will be saved to model/weights/
+# - stroke_lstm_best.pt (best validation accuracy)
+
+# 4. Update inference.model_path in config to use new model
+# Set model_path to: squashcopilot/modules/stroke_detection/model/weights/stroke_lstm_best.pt
 ```
+
+### Training Process
+The `StrokeTrainer` class handles:
+1. **Data Loading**: Loads annotated sequences from all video subdirectories
+2. **Video-Level Splitting**: Splits videos (not sequences) into train/val/test sets to prevent data leakage
+3. **Normalization**: Applies hip-torso normalization to all keypoint sequences
+4. **Training**: Trains 2-layer LSTM with cross-entropy loss and Adam optimizer
+5. **Validation**: Monitors validation accuracy and saves best model
+6. **Evaluation**: Computes final metrics (accuracy, precision, recall, F1) on test set
+
+### Data Splitting Strategy
+- Videos are randomly shuffled and split at the video level
+- Default: 80% train+val, 20% test (configurable via `train_test_split`)
+- Validation split from training videos: 10% (configurable via `validation_split`)
+- This ensures no sequences from the same video appear in both train and test sets
 
 ## Performance Considerations
 
@@ -393,22 +447,29 @@ python train_model.py
 
 ## Limitations
 
-- Requires accurate pose keypoints from player tracking
-- Requires racket hit detection (is_racket_hit, racket_hit_player_id in annotations)
-- Model trained on specific dataset may not generalize universally
-- Cannot distinguish between different stroke techniques (drive, drop, volley, etc.)
-- Assumes standard squash stroke biomechanics
-- Window must be fully contained within video bounds
+- **Requires accurate pose keypoints**: Depends on player tracking module providing reliable 12-keypoint poses
+- **Requires racket hit detection**: Must have `is_racket_hit` and `racket_hit_player_id` from ball tracking module
+- **Fixed window size**: Requires 31 consecutive frames (±15 around hit); skips hits near video boundaries
+- **Binary classification only**: Classifies forehand vs backhand, not stroke quality or specific techniques
+- **Model generalization**: Performance depends on training data diversity (court types, player styles, camera angles)
+- **No real-time capability**: Designed for batch processing, not live analysis
+- **Player ID dependency**: Requires consistent player identification across frames from player tracking
 
 ## Dependencies on Other Modules
 
-This module requires data from:
-- **Player Tracking**: Player pose keypoints (COCO format)
-- **Ball Tracking**: Racket hit detection (is_racket_hit, racket_hit_player_id)
+### Required Input (Stage 2-5 outputs)
+This module requires:
+- **Player Tracking** (Stage 2): Player pose keypoints for both players
+  - 12 keypoints per player: shoulders, elbows, wrists, hips, knees, ankles
+  - Consistent player IDs across frames
+- **Ball Tracking - Racket Hit Detection** (Stage 5): Racket hit events
+  - `is_racket_hit`: Boolean flag for racket hit frames
+  - `racket_hit_player_id`: Which player (1 or 2) made the hit
 
-Provides data to:
-- **Shot Classification**: Can be combined with shot analysis
-- **Performance Analysis**: Stroke statistics and patterns
+### Provides Output To (Stage 7+)
+- **Shot Classification**: Stroke type can be combined with shot direction/depth for complete shot analysis
+- **Performance Analysis**: Stroke statistics per player (forehand/backhand ratios, confidence scores)
+- **Tactical Analysis**: Stroke patterns and preferences across rallies
 
 ## Similar Modules
 

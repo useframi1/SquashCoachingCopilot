@@ -71,6 +71,7 @@ packages = [
     "squashcopilot.modules.stroke_detection",
     "squashcopilot.modules.stroke_detection.model",
     "squashcopilot.annotation",
+    "squashcopilot.pipeline",
 ]
 
 [tool.setuptools.package-data]

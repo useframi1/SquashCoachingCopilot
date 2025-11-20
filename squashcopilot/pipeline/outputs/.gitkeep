@@ -1,0 +1,2 @@
+# This directory stores pipeline outputs
+# Each video will have its own subdirectory: outputs/{video_name}/

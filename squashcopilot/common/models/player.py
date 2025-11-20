@@ -5,9 +5,12 @@ This module defines input and output models for the player-detection module.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from squashcopilot.common.types import Frame, Config, Point2D, BoundingBox, Homography
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 # ============================================================================
@@ -245,20 +248,11 @@ class PlayerPostprocessingInput:
     Input for player position postprocessing.
 
     Attributes:
-        positions_history: Dictionary mapping player_id to list of positions
-                          (can contain None for missing detections)
-        real_positions_history: Dictionary mapping player_id to list of real positions
-                               (can contain None for missing detections)
-        keypoints_history: Dictionary mapping player_id to list of keypoints
-                          (can contain None for missing detections)
-        bboxes_history: Dictionary mapping player_id to list of bounding boxes
-                       (can contain None for missing detections)
+        players_detections: Dictionary mapping player_id to list of PlayerDetectionResult
+                           (list can contain None for frames where player was not detected)
         config: Optional configuration for postprocessing
     """
-    positions_history: Dict[int, List[Optional[Point2D]]]
-    real_positions_history: Optional[Dict[int, List[Optional[Point2D]]]] = None
-    keypoints_history: Optional[Dict[int, List[Optional[PlayerKeypointsData]]]] = None
-    bboxes_history: Optional[Dict[int, List[Optional[BoundingBox]]]] = None
+    players_detections: Dict[int, List[Optional[PlayerDetectionResult]]]
     config: Optional[Config] = None
 
 
@@ -289,6 +283,51 @@ class PlayerTrajectory:
     bboxes: Optional[List[Optional[BoundingBox]]] = None
     original_bboxes: Optional[List[Optional[BoundingBox]]] = None
     gaps_filled: int = 0
+
+    def get_keypoints_array(self) -> Optional['np.ndarray']:
+        """
+        Convert keypoints to numpy array format for stroke detection.
+
+        This method extracts only body keypoints (COCO indices 5-16), excluding face keypoints.
+        The stroke detection model was trained with these 12 keypoints:
+        left_shoulder, right_shoulder, left_elbow, right_elbow, left_wrist, right_wrist,
+        left_hip, right_hip, left_knee, right_knee, left_ankle, right_ankle.
+
+        Returns:
+            Numpy array of shape (num_frames, 12, 2) or None if no keypoints.
+            Each keypoint is [x, y]. Missing keypoints are filled with [0.0, 0.0].
+
+        Example:
+            >>> trajectory.get_keypoints_array().shape
+            (1000, 12, 2)  # 1000 frames, 12 body keypoints, x-y coordinates
+        """
+        if self.keypoints is None:
+            return None
+
+        import numpy as np
+
+        num_frames = len(self.keypoints)
+        num_body_keypoints = 12  # Body keypoints only (COCO indices 5-16)
+        body_keypoint_start_idx = 5  # Start from left_shoulder
+
+        # Initialize array with zeros
+        keypoints_array = np.zeros((num_frames, num_body_keypoints, 2), dtype=np.float32)
+
+        for frame_idx, kp_data in enumerate(self.keypoints):
+            if kp_data is None or kp_data.xy is None:
+                # Leave as zeros for missing keypoints
+                continue
+
+            # kp_data.xy is a flat list: [x0, y0, x1, y1, ..., x16, y16]
+            # Extract only body keypoints (indices 5-16)
+            xy = kp_data.xy
+            for body_kp_idx in range(num_body_keypoints):
+                coco_idx = body_keypoint_start_idx + body_kp_idx
+                if coco_idx < len(xy) // 2:
+                    keypoints_array[frame_idx, body_kp_idx, 0] = xy[coco_idx * 2]      # x
+                    keypoints_array[frame_idx, body_kp_idx, 1] = xy[coco_idx * 2 + 1]  # y
+
+        return keypoints_array
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

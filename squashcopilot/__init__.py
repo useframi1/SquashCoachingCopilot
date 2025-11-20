@@ -72,6 +72,8 @@ from squashcopilot.modules.shot_type_classification.shot_classifier import (
 )
 from squashcopilot.modules.stroke_detection.stroke_detector import StrokeDetector
 
+from squashcopilot.pipeline.pipeline import Pipeline
+
 __version__ = "0.1.0"
 
 __all__ = [
@@ -134,4 +136,6 @@ __all__ = [
     "ShotResult",
     "ShotClassificationResult",
     "ShotStatistics",
+    # Pipeline
+    "Pipeline",
 ]

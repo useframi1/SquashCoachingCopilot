@@ -158,43 +158,31 @@ class PlayerTracker:
         Also interpolates keypoints and bounding boxes (without smoothing).
 
         Args:
-            input_data: PlayerPostprocessingInput with position histories
+            input_data: PlayerPostprocessingInput with player detection results per frame
 
         Returns:
             PlayerPostprocessingResult with smoothed trajectories
         """
         trajectories = {}
 
-        for player_id in input_data.positions_history.keys():
+        for player_id, detections in input_data.players_detections.items():
+            # Extract data from PlayerDetectionResult objects
+            pixel_positions = [det.position if det else None for det in detections]
+            real_positions_raw = [det.real_position if det else None for det in detections]
+            keypoints_raw = [det.keypoints if det else None for det in detections]
+            bboxes_raw = [det.bbox if det else None for det in detections]
+
             # Process pixel positions (with interpolation and smoothing)
-            pixel_positions = input_data.positions_history[player_id]
             smoothed_positions = self._interpolate_and_smooth_positions(pixel_positions)
 
-            # Process real positions (with interpolation and smoothing) if available
-            real_positions = None
-            if (
-                input_data.real_positions_history
-                and player_id in input_data.real_positions_history
-            ):
-                real_positions_raw = input_data.real_positions_history[player_id]
-                real_positions = self._interpolate_and_smooth_positions(
-                    real_positions_raw
-                )
+            # Process real positions (with interpolation and smoothing)
+            real_positions = self._interpolate_and_smooth_positions(real_positions_raw)
 
-            # Process keypoints (interpolation only, no smoothing) if available
-            interpolated_keypoints = None
-            if (
-                input_data.keypoints_history
-                and player_id in input_data.keypoints_history
-            ):
-                keypoints_raw = input_data.keypoints_history[player_id]
-                interpolated_keypoints = self._interpolate_keypoints(keypoints_raw)
+            # Process keypoints (interpolation only, no smoothing)
+            interpolated_keypoints = self._interpolate_keypoints(keypoints_raw)
 
-            # Process bounding boxes (interpolation only, no smoothing) if available
-            interpolated_bboxes = None
-            if input_data.bboxes_history and player_id in input_data.bboxes_history:
-                bboxes_raw = input_data.bboxes_history[player_id]
-                interpolated_bboxes = self._interpolate_bboxes(bboxes_raw)
+            # Process bounding boxes (interpolation only, no smoothing)
+            interpolated_bboxes = self._interpolate_bboxes(bboxes_raw)
 
             # Count gaps filled
             gaps_filled = sum(1 for p in pixel_positions if p is None)
@@ -204,26 +192,11 @@ class PlayerTracker:
                 positions=smoothed_positions,
                 original_positions=pixel_positions,
                 real_positions=real_positions,
-                original_real_positions=(
-                    input_data.real_positions_history[player_id]
-                    if input_data.real_positions_history
-                    and player_id in input_data.real_positions_history
-                    else None
-                ),
+                original_real_positions=real_positions_raw,
                 keypoints=interpolated_keypoints,
-                original_keypoints=(
-                    input_data.keypoints_history[player_id]
-                    if input_data.keypoints_history
-                    and player_id in input_data.keypoints_history
-                    else None
-                ),
+                original_keypoints=keypoints_raw,
                 bboxes=interpolated_bboxes,
-                original_bboxes=(
-                    input_data.bboxes_history[player_id]
-                    if input_data.bboxes_history
-                    and player_id in input_data.bboxes_history
-                    else None
-                ),
+                original_bboxes=bboxes_raw,
                 gaps_filled=gaps_filled,
             )
 

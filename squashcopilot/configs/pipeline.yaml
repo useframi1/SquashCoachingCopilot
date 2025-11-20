@@ -1,0 +1,126 @@
+# Pipeline Configuration
+# Master configuration for the complete squash video analysis pipeline
+
+# Input Video Path
+video_path: "tests/video-3.mp4"
+
+# Processing limits
+max_seconds: 5 # Maximum seconds of video to process (null = process entire video)
+
+# Output Settings
+output:
+    # Base directory for all pipeline outputs
+    base_directory: "outputs"
+
+    # Create a subdirectory per video (outputs/{video-name}/)
+    create_video_subdirectory: true
+
+    # Output filenames (supports {video_name} placeholder)
+    csv_filename: "{video_name}_analysis.csv"
+    video_filename: "{video_name}_annotated.mp4"
+    stats_filename: "{video_name}_stats.json"
+
+    # Control which outputs to generate
+    save_annotated_video: true
+    save_csv: true
+    save_statistics: true
+
+# Module Configurations
+# Each module references its own config file
+modules:
+    court_calibration:
+        config_path: "configs/court_calibration.yaml"
+        enabled: true
+
+    player_tracking:
+        config_path: "configs/player_tracking.yaml"
+        enabled: true
+
+    ball_tracking:
+        config_path: "configs/ball_tracking.yaml"
+        enabled: true
+
+    rally_state_detection:
+        config_path: "configs/rally_state_detection.yaml"
+        enabled: true
+
+    stroke_detection:
+        config_path: "configs/stroke_detection.yaml"
+        enabled: true
+
+    shot_type_classification:
+        config_path: "configs/shot_type_classification.yaml"
+        enabled: true
+
+# Processing Options
+processing:
+    # Process player and ball tracking in parallel (faster)
+    parallel_tracking: true
+
+    # Cache intermediate results to disk (for debugging)
+    cache_intermediate: false
+
+    # Video codec for output video (mp4v, avc1, etc.)
+    video_writer_codec: "mp4v"
+
+    # Frame skip for processing (1 = process every frame, 2 = every other frame, etc.)
+    frame_skip: 1
+
+# Visualization Settings
+visualization:
+    # Court elements
+    draw_court_lines: true
+    court_line_color: [255, 255, 255] # White
+    court_line_thickness: 2
+
+    # Player visualization
+    draw_player_boxes: true
+    draw_player_keypoints: true
+    draw_player_trajectories: true
+    player_box_color: [0, 255, 0] # Green
+    player_keypoint_radius: 4
+    player_trajectory_color: [0, 255, 255] # Cyan
+    trajectory_length: 30 # Number of frames to show in trajectory
+
+    # Ball visualization
+    draw_ball: true
+    draw_ball_trajectory: true
+    ball_color: [255, 0, 0] # Red
+    ball_radius: 8
+    ball_trajectory_color: [255, 165, 0] # Orange
+
+    # Rally information
+    show_rally_id: true
+    rally_id_position: [20, 50] # [x, y] in pixels
+    rally_id_font_scale: 1.2
+    rally_id_color: [255, 255, 0] # Yellow
+
+    # Stroke labels
+    show_stroke_labels: true
+    stroke_label_duration: 30 # frames to show label after racket hit
+    stroke_label_color: [0, 255, 0] # Green
+    stroke_label_font_scale: 0.8
+
+    # Shot labels
+    show_shot_labels: true
+    shot_label_duration: 60 # frames to show label
+    shot_label_color: [255, 0, 255] # Magenta
+    shot_label_font_scale: 0.8
+
+    # Font settings
+    font: 0 # cv2.FONT_HERSHEY_SIMPLEX
+    font_thickness: 2
+
+# Logging Configuration
+logging:
+    # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    level: "INFO"
+
+    # Optional log file (null = console only)
+    log_file: null
+
+    # Show progress bars during processing
+    show_progress: true
+
+    # Log timing information for each stage
+    log_timings: true

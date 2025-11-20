@@ -18,7 +18,7 @@ from squashcopilot.common import (
 class CourtCalibrator:
     def __init__(self, config: dict = None):
         """Initialize the court calibrator with Roboflow model."""
-        self.config = config if config else load_config(config_name='court_calibration')
+        self.config = config if config else load_config(config_name="court_calibration")
         self.model = get_model(
             model_id=self.config["model_id"], api_key=self.config["api_key"]
         )
@@ -302,11 +302,19 @@ class CourtCalibrator:
                 "wall": Homography(matrix=wall_H, source_plane="wall"),
             }
 
+            # Detect wall color
+            wall_color = self.detect_wall_color(
+                WallColorDetectionInput(
+                    frame=input_data.frame, keypoints_per_class=keypoints_per_class
+                )
+            )
+
             return CourtCalibrationResult(
                 homographies=homographies,
                 keypoints_per_class=keypoints_per_class,
                 frame_number=frame_number,
                 calibrated=True,
+                wall_color=wall_color,
             )
 
         except (ValueError, Exception) as e:

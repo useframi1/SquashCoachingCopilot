@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import numpy as np
 
-from squashcopilot.common.types import Config
+from squashcopilot.common.types import Config, Point2D
 
 
 # ============================================================================
@@ -21,25 +21,20 @@ class RallySegmentationInput:
     """
     Input for rally state detection.
 
-    Supports multiple features for LSTM-based detection while maintaining
-    backward compatibility with ball-only detection.
+    Supports multiple features for LSTM-based detection using position models.
 
     Attributes:
         ball_positions: List of ball y-coordinates per frame (required)
         frame_numbers: List of frame numbers corresponding to positions (required)
-        player_1_x: Optional list of player 1 x-coordinates in meters
-        player_1_y: Optional list of player 1 y-coordinates in meters
-        player_2_x: Optional list of player 2 x-coordinates in meters
-        player_2_y: Optional list of player 2 y-coordinates in meters
+        player_1_positions: Optional list of player 1 positions in meters (Point2D)
+        player_2_positions: Optional list of player 2 positions in meters (Point2D)
         config: Optional configuration
     """
 
     ball_positions: List[float]
     frame_numbers: List[int]
-    player_1_x: Optional[List[float]] = None
-    player_1_y: Optional[List[float]] = None
-    player_2_x: Optional[List[float]] = None
-    player_2_y: Optional[List[float]] = None
+    player_1_positions: Optional[List[Optional[Point2D]]] = None
+    player_2_positions: Optional[List[Optional[Point2D]]] = None
     config: Optional[Config] = None
 
     def __post_init__(self):
@@ -54,19 +49,17 @@ class RallySegmentationInput:
             )
 
         # Validate optional features have same length if provided
-        optional_features = [
-            ("player_1_x", self.player_1_x),
-            ("player_1_y", self.player_1_y),
-            ("player_2_x", self.player_2_x),
-            ("player_2_y", self.player_2_y),
-        ]
+        if self.player_1_positions is not None and len(self.player_1_positions) != num_frames:
+            raise ValueError(
+                f"Mismatch between ball_positions ({num_frames}) "
+                f"and player_1_positions ({len(self.player_1_positions)})"
+            )
 
-        for feature_name, feature_values in optional_features:
-            if feature_values is not None and len(feature_values) != num_frames:
-                raise ValueError(
-                    f"Mismatch between ball_positions ({num_frames}) "
-                    f"and {feature_name} ({len(feature_values)})"
-                )
+        if self.player_2_positions is not None and len(self.player_2_positions) != num_frames:
+            raise ValueError(
+                f"Mismatch between ball_positions ({num_frames}) "
+                f"and player_2_positions ({len(self.player_2_positions)})"
+            )
 
     def get_features_array(self, feature_names: List[str]) -> np.ndarray:
         """
@@ -88,14 +81,19 @@ class RallySegmentationInput:
             >>> features.shape
             (10000, 2)
         """
-        # Map feature names to attributes
+        # Build feature map dynamically from positions
         feature_map = {
             "ball_y": self.ball_positions,
-            "player_1_x_meter": self.player_1_x,
-            "player_1_y_meter": self.player_1_y,
-            "player_2_x_meter": self.player_2_x,
-            "player_2_y_meter": self.player_2_y,
         }
+
+        # Extract x and y coordinates from player positions
+        if self.player_1_positions is not None:
+            feature_map["player_1_x_meter"] = [pos.x if pos else None for pos in self.player_1_positions]
+            feature_map["player_1_y_meter"] = [pos.y if pos else None for pos in self.player_1_positions]
+
+        if self.player_2_positions is not None:
+            feature_map["player_2_x_meter"] = [pos.x if pos else None for pos in self.player_2_positions]
+            feature_map["player_2_y_meter"] = [pos.y if pos else None for pos in self.player_2_positions]
 
         # Extract features
         feature_arrays = []

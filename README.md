@@ -9,10 +9,10 @@ SquashCoachingCopilot is a modular Python package that processes squash videos t
 ### Key Capabilities
 
 -   **Court Calibration**: Automatic detection and mapping of court coordinates
--   **Player Tracking**: Multi-player detection with pose estimation (17 COCO keypoints)
+-   **Player Tracking**: Multi-player detection with pose estimation (12 body keypoints)
 -   **Ball Tracking**: High-accuracy ball detection using TrackNet
 -   **Hit Detection**: Automatic detection of wall hits and racket hits
--   **Stroke Classification**: LSTM-based forehand/backhand classification
+-   **Stroke Detection**: LSTM-based forehand/backhand classification using windowed keypoint sequences
 -   **Shot Classification**: Rule-based shot type analysis (straight/cross-court, drop/drive)
 -   **Rally Segmentation**: LSTM-based rally boundary detection
 -   **Video Annotation**: Automated generation of annotated videos and CSV data exports
@@ -81,11 +81,13 @@ Input Video
 ┌─────────────────────────────────────────────────┐
 │  Stage 6: Shot & Stroke Classification          │
 │     ┌───────────────────────────────────────┐   │
-│     │  Stroke Types (LSTM)                  │   │
-│     │  - Forehand/backhand per player       │   │
+│     │  Stroke Detection (LSTM)              │   │
+│     │  - Forehand/backhand classification   │   │
+│     │  - 31-frame windowed prediction       │   │
+│     │  - Hip-torso normalized keypoints     │   │
 │     └───────────────────────────────────────┘   │
 │     ┌───────────────────────────────────────┐   │
-│     │  Shot Types (Rule-based)              │   │
+│     │  Shot Classification (Rule-based)     │   │
 │     │  - Direction (straight/cross-court)   │   │
 │     │  - Depth (drop/drive)                 │   │
 │     └───────────────────────────────────────┘   │
@@ -167,9 +169,15 @@ SquashCoachingCopilot/
 │       │   └── README.md
 │       │
 │       └── stroke_detection/         # Stroke type detection
-│           ├── stroke_detector.py    # Main detector
+│           ├── stroke_detector.py    # Main StrokeDetector class
 │           ├── model/                # LSTM implementation
-│           ├── train_lstm.py         # Training utilities
+│           │   ├── lstm_classifier.py  # LSTMStrokeClassifier
+│           │   └── weights/          # Model checkpoints
+│           ├── train_model.py        # Training script with StrokeTrainer
+│           ├── tests/                # Evaluation suite
+│           │   ├── evaluator.py      # StrokeDetectionEvaluator
+│           │   ├── data/             # Training/test annotations
+│           │   └── outputs/          # Evaluation results
 │           └── README.md
 │
 ├── README.md                         # This file
@@ -354,7 +362,7 @@ Typical performance on a system with NVIDIA RTX 3090:
 | Ball Postprocessing       | >100     | >100    | Stage 3 (parallel with player) |
 | Rally Segmentation        | 500-1000 | 100-200 | Stage 4 (batch LSTM)           |
 | Wall/Racket Hit Detection | >200     | >200    | Stage 5 (per rally)            |
-| Stroke Detection          | 500-1000 | 100-200 | Stage 6 (batch LSTM)           |
+| Stroke Detection          | 500-1000 | 100-200 | Stage 6 (windowed LSTM)        |
 | Shot Classification       | >1000    | >1000   | Stage 6 (rule-based)           |
 
 **Complete Pipeline Throughput**:
