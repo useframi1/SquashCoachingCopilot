@@ -31,45 +31,45 @@ from .types import (
     ShotType,
 )
 
-# Re-export all models
+# Re-export all models (new DataFrame-based architecture)
 from .models import (
-    # Ball
-    BallTrackingInput,
-    BallDetectionResult,
-    BallPostprocessingInput,
-    BallTrajectory,
-    WallHitInput,
-    WallHit,
-    WallHitDetectionResult,
-    RacketHitInput,
-    RacketHit,
-    RacketHitDetectionResult,
-    # Court
+    # Video metadata
+    VideoMetadata,
+    # Stage 1: Court Calibration
     CourtCalibrationInput,
-    CourtCalibrationResult,
-    WallColorDetectionInput,
-    WallColorResult,
-    # Player
-    PlayerKeypointsData,
+    CourtCalibrationOutput,
+    # Stage 2a: Player Tracking
     PlayerTrackingInput,
-    PlayerDetectionResult,
-    PlayerTrackingResult,
+    PlayerTrackingOutput,
+    player_tracking_output_to_dict,
+    player_tracking_outputs_to_dataframe,
     PlayerPostprocessingInput,
-    PlayerTrajectory,
-    PlayerPostprocessingResult,
-    # Rally
-    RallySegmentationInput,
+    PlayerPostprocessingOutput,
+    # Stage 2b: Ball Tracking
+    BallTrackingInput,
+    BallTrackingOutput,
+    ball_tracking_output_to_dict,
+    ball_tracking_outputs_to_dataframe,
+    BallPostprocessingInput,
+    BallPostprocessingOutput,
+    # Stage 4: Rally Segmentation
     RallySegment,
-    RallySegmentationResult,
-    # Stroke
-    StrokeDetectionInput,
-    StrokeResult,
-    StrokeDetectionResult,
-    # Shot
+    RallySegmentationInput,
+    RallySegmentationOutput,
+    # Stage 5a: Wall Hit Detection
+    WallHitDetectionInput,
+    WallHitDetectionOutput,
+    # Stage 5b: Racket Hit Detection
+    RacketHitDetectionInput,
+    RacketHitDetectionOutput,
+    # Stage 6a: Stroke Classification
+    StrokeClassificationInput,
+    StrokeClassificationOutput,
+    # Stage 6b: Shot Classification
     ShotClassificationInput,
-    ShotResult,
-    ShotClassificationResult,
-    ShotStatistics,
+    ShotClassificationOutput,
+    # Pipeline Session
+    PipelineSession,
 )
 
 __all__ = [
@@ -93,43 +93,43 @@ __all__ = [
     "ShotDirection",
     "ShotDepth",
     "ShotType",
-    # Ball
-    "BallTrackingInput",
-    "BallDetectionResult",
-    "BallPostprocessingInput",
-    "BallTrajectory",
-    "WallHitInput",
-    "WallHit",
-    "WallHitDetectionResult",
-    "RacketHitInput",
-    "RacketHit",
-    "RacketHitDetectionResult",
-    # Court
+    # Video metadata
+    "VideoMetadata",
+    # Stage 1: Court Calibration
     "CourtCalibrationInput",
-    "CourtCalibrationResult",
-    "WallColorDetectionInput",
-    "WallColorResult",
-    # Player
-    "PlayerKeypointsData",
+    "CourtCalibrationOutput",
+    # Stage 2a: Player Tracking
     "PlayerTrackingInput",
-    "PlayerDetectionResult",
-    "PlayerTrackingResult",
+    "PlayerTrackingOutput",
+    "player_tracking_output_to_dict",
+    "player_tracking_outputs_to_dataframe",
     "PlayerPostprocessingInput",
-    "PlayerTrajectory",
-    "PlayerPostprocessingResult",
-    # Rally
-    "RallySegmentationInput",
+    "PlayerPostprocessingOutput",
+    # Stage 2b: Ball Tracking
+    "BallTrackingInput",
+    "BallTrackingOutput",
+    "ball_tracking_output_to_dict",
+    "ball_tracking_outputs_to_dataframe",
+    "BallPostprocessingInput",
+    "BallPostprocessingOutput",
+    # Stage 4: Rally Segmentation
     "RallySegment",
-    "RallySegmentationResult",
-    # Stroke
-    "StrokeDetectionInput",
-    "StrokeResult",
-    "StrokeDetectionResult",
-    # Shot
+    "RallySegmentationInput",
+    "RallySegmentationOutput",
+    # Stage 5a: Wall Hit Detection
+    "WallHitDetectionInput",
+    "WallHitDetectionOutput",
+    # Stage 5b: Racket Hit Detection
+    "RacketHitDetectionInput",
+    "RacketHitDetectionOutput",
+    # Stage 6a: Stroke Classification
+    "StrokeClassificationInput",
+    "StrokeClassificationOutput",
+    # Stage 6b: Shot Classification
     "ShotClassificationInput",
-    "ShotResult",
-    "ShotClassificationResult",
-    "ShotStatistics",
+    "ShotClassificationOutput",
+    # Pipeline Session
+    "PipelineSession",
 ]
 
 __version__ = "0.1.0"

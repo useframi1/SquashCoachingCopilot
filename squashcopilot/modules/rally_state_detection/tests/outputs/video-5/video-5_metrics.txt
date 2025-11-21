@@ -1,0 +1,21 @@
+============================================================
+RALLY STATE DETECTION METRICS - video-5
+============================================================
+
+CONFIGURATION:
+   Boundary Tolerance: +/-60 frames
+
+SEGMENT COUNTS:
+   Ground Truth Rallies: 13
+   Predicted Rallies: 13
+
+DETECTION RESULTS:
+   True Positives:  13
+   False Positives: 0
+   False Negatives: 0
+
+METRICS:
+   Precision: 1.0000
+   Recall:    1.0000
+   F1 Score:  1.0000
+   Boundary Accuracy: 0.6923

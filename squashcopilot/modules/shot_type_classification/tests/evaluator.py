@@ -10,26 +10,23 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from typing import List, Optional, Dict, Tuple, Any
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 from squashcopilot.modules.shot_type_classification import ShotClassifier
 from squashcopilot.common.utils import load_config
 from squashcopilot.common import (
-    Point2D,
-    WallHit,
-    RacketHit,
-    ShotType,
     ShotClassificationInput,
-    ShotResult,
-    ShotStatistics,
+    ShotClassificationOutput,
+    RallySegment,
 )
 
 
 class ShotClassificationEvaluator:
-    """Evaluator for shot type classification using annotation module data"""
+    """Evaluator for shot type classification using annotation module data."""
 
     def __init__(self, config: Optional[Dict] = None):
+        """Initialize evaluator with configuration."""
         if config is None:
             # Load the tests section from the shot_type_classification config
             full_config = load_config(config_name="shot_type_classification")
@@ -38,28 +35,32 @@ class ShotClassificationEvaluator:
 
         # Get project root (parent of squashcopilot/)
         project_root = Path(__file__).parent.parent.parent.parent.parent
-        self.annotations_dir = project_root / self.config["annotations_dir"]
 
         # Get video name from config
         self.video_name = self.config["test_video"]
 
-        self.video_dir = self.annotations_dir / self.video_name
-        self.csv_path = self.video_dir / f"{self.video_name}_annotations.csv"
-        self.video_path = self.video_dir / f"{self.video_name}_annotated.mp4"
+        # Annotations directory (where CSV files are stored)
+        annotations_dir = project_root / self.config["annotations_dir"]
+        self.data_dir = annotations_dir / self.video_name
+        self.csv_path = self.data_dir / f"{self.video_name}_annotations.csv"
+
+        # Video directory (where video files are stored)
+        video_dir = project_root / self.config["video_dir"]
+        self.video_path = video_dir / f"{self.video_name}.mp4"
 
         # Create output directory in shot_type_classification module
-        test_dir = os.path.dirname(os.path.abspath(__file__))
-        base_output_dir = os.path.join(test_dir, self.config["output"]["output_dir"])
-        self.output_dir = os.path.join(base_output_dir, self.video_name)
-        os.makedirs(self.output_dir, exist_ok=True)
+        test_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+        base_output_dir = test_dir / self.config["output"]["output_dir"]
+        self.output_dir = base_output_dir / self.video_name
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Get video properties
-        if not os.path.exists(self.video_path):
+        if not self.video_path.exists():
             raise FileNotFoundError(f"Video not found: {self.video_path}")
-        if not os.path.exists(self.csv_path):
+        if not self.csv_path.exists():
             raise FileNotFoundError(f"Annotations CSV not found: {self.csv_path}")
 
-        cap = cv2.VideoCapture(self.video_path)
+        cap = cv2.VideoCapture(str(self.video_path))
         self.fps = cap.get(cv2.CAP_PROP_FPS)
         self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -74,177 +75,134 @@ class ShotClassificationEvaluator:
         # Initialize shot classifier
         print("\nInitializing shot classifier...")
         self.shot_classifier = ShotClassifier(fps=self.fps)
-        print("✓ Shot classifier initialized")
+        print("Shot classifier initialized")
 
-    def load_annotation_data(
-        self,
-    ) -> Tuple[
-        List[Optional[Point2D]],
-        List[Optional[Point2D]],
-        List[WallHit],
-        List[RacketHit],
-    ]:
-        """Load player positions and hits from annotation CSV file"""
+    def load_annotation_data(self) -> pd.DataFrame:
+        """Load annotations from CSV file.
+
+        Returns:
+            DataFrame with frame as index and all annotation columns
+        """
         print("\n" + "=" * 60)
         print("LOADING DATA FROM ANNOTATION MODULE")
         print("=" * 60)
 
-        # Load CSV using pandas for proper data type handling
+        # Load CSV
         df = pd.read_csv(self.csv_path)
+        print(f"Loaded {len(df)} frames from {self.csv_path}")
 
-        player1_positions_meter = []
-        player2_positions_meter = []
-        wall_hits = []
-        racket_hits = []
-
-        for idx, row in df.iterrows():
-            frame = int(row["frame"])
-
-            # Parse player 1 position in meters
-            p1_x = (
-                row["player_1_x_meter"] if pd.notna(row["player_1_x_meter"]) else None
-            )
-            p1_y = (
-                row["player_1_y_meter"] if pd.notna(row["player_1_y_meter"]) else None
-            )
-
-            if p1_x is not None and p1_y is not None:
-                player1_positions_meter.append(Point2D(x=float(p1_x), y=float(p1_y)))
-            else:
-                player1_positions_meter.append(None)
-
-            # Parse player 2 position in meters
-            p2_x = (
-                row["player_2_x_meter"] if pd.notna(row["player_2_x_meter"]) else None
-            )
-            p2_y = (
-                row["player_2_y_meter"] if pd.notna(row["player_2_y_meter"]) else None
-            )
-
-            if p2_x is not None and p2_y is not None:
-                player2_positions_meter.append(Point2D(x=float(p2_x), y=float(p2_y)))
-            else:
-                player2_positions_meter.append(None)
-
-            # Parse wall hits
-            if row["is_wall_hit"] == 1:
-                wall_x_meter = (
-                    row["wall_hit_x_meter"]
-                    if pd.notna(row["wall_hit_x_meter"])
-                    else None
-                )
-                wall_y_meter = (
-                    row["wall_hit_y_meter"]
-                    if pd.notna(row["wall_hit_y_meter"])
-                    else None
-                )
-                wall_x_pixel = (
-                    row["wall_hit_x_pixel"]
-                    if pd.notna(row["wall_hit_x_pixel"])
-                    else None
-                )
-                wall_y_pixel = (
-                    row["wall_hit_y_pixel"]
-                    if pd.notna(row["wall_hit_y_pixel"])
-                    else None
-                )
-
-                if wall_x_meter is not None and wall_x_pixel is not None:
-                    wall_hits.append(
-                        WallHit(
-                            frame=frame,
-                            position=Point2D(
-                                x=float(wall_x_pixel), y=float(wall_y_pixel)
-                            ),
-                            position_meter=Point2D(
-                                x=float(wall_x_meter), y=float(wall_y_meter)
-                            ),
-                            prominence=0.0,
-                        )
-                    )
-
-            # Parse racket hits
-            if row["is_racket_hit"] == 1:
-                player_id = (
-                    int(row["racket_hit_player_id"])
-                    if pd.notna(row["racket_hit_player_id"])
-                    else None
-                )
-                ball_x = row["ball_x"] if pd.notna(row["ball_x"]) else None
-                ball_y = row["ball_y"] if pd.notna(row["ball_y"]) else None
-
-                if player_id is not None and ball_x is not None and ball_y is not None:
-                    racket_hits.append(
-                        RacketHit(
-                            frame=frame,
-                            position=Point2D(x=float(ball_x), y=float(ball_y)),
-                            slope=0.0,
-                            player_id=player_id,
-                        )
-                    )
+        # Set frame as index
+        if "frame" in df.columns:
+            df = df.set_index("frame")
 
         # Calculate detection statistics
-        p1_detected = sum(1 for pos in player1_positions_meter if pos is not None)
-        p2_detected = sum(1 for pos in player2_positions_meter if pos is not None)
-        total_frames = len(player1_positions_meter)
+        total_frames = len(df)
 
-        print(f"\n✓ Loaded {total_frames} frames")
+        p1_detected = df["player_1_x_meter"].notna().sum()
+        p2_detected = df["player_2_x_meter"].notna().sum()
+        wall_hits = df["is_wall_hit"].sum() if "is_wall_hit" in df.columns else 0
+        racket_hits = df["is_racket_hit"].sum() if "is_racket_hit" in df.columns else 0
+
+        print(f"\nLoaded {total_frames} frames")
         print(
-            f"✓ Player 1 detected in {p1_detected} frames ({p1_detected/total_frames*100:.1f}%)"
+            f"Player 1 detected in {p1_detected} frames ({p1_detected/total_frames*100:.1f}%)"
         )
         print(
-            f"✓ Player 2 detected in {p2_detected} frames ({p2_detected/total_frames*100:.1f}%)"
+            f"Player 2 detected in {p2_detected} frames ({p2_detected/total_frames*100:.1f}%)"
         )
-        print(f"✓ Loaded {len(wall_hits)} wall hits")
-        print(f"✓ Loaded {len(racket_hits)} racket hits")
+        print(f"Wall hits: {int(wall_hits)}")
+        print(f"Racket hits: {int(racket_hits)}")
 
-        return player1_positions_meter, player2_positions_meter, wall_hits, racket_hits
+        return df
+
+    def extract_rally_segments(self, df: pd.DataFrame) -> List[RallySegment]:
+        """Extract rally segments from DataFrame.
+
+        Args:
+            df: DataFrame with is_rally_frame and rally_id columns
+
+        Returns:
+            List of RallySegment objects
+        """
+        segments = []
+
+        if "is_rally_frame" not in df.columns or "rally_id" not in df.columns:
+            # If no rally info, treat entire video as one rally
+            print("No rally segmentation found, treating entire video as one rally")
+            segments.append(
+                RallySegment(
+                    rally_id=0, start_frame=int(df.index.min()), end_frame=int(df.index.max())
+                )
+            )
+            return segments
+
+        # Get rally frames
+        rally_df = df[df["is_rally_frame"] == True]
+
+        if len(rally_df) == 0:
+            print("No rally frames found, treating entire video as one rally")
+            segments.append(
+                RallySegment(
+                    rally_id=0, start_frame=int(df.index.min()), end_frame=int(df.index.max())
+                )
+            )
+            return segments
+
+        # Group by rally_id
+        for rally_id in rally_df["rally_id"].unique():
+            rally_frames = rally_df[rally_df["rally_id"] == rally_id]
+            segments.append(
+                RallySegment(
+                    rally_id=int(rally_id),
+                    start_frame=int(rally_frames.index.min()),
+                    end_frame=int(rally_frames.index.max()),
+                )
+            )
+
+        print(f"Found {len(segments)} rally segments")
+        return segments
 
     def classify_shots(
-        self,
-        player1_positions_meter: List[Optional[Point2D]],
-        player2_positions_meter: List[Optional[Point2D]],
-        wall_hits: List[WallHit],
-        racket_hits: List[RacketHit],
-    ) -> List[ShotResult]:
-        """Classify shots using shot classifier with player position data"""
+        self, df: pd.DataFrame, segments: List[RallySegment]
+    ) -> ShotClassificationOutput:
+        """Classify shots using shot classifier with DataFrame input.
+
+        Args:
+            df: DataFrame with player positions and hit detection columns
+            segments: List of rally segments
+
+        Returns:
+            ShotClassificationOutput with updated DataFrame
+        """
         print("\n" + "=" * 60)
         print("CLASSIFYING SHOTS")
         print("=" * 60)
 
-        # Create ShotClassificationInput with player positions
+        # Create ShotClassificationInput with DataFrame
         input_data = ShotClassificationInput(
-            player1_positions_meter=player1_positions_meter,
-            player2_positions_meter=player2_positions_meter,
-            wall_hits=wall_hits,
-            racket_hits=racket_hits,
+            df=df,
+            segments=segments,
         )
 
         # Classify shots
-        result = self.shot_classifier.classify(input_data)
-        shots = result.shots
+        result = self.shot_classifier.classify_shots(input_data)
 
-        print(f"✓ Classified {len(shots)} shots")
+        print(f"Classified {result.num_shots} shots")
 
-        return shots
+        return result
 
     def print_statistics(
-        self,
-        player1_positions_meter: List[Optional[Point2D]],
-        player2_positions_meter: List[Optional[Point2D]],
-        wall_hits: List[WallHit],
-        racket_hits: List[RacketHit],
-        shots: List[ShotResult],
+        self, df: pd.DataFrame, result: ShotClassificationOutput
     ) -> Dict[str, Any]:
-        """Print comprehensive statistics"""
+        """Print comprehensive statistics."""
         print("\n" + "=" * 60)
         print("STATISTICS")
         print("=" * 60)
 
         # Player tracking stats
-        total_frames = len(player1_positions_meter)
-        p1_detected = sum(1 for pos in player1_positions_meter if pos is not None)
-        p2_detected = sum(1 for pos in player2_positions_meter if pos is not None)
+        total_frames = len(df)
+        p1_detected = df["player_1_x_meter"].notna().sum()
+        p2_detected = df["player_2_x_meter"].notna().sum()
 
         print("\nPlayer Tracking:")
         print(f"   Total frames: {total_frames}")
@@ -256,275 +214,299 @@ class ShotClassificationEvaluator:
         )
 
         # Hit detection stats
+        wall_hits = df["is_wall_hit"].sum() if "is_wall_hit" in df.columns else 0
+        racket_hits = df["is_racket_hit"].sum() if "is_racket_hit" in df.columns else 0
+
         print("\nHit Detection:")
-        print(f"   Wall hits: {len(wall_hits)}")
-        print(f"   Racket hits: {len(racket_hits)}")
+        print(f"   Wall hits: {int(wall_hits)}")
+        print(f"   Racket hits: {int(racket_hits)}")
 
         # Shot classification stats
-        if shots:
-            # Compute statistics using ShotStatistics.from_shots
-            shot_stats = ShotStatistics.from_shots(shots)
+        print(f"\nShot Classification:")
+        print(f"   Total shots: {result.num_shots}")
 
-            print(f"\nShot Classification:")
-            print(f"   Total shots: {shot_stats.total_shots}")
-
+        if result.shot_counts:
             print("\n   By Type:")
-            for shot_type, count in sorted(shot_stats.by_type.items()):
-                percentage = (count / shot_stats.total_shots) * 100
+            for shot_type, count in sorted(result.shot_counts.items()):
+                percentage = (count / result.num_shots) * 100 if result.num_shots > 0 else 0
                 print(
                     f"      {shot_type.replace('_', ' ').title():25s}: {count:3d} ({percentage:5.1f}%)"
                 )
 
-            print("\n   By Direction:")
-            for direction, count in sorted(shot_stats.by_direction.items()):
-                percentage = (count / shot_stats.total_shots) * 100
-                print(
-                    f"      {direction.replace('_', ' ').title():25s}: {count:3d} ({percentage:5.1f}%)"
-                )
-
-            print("\n   By Depth:")
-            for depth, count in sorted(shot_stats.by_depth.items()):
-                percentage = (count / shot_stats.total_shots) * 100
-                print(f"      {depth.title():25s}: {count:3d} ({percentage:5.1f}%)")
-
-            # Wall hit detection statistics
-            print(
-                f"\n   Wall hit detection rate: {shot_stats.wall_hit_detection_rate*100:.1f}%"
-            )
-            if shot_stats.average_rebound_distance is not None:
-                print(
-                    f"   Average rebound distance: {shot_stats.average_rebound_distance:.2f}m"
-                )
-
         return {
             "total_frames": total_frames,
-            "p1_detected": p1_detected,
-            "p2_detected": p2_detected,
-            "wall_hits": len(wall_hits),
-            "racket_hits": len(racket_hits),
-            "shots": len(shots),
+            "p1_detected": int(p1_detected),
+            "p2_detected": int(p2_detected),
+            "wall_hits": int(wall_hits),
+            "racket_hits": int(racket_hits),
+            "shots": result.num_shots,
+            "shot_counts": result.shot_counts,
         }
 
-    def create_plots(self, shots: List[ShotResult]) -> None:
-        """Create comprehensive shot type distribution plots"""
+    def create_plots(self, result: ShotClassificationOutput) -> None:
+        """Create comprehensive shot type distribution plots."""
         if not self.config["output"]["save_plots"]:
             return
 
         print("\nCreating shot type distribution plots...")
 
         # Create figure with subplots
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
         fig.suptitle(f"Shot Type Classification - {self.video_name}", fontsize=16)
 
-        # Plot 2: Shot type distribution
-        ax2 = axes[0, 1]
-        if shots:
-            shot_stats = ShotStatistics.from_shots(shots)
-            shot_types = list(shot_stats.by_type.keys())
-            shot_counts = list(shot_stats.by_type.values())
+        # Plot 1: Shot type distribution
+        ax1 = axes[0]
+        if result.shot_counts:
+            shot_types = list(result.shot_counts.keys())
+            shot_counts = list(result.shot_counts.values())
 
             # Shorten names for better display
             short_names = [st.replace("_", "\n") for st in shot_types]
 
-            ax2.bar(range(len(shot_types)), shot_counts, color="steelblue")
-            ax2.set_xticks(range(len(shot_types)))
-            ax2.set_xticklabels(short_names, rotation=45, ha="right", fontsize=8)
+            ax1.bar(range(len(shot_types)), shot_counts, color="steelblue")
+            ax1.set_xticks(range(len(shot_types)))
+            ax1.set_xticklabels(short_names, rotation=45, ha="right", fontsize=9)
+            ax1.set_ylabel("Count")
+            ax1.set_title("Shot Type Distribution")
+            ax1.grid(True, alpha=0.3, axis="y")
+        else:
+            ax1.text(0.5, 0.5, "No shots classified", ha="center", va="center")
+            ax1.set_title("Shot Type Distribution")
+
+        # Plot 2: Direction distribution (from shot types)
+        ax2 = axes[1]
+        if result.shot_counts:
+            # Aggregate by direction
+            direction_counts = {"straight": 0, "cross_court": 0}
+            for shot_type, count in result.shot_counts.items():
+                if "cross_court" in shot_type.lower():
+                    direction_counts["cross_court"] += count
+                else:
+                    direction_counts["straight"] += count
+
+            directions = list(direction_counts.keys())
+            dir_counts = list(direction_counts.values())
+
+            ax2.bar(directions, dir_counts, color="coral")
             ax2.set_ylabel("Count")
-            ax2.set_title("Shot Type Distribution")
+            ax2.set_title("Shot Direction Distribution")
             ax2.grid(True, alpha=0.3, axis="y")
-
-        # Plot 3: Direction distribution
-        ax3 = axes[1, 0]
-        if shots:
-            directions = list(shot_stats.by_direction.keys())
-            dir_counts = list(shot_stats.by_direction.values())
-
-            ax3.bar(directions, dir_counts, color="coral")
-            ax3.set_ylabel("Count")
-            ax3.set_title("Shot Direction Distribution")
-            ax3.grid(True, alpha=0.3, axis="y")
-
-        # Plot 4: Depth distribution
-        ax4 = axes[1, 1]
-        if shots:
-            depths = list(shot_stats.by_depth.keys())
-            depth_counts = list(shot_stats.by_depth.values())
-
-            ax4.bar(depths, depth_counts, color="lightgreen")
-            ax4.set_ylabel("Count")
-            ax4.set_title("Shot Depth Distribution")
-            ax4.grid(True, alpha=0.3, axis="y")
+        else:
+            ax2.text(0.5, 0.5, "No shots classified", ha="center", va="center")
+            ax2.set_title("Shot Direction Distribution")
 
         plt.tight_layout()
-        output_path = os.path.join(self.output_dir, "shot_type_plots.png")
+        output_path = self.output_dir / "shot_type_plots.png"
         plt.savefig(
             output_path, dpi=self.config["output"]["plot_dpi"], bbox_inches="tight"
         )
         plt.close()
 
-        print(f"✓ Saved trajectory plots: {output_path}")
+        print(f"Saved shot type plots: {output_path}")
 
     def create_annotated_video(
-        self,
-        player1_positions_meter: List[Optional[Point2D]],
-        wall_hits: List[WallHit],
-        racket_hits: List[RacketHit],
-        shots: List[ShotResult],
+        self, df: pd.DataFrame, result: ShotClassificationOutput
     ) -> None:
-        """Create annotated video with player positions, vectors, and shot classifications"""
+        """Create annotated video with player positions and shot classifications."""
         if not self.config["output"]["save_video"]:
             return
 
         print("\nCreating annotated video...")
 
-        output_path = os.path.join(self.output_dir, "annotated.mp4")
+        output_path = self.output_dir / "annotated.mp4"
+
+        # Get frame range from DataFrame
+        start_frame = int(df.index.min())
+        end_frame = int(df.index.max())
+        num_frames = end_frame - start_frame + 1
+
+        print(f"Processing frames {start_frame} to {end_frame} ({num_frames} frames)")
 
         # Setup video writer
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(output_path, fourcc, self.fps, (self.width, self.height))
+        out = cv2.VideoWriter(
+            str(output_path), fourcc, self.fps, (self.width, self.height)
+        )
 
         # Open video
-        cap = cv2.VideoCapture(self.video_path)
+        cap = cv2.VideoCapture(str(self.video_path))
 
-        # Load player pixel positions for visualization
-        # We need to read the CSV again to get pixel coordinates
-        df = pd.read_csv(self.csv_path)
+        # Seek to start frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        player1_positions_pixel = []
-        player2_positions_pixel = []
-
-        for _, row in df.iterrows():
-            # Player 1 pixel position
-            p1_x_px = (
-                row["player_1_x_pixel"] if pd.notna(row["player_1_x_pixel"]) else None
-            )
-            p1_y_px = (
-                row["player_1_y_pixel"] if pd.notna(row["player_1_y_pixel"]) else None
-            )
-
-            if p1_x_px is not None and p1_y_px is not None:
-                player1_positions_pixel.append(
-                    Point2D(x=float(p1_x_px), y=float(p1_y_px))
-                )
-            else:
-                player1_positions_pixel.append(None)
-
-            # Player 2 pixel position
-            p2_x_px = (
-                row["player_2_x_pixel"] if pd.notna(row["player_2_x_pixel"]) else None
-            )
-            p2_y_px = (
-                row["player_2_y_pixel"] if pd.notna(row["player_2_y_pixel"]) else None
-            )
-
-            if p2_x_px is not None and p2_y_px is not None:
-                player2_positions_pixel.append(
-                    Point2D(x=float(p2_x_px), y=float(p2_y_px))
-                )
-            else:
-                player2_positions_pixel.append(None)
-
-        # Create frame-to-shot lookup
-        racket_hit_frames_list = sorted([hit.frame for hit in racket_hits])
-
-        shot_by_frame = {}
-        for shot in shots:
-            # Find next racket hit frame
-            next_racket_frames = [f for f in racket_hit_frames_list if f > shot.frame]
-            if next_racket_frames:
-                end_frame = next_racket_frames[0]
-                for frame_idx in range(shot.frame, end_frame + 1):
-                    if frame_idx < len(player1_positions_meter):
-                        shot_by_frame[frame_idx] = shot
+        # Get result DataFrame with shot classifications
+        result_df = result.df
 
         # Shot type colors (BGR for OpenCV)
         shot_colors = {
-            ShotType.STRAIGHT_DRIVE: (204, 102, 0),
-            ShotType.STRAIGHT_DROP: (255, 178, 102),
-            ShotType.CROSS_COURT_DRIVE: (0, 0, 204),
-            ShotType.CROSS_COURT_DROP: (102, 102, 255),
+            "straight_drive": (204, 102, 0),
+            "straight_drop": (255, 178, 102),
+            "cross_court_drive": (0, 0, 204),
+            "cross_court_drop": (102, 102, 255),
         }
 
-        # Create frame-to-hit lookup (with display duration)
-        hit_display_duration = 30
+        # Create frame-to-shot lookup (show shot info for frames after racket hit)
+        shot_display_duration = int(2 * self.fps)  # 2 seconds
+        shot_by_frame = {}
+
+        # Find frames with shots classified
+        shots_df = result_df[result_df["shot_type"] != ""]
+        for shot_frame in shots_df.index:
+            shot_type = result_df.loc[shot_frame, "shot_type"]
+            shot_direction = result_df.loc[shot_frame, "shot_direction"]
+            shot_depth = result_df.loc[shot_frame, "shot_depth"]
+
+            for offset in range(shot_display_duration):
+                display_frame = shot_frame + offset
+                if display_frame <= end_frame:
+                    shot_by_frame[display_frame] = {
+                        "type": shot_type,
+                        "direction": shot_direction,
+                        "depth": shot_depth,
+                        "frame": shot_frame,
+                    }
+
+        # Create hit markers lookup
+        hit_display_duration = 30  # frames
 
         wall_hit_frames = {}
-        for hit in wall_hits:
-            for offset in range(hit_display_duration):
-                frame = hit.frame + offset
-                if frame < len(player1_positions_meter):
-                    wall_hit_frames[frame] = hit
+        if "is_wall_hit" in df.columns:
+            wall_hits_df = df[df["is_wall_hit"] == True]
+            for hit_frame in wall_hits_df.index:
+                for offset in range(hit_display_duration):
+                    display_frame = hit_frame + offset
+                    if display_frame <= end_frame:
+                        wall_hit_frames[display_frame] = {
+                            "frame": hit_frame,
+                            "x": df.loc[hit_frame, "wall_hit_x_pixel"]
+                            if "wall_hit_x_pixel" in df.columns
+                            else df.loc[hit_frame, "ball_x"],
+                            "y": df.loc[hit_frame, "wall_hit_y_pixel"]
+                            if "wall_hit_y_pixel" in df.columns
+                            else df.loc[hit_frame, "ball_y"],
+                        }
 
         racket_hit_frames = {}
-        for hit in racket_hits:
-            for offset in range(hit_display_duration):
-                frame = hit.frame + offset
-                if frame < len(player1_positions_meter):
-                    racket_hit_frames[frame] = hit
+        if "is_racket_hit" in df.columns:
+            racket_hits_df = df[df["is_racket_hit"] == True]
+            for hit_frame in racket_hits_df.index:
+                for offset in range(hit_display_duration):
+                    display_frame = hit_frame + offset
+                    if display_frame <= end_frame:
+                        racket_hit_frames[display_frame] = {
+                            "frame": hit_frame,
+                            "x": df.loc[hit_frame, "ball_x"],
+                            "y": df.loc[hit_frame, "ball_y"],
+                            "player_id": df.loc[hit_frame, "racket_hit_player_id"]
+                            if "racket_hit_player_id" in df.columns
+                            else None,
+                        }
+
+        # Build shot vectors lookup (player->wall and wall->player)
+        shot_vectors_by_frame = {}
+        shots_df = result_df[result_df["shot_type"] != ""]
+        racket_hit_list = df[df["is_racket_hit"] == True].index.tolist() if "is_racket_hit" in df.columns else []
+
+        for shot_frame in shots_df.index:
+            # Find the next racket hit after this shot
+            next_hits = [f for f in racket_hit_list if f > shot_frame]
+            if not next_hits:
+                continue
+            next_hit_frame = next_hits[0]
+
+            # Get hitting player position (pixel coordinates)
+            hitting_player_id = df.loc[shot_frame, "racket_hit_player_id"] if "racket_hit_player_id" in df.columns else None
+            if pd.isna(hitting_player_id):
+                continue
+            hitting_player_id = int(hitting_player_id)
+
+            hitting_x = df.loc[shot_frame, f"player_{hitting_player_id}_x_pixel"]
+            hitting_y = df.loc[shot_frame, f"player_{hitting_player_id}_y_pixel"]
+
+            # Get receiving player position (pixel coordinates at next hit)
+            receiving_player_id = 2 if hitting_player_id == 1 else 1
+            receiving_x = df.loc[next_hit_frame, f"player_{receiving_player_id}_x_pixel"]
+            receiving_y = df.loc[next_hit_frame, f"player_{receiving_player_id}_y_pixel"]
+
+            # Find wall hit between these frames
+            wall_hit_x, wall_hit_y = None, None
+            if "is_wall_hit" in df.columns:
+                wall_hits_between = df[(df.index > shot_frame) & (df.index < next_hit_frame) & (df["is_wall_hit"] == True)]
+                if len(wall_hits_between) > 0:
+                    wall_frame = wall_hits_between.index[0]
+                    wall_hit_x = df.loc[wall_frame, "wall_hit_x_pixel"] if "wall_hit_x_pixel" in df.columns else df.loc[wall_frame, "ball_x"]
+                    wall_hit_y = df.loc[wall_frame, "wall_hit_y_pixel"] if "wall_hit_y_pixel" in df.columns else df.loc[wall_frame, "ball_y"]
+
+            # Store vectors for display duration
+            if all(pd.notna([hitting_x, hitting_y, wall_hit_x, wall_hit_y, receiving_x, receiving_y])):
+                for offset in range(shot_display_duration):
+                    display_frame = shot_frame + offset
+                    if display_frame <= end_frame:
+                        shot_vectors_by_frame[display_frame] = {
+                            "hitting_pos": (int(hitting_x), int(hitting_y)),
+                            "wall_pos": (int(wall_hit_x), int(wall_hit_y)),
+                            "receiving_pos": (int(receiving_x), int(receiving_y)),
+                        }
 
         # Process frames
-        max_frames = len(player1_positions_meter)
-        with tqdm(total=max_frames, desc="Rendering video", unit="frame") as pbar:
-            frame_idx = 0
-
-            while cap.isOpened() and frame_idx < max_frames:
+        with tqdm(total=num_frames, desc="Rendering video", unit="frame") as pbar:
+            for frame_idx in range(start_frame, end_frame + 1):
                 ret, frame = cap.read()
                 if not ret:
                     break
 
                 # Draw player positions
-                p1_pos = player1_positions_pixel[frame_idx]
-                p2_pos = player2_positions_pixel[frame_idx]
+                if frame_idx in df.index:
+                    row = df.loc[frame_idx]
 
-                if p1_pos is not None:
-                    cv2.circle(
-                        frame, (int(p1_pos.x), int(p1_pos.y)), 15, (255, 0, 0), -1
-                    )
-                    cv2.putText(
-                        frame,
-                        "P1",
-                        (int(p1_pos.x) - 10, int(p1_pos.y) - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (255, 0, 0),
-                        2,
-                    )
+                    # Player 1
+                    p1_x = row.get("player_1_x_pixel")
+                    p1_y = row.get("player_1_y_pixel")
+                    if pd.notna(p1_x) and pd.notna(p1_y):
+                        cv2.circle(
+                            frame, (int(p1_x), int(p1_y)), 15, (255, 0, 0), -1
+                        )
+                        cv2.putText(
+                            frame,
+                            "P1",
+                            (int(p1_x) - 10, int(p1_y) - 20),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (255, 0, 0),
+                            2,
+                        )
 
-                if p2_pos is not None:
-                    cv2.circle(
-                        frame, (int(p2_pos.x), int(p2_pos.y)), 15, (0, 0, 255), -1
-                    )
-                    cv2.putText(
-                        frame,
-                        "P2",
-                        (int(p2_pos.x) - 10, int(p2_pos.y) - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (0, 0, 255),
-                        2,
-                    )
+                    # Player 2
+                    p2_x = row.get("player_2_x_pixel")
+                    p2_y = row.get("player_2_y_pixel")
+                    if pd.notna(p2_x) and pd.notna(p2_y):
+                        cv2.circle(
+                            frame, (int(p2_x), int(p2_y)), 15, (0, 0, 255), -1
+                        )
+                        cv2.putText(
+                            frame,
+                            "P2",
+                            (int(p2_x) - 10, int(p2_y) - 20),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (0, 0, 255),
+                            2,
+                        )
 
                 # Draw current shot info overlay
                 current_shot = shot_by_frame.get(frame_idx)
                 if current_shot:
-                    shot_text = current_shot.shot_type.name.replace("_", " ").title()
-                    direction_text = (
-                        f"Dir: {current_shot.direction.name.replace('_', ' ').title()}"
-                    )
-                    depth_text = f"Depth: {current_shot.depth.name.title()}"
-                    distance_text = (
-                        f"Rebound: {current_shot.rebound_distance:.2f}m"
-                        if current_shot.rebound_distance is not None
-                        else "Rebound: N/A"
-                    )
+                    shot_text = current_shot["type"].replace("_", " ").title()
+                    direction_text = f"Dir: {current_shot['direction'].replace('_', ' ').title()}"
+                    depth_text = f"Depth: {current_shot['depth'].title()}"
 
                     # Draw semi-transparent background
                     overlay = frame.copy()
-                    cv2.rectangle(overlay, (10, 10), (450, 155), (0, 0, 0), -1)
+                    cv2.rectangle(overlay, (10, 10), (350, 120), (0, 0, 0), -1)
                     cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
                     # Draw text
-                    color = shot_colors.get(current_shot.shot_type, (255, 255, 255))
+                    color = shot_colors.get(current_shot["type"], (255, 255, 255))
                     cv2.putText(
                         frame,
                         shot_text,
@@ -546,174 +528,103 @@ class ShotClassificationEvaluator:
                     cv2.putText(
                         frame,
                         depth_text,
-                        (20, 95),
+                        (20, 100),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.6,
                         (255, 255, 255),
                         2,
                     )
-                    cv2.putText(
+
+                # Draw shot vectors (player->wall and wall->player)
+                if frame_idx in shot_vectors_by_frame:
+                    vectors = shot_vectors_by_frame[frame_idx]
+                    hitting_pos = vectors["hitting_pos"]
+                    wall_pos = vectors["wall_pos"]
+                    receiving_pos = vectors["receiving_pos"]
+
+                    # Draw player->wall vector (cyan)
+                    cv2.arrowedLine(
                         frame,
-                        distance_text,
-                        (20, 145),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (255, 255, 255),
-                        2,
+                        hitting_pos,
+                        wall_pos,
+                        (255, 255, 0),  # Cyan
+                        3,
+                        tipLength=0.03,
+                    )
+
+                    # Draw wall->player vector (magenta)
+                    cv2.arrowedLine(
+                        frame,
+                        wall_pos,
+                        receiving_pos,
+                        (255, 0, 255),  # Magenta
+                        3,
+                        tipLength=0.03,
                     )
 
                 # Draw hit markers
                 if frame_idx in wall_hit_frames:
                     hit = wall_hit_frames[frame_idx]
-                    pos = (int(hit.position.x), int(hit.position.y))
-                    cv2.drawMarker(frame, pos, (0, 255, 0), cv2.MARKER_CROSS, 30, 3)
-                    cv2.putText(
-                        frame,
-                        "WALL",
-                        (pos[0] + 20, pos[1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 255, 0),
-                        2,
-                    )
+                    if pd.notna(hit["x"]) and pd.notna(hit["y"]):
+                        pos = (int(hit["x"]), int(hit["y"]))
+                        cv2.drawMarker(frame, pos, (0, 255, 0), cv2.MARKER_CROSS, 30, 3)
+                        cv2.putText(
+                            frame,
+                            "WALL",
+                            (pos[0] + 20, pos[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (0, 255, 0),
+                            2,
+                        )
 
                 if frame_idx in racket_hit_frames:
                     hit = racket_hit_frames[frame_idx]
-                    pos = (int(hit.position.x), int(hit.position.y))
-                    cv2.drawMarker(frame, pos, (0, 165, 255), cv2.MARKER_STAR, 30, 3)
-                    player_text = f"RACKET (P{hit.player_id})"
-                    cv2.putText(
-                        frame,
-                        player_text,
-                        (pos[0] + 20, pos[1] + 25),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 165, 255),
-                        2,
-                    )
-
-                # Draw shot vectors (show for 2 seconds after racket hit)
-                # Need to convert meter positions to pixel positions for visualization
-                # We'll use a simple approach: find the hitting/receiving player pixel positions
-                if current_shot and current_shot.wall_hit_pos:
-                    vector_display_duration = int(2 * self.fps)  # 2 seconds
-                    frames_since_shot = frame_idx - current_shot.frame
-
-                    if frames_since_shot <= vector_display_duration:
-                        # Get the hitting player ID from racket hits
-                        hitting_racket = next(
-                            (h for h in racket_hits if h.frame == current_shot.frame),
-                            None,
+                    if pd.notna(hit["x"]) and pd.notna(hit["y"]):
+                        pos = (int(hit["x"]), int(hit["y"]))
+                        cv2.drawMarker(frame, pos, (0, 165, 255), cv2.MARKER_STAR, 30, 3)
+                        player_id = hit.get("player_id")
+                        player_text = f"RACKET (P{int(player_id)})" if pd.notna(player_id) else "RACKET"
+                        cv2.putText(
+                            frame,
+                            player_text,
+                            (pos[0] + 20, pos[1] + 25),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (0, 165, 255),
+                            2,
                         )
-                        if hitting_racket:
-                            hitting_player_id = hitting_racket.player_id
 
-                            # Get player pixel positions at shot frame
-                            if hitting_player_id == 1:
-                                hitting_player_pixel = player1_positions_pixel[
-                                    current_shot.frame
-                                ]
-                            else:
-                                hitting_player_pixel = player2_positions_pixel[
-                                    current_shot.frame
-                                ]
-
-                            # Get receiving player at end frame
-                            next_racket = next(
-                                (
-                                    h
-                                    for h in racket_hits
-                                    if h.frame > current_shot.frame
-                                ),
-                                None,
-                            )
-                            if next_racket:
-                                receiving_player_id = next_racket.player_id
-                                if receiving_player_id == 1:
-                                    receiving_player_pixel = player1_positions_pixel[
-                                        next_racket.frame
-                                    ]
-                                else:
-                                    receiving_player_pixel = player2_positions_pixel[
-                                        next_racket.frame
-                                    ]
-
-                                wall_pos_pixel = (
-                                    int(current_shot.wall_hit_pos.x),
-                                    int(current_shot.wall_hit_pos.y),
-                                )
-
-                                # Draw attack vector: Hitting Player → Wall (cyan)
-                                if hitting_player_pixel:
-                                    hitting_pos = (
-                                        int(hitting_player_pixel.x),
-                                        int(hitting_player_pixel.y),
-                                    )
-                                    cv2.arrowedLine(
-                                        frame,
-                                        hitting_pos,
-                                        wall_pos_pixel,
-                                        (255, 255, 0),  # Cyan
-                                        3,
-                                        tipLength=0.3,
-                                    )
-                                    cv2.putText(
-                                        frame,
-                                        "Attack",
-                                        (hitting_pos[0] + 10, hitting_pos[1] + 10),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.5,
-                                        (255, 255, 0),
-                                        2,
-                                    )
-
-                                # Draw rebound vector: Wall → Receiving Player (magenta)
-                                if receiving_player_pixel:
-                                    receiving_pos = (
-                                        int(receiving_player_pixel.x),
-                                        int(receiving_player_pixel.y),
-                                    )
-                                    cv2.arrowedLine(
-                                        frame,
-                                        wall_pos_pixel,
-                                        receiving_pos,
-                                        (255, 0, 255),  # Magenta
-                                        3,
-                                        tipLength=0.3,
-                                    )
-                                    cv2.putText(
-                                        frame,
-                                        "Rebound",
-                                        (
-                                            wall_pos_pixel[0] + 10,
-                                            wall_pos_pixel[1] + 30,
-                                        ),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.5,
-                                        (255, 0, 255),
-                                        2,
-                                    )
+                # Draw frame number
+                cv2.putText(
+                    frame,
+                    f"Frame: {frame_idx}",
+                    (10, self.height - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 255, 255),
+                    2,
+                )
 
                 # Write frame
                 out.write(frame)
-                frame_idx += 1
                 pbar.update(1)
 
         cap.release()
         out.release()
 
-        print(f"✓ Saved annotated video: {output_path}")
+        print(f"Saved annotated video: {output_path}")
 
     def save_detailed_report(
-        self, shots: List[ShotResult], stats: Dict[str, Any]
+        self, stats: Dict[str, Any], result: ShotClassificationOutput
     ) -> None:
-        """Save detailed text report with shot-by-shot breakdown"""
+        """Save detailed text report with shot statistics."""
         if not self.config["output"]["save_metrics"]:
             return
 
         print("\nSaving detailed report...")
 
-        output_path = os.path.join(self.output_dir, "report.txt")
+        output_path = self.output_dir / "report.txt"
 
         with open(output_path, "w") as f:
             f.write("=" * 60 + "\n")
@@ -728,102 +639,84 @@ class ShotClassificationEvaluator:
             f.write(f"Racket hits: {stats['racket_hits']}\n")
             f.write(f"Classified shots: {stats['shots']}\n\n")
 
-            if shots:
-                shot_stats = ShotStatistics.from_shots(shots)
-
+            if result.shot_counts:
                 f.write("SHOT STATISTICS:\n")
                 f.write("-" * 60 + "\n\n")
 
                 f.write("By Type:\n")
-                for shot_type, count in sorted(shot_stats.by_type.items()):
-                    percentage = (count / shot_stats.total_shots) * 100
+                for shot_type, count in sorted(result.shot_counts.items()):
+                    percentage = (count / result.num_shots) * 100 if result.num_shots > 0 else 0
                     f.write(f"  {shot_type:30s}: {count:3d} ({percentage:5.1f}%)\n")
 
+                # Aggregate by direction
                 f.write("\nBy Direction:\n")
-                for direction, count in sorted(shot_stats.by_direction.items()):
-                    percentage = (count / shot_stats.total_shots) * 100
+                direction_counts = {"straight": 0, "cross_court": 0}
+                for shot_type, count in result.shot_counts.items():
+                    if "cross_court" in shot_type.lower():
+                        direction_counts["cross_court"] += count
+                    else:
+                        direction_counts["straight"] += count
+
+                for direction, count in sorted(direction_counts.items()):
+                    percentage = (count / result.num_shots) * 100 if result.num_shots > 0 else 0
                     f.write(f"  {direction:30s}: {count:3d} ({percentage:5.1f}%)\n")
 
+                # Aggregate by depth
                 f.write("\nBy Depth:\n")
-                for depth, count in sorted(shot_stats.by_depth.items()):
-                    percentage = (count / shot_stats.total_shots) * 100
+                depth_counts = {"drive": 0, "drop": 0}
+                for shot_type, count in result.shot_counts.items():
+                    if "drop" in shot_type.lower():
+                        depth_counts["drop"] += count
+                    else:
+                        depth_counts["drive"] += count
+
+                for depth, count in sorted(depth_counts.items()):
+                    percentage = (count / result.num_shots) * 100 if result.num_shots > 0 else 0
                     f.write(f"  {depth:30s}: {count:3d} ({percentage:5.1f}%)\n")
 
-                f.write(
-                    f"\nWall hit detection rate: {shot_stats.wall_hit_detection_rate*100:.1f}%\n"
-                )
-                if shot_stats.average_rebound_distance is not None:
-                    f.write(
-                        f"Average rebound distance: {shot_stats.average_rebound_distance:.2f}m\n"
-                    )
+            # Shot-by-shot breakdown
+            f.write("\n" + "=" * 60 + "\n")
+            f.write("SHOT-BY-SHOT BREAKDOWN\n")
+            f.write("=" * 60 + "\n\n")
 
-                f.write("\n" + "=" * 60 + "\n")
-                f.write("SHOT-BY-SHOT BREAKDOWN\n")
-                f.write("=" * 60 + "\n\n")
+            shots_df = result.df[result.df["shot_type"] != ""]
+            for i, (frame_idx, row) in enumerate(shots_df.iterrows(), 1):
+                f.write(f"Shot #{i}\n")
+                f.write(f"  Frame:     {frame_idx}\n")
+                f.write(f"  Type:      {row['shot_type']}\n")
+                f.write(f"  Direction: {row['shot_direction']}\n")
+                f.write(f"  Depth:     {row['shot_depth']}\n")
+                f.write("\n")
 
-                for i, shot in enumerate(shots, 1):
-                    f.write(f"Shot #{i}\n")
-                    f.write(f"  Frame:              {shot.frame}\n")
-                    f.write(f"  Type:               {shot.shot_type.name}\n")
-                    f.write(f"  Direction:          {shot.direction.name}\n")
-                    f.write(f"  Depth:              {shot.depth.name}\n")
-                    f.write(
-                        f"  Racket hit pos:     ({shot.racket_hit_pos.x:.0f}, {shot.racket_hit_pos.y:.0f})\n"
-                    )
-                    f.write(
-                        f"  Next racket pos:    ({shot.next_racket_hit_pos.x:.0f}, {shot.next_racket_hit_pos.y:.0f})\n"
-                    )
-                    f.write(f"  Confidence:         {shot.confidence:.2f}\n")
+        print(f"Saved detailed report: {output_path}")
 
-                    if shot.wall_hit_pos is not None:
-                        f.write(
-                            f"  Wall hit:           ({shot.wall_hit_pos.x:.0f}, {shot.wall_hit_pos.y:.0f}) at frame {shot.wall_hit_frame}\n"
-                        )
-                        f.write(f"  Rebound distance:   {shot.rebound_distance:.2f}m\n")
-
-                    f.write("\n")
-
-        print(f"✓ Saved detailed report: {output_path}")
-
-    def evaluate(self) -> Dict[str, Any]:
-        """Run complete evaluation pipeline"""
+    def run_evaluation(self) -> Dict[str, Any]:
+        """Run complete evaluation pipeline."""
         print("\n" + "=" * 60)
         print("SHOT TYPE CLASSIFICATION EVALUATION")
         print("=" * 60)
 
-        # Step 1: Load annotation data from annotation module
-        player1_positions_meter, player2_positions_meter, wall_hits, racket_hits = (
-            self.load_annotation_data()
-        )
+        # Step 1: Load annotation data
+        df = self.load_annotation_data()
 
-        # Step 2: Classify shots
-        shots = self.classify_shots(
-            player1_positions_meter, player2_positions_meter, wall_hits, racket_hits
-        )
+        # Step 2: Extract rally segments
+        segments = self.extract_rally_segments(df)
 
-        # Step 3: Print statistics
-        stats = self.print_statistics(
-            player1_positions_meter,
-            player2_positions_meter,
-            wall_hits,
-            racket_hits,
-            shots,
-        )
+        # Step 3: Classify shots
+        result = self.classify_shots(df, segments)
 
-        # Step 4: Create visualizations
+        # Step 4: Print statistics
+        stats = self.print_statistics(df, result)
+
+        # Step 5: Create visualizations
         if self.config["output"]["save_plots"]:
-            self.create_plots(shots)
+            self.create_plots(result)
 
         if self.config["output"]["save_video"]:
-            self.create_annotated_video(
-                player1_positions_meter,
-                wall_hits,
-                racket_hits,
-                shots,
-            )
+            self.create_annotated_video(df, result)
 
         if self.config["output"]["save_metrics"]:
-            self.save_detailed_report(shots, stats)
+            self.save_detailed_report(stats, result)
 
         # Done
         print("\n" + "=" * 60)
@@ -831,7 +724,13 @@ class ShotClassificationEvaluator:
         print("=" * 60)
         print(f"\nResults saved to: {self.output_dir}")
 
+        return {
+            "stats": stats,
+            "result": result,
+            "segments": segments,
+        }
+
 
 if __name__ == "__main__":
     evaluator = ShotClassificationEvaluator()
-    evaluator.evaluate()
+    evaluator.run_evaluation()

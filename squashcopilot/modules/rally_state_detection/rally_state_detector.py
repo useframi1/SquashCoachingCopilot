@@ -2,21 +2,24 @@
 Rally State Detector
 
 This module provides LSTM-based rally state detection for squash videos.
+Uses DataFrame-based input/output for pipeline integration.
 """
 
 import torch
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from typing import List
 from tqdm import tqdm
 
 from squashcopilot.common.utils import load_config
-from squashcopilot.common.models.rally import (
+from squashcopilot.common.models import (
     RallySegmentationInput,
-    RallySegmentationResult,
+    RallySegmentationOutput,
     RallySegment,
+    CourtCalibrationOutput,
 )
-from squashcopilot.modules.rally_state_detection.models.lstm_model import (
+from squashcopilot.modules.rally_state_detection.model.lstm_model import (
     RallyStateLSTM,
 )
 
@@ -26,6 +29,7 @@ class RallyStateDetector:
     LSTM-based rally state detector.
 
     Uses a trained LSTM model to detect rally states from ball and player trajectories.
+    Works with DataFrame-based pipeline architecture.
     """
 
     def __init__(self, config: dict = None):
@@ -59,17 +63,11 @@ class RallyStateDetector:
         """
         Load trained LSTM model from checkpoint.
 
-        Sets self.sequence_length and self.features from the checkpoint config.
-
         Args:
             model_path: Path to model checkpoint file
 
         Returns:
             Loaded LSTM model in evaluation mode
-
-        Raises:
-            FileNotFoundError: If model file doesn't exist
-            RuntimeError: If model loading fails
         """
         if not model_path.exists():
             raise FileNotFoundError(
@@ -78,16 +76,13 @@ class RallyStateDetector:
             )
 
         try:
-            # Load checkpoint
             checkpoint = torch.load(
                 model_path, map_location=self.device, weights_only=False
             )
 
-            # Get model configuration
             model_config = checkpoint["config"]
 
             # Set sequence_length and features from checkpoint
-            # These must match what the model was trained with
             self.sequence_length = model_config["sequence_length"]
             self.features = model_config["features"]
 
@@ -100,76 +95,64 @@ class RallyStateDetector:
                 bidirectional=model_config["bidirectional"],
             ).to(self.device)
 
-            # Load weights
             model.load_state_dict(checkpoint["model_state_dict"])
-
-            # Set to evaluation mode
             model.eval()
-
-            print(f"Loaded LSTM model from: {model_path}")
-            print(f"Model features: {model_config['features']}")
-            print(f"Sequence length: {model_config['sequence_length']}")
 
             return model
 
         except Exception as e:
             raise RuntimeError(f"Failed to load model from {model_path}: {str(e)}")
 
+    def _extract_features_from_df(self, df: pd.DataFrame) -> np.ndarray:
+        """
+        Extract feature array from DataFrame.
+
+        Args:
+            df: DataFrame with tracking data
+
+        Returns:
+            Feature array of shape (num_frames, num_features)
+        """
+
+        return df[self.features].to_numpy()
+
     def _predict_frames(self, features: np.ndarray, batch_size: int = 32) -> np.ndarray:
         """
         Run LSTM inference on feature array to get frame-by-frame predictions.
 
-        Uses sliding window approach with batched processing for efficiency.
-
         Args:
             features: Feature array of shape (num_frames, num_features)
-            batch_size: Number of sequences to process in parallel (default: 32)
+            batch_size: Number of sequences to process in parallel
 
         Returns:
-            Binary predictions array of shape (num_frames,) with values 0 or 1
-
-        Note:
-            For frames at the beginning/end where full sequence isn't available,
-            uses padding or nearest available prediction.
+            Binary predictions array of shape (num_frames,)
         """
         num_frames = len(features)
         predictions = np.zeros(num_frames, dtype=int)
 
-        # Handle case where video is shorter than sequence length
         if num_frames < self.sequence_length:
-            # For very short videos, predict all as inactive (0)
             return predictions
 
-        # Total number of sliding windows
         num_windows = num_frames - self.sequence_length + 1
         middle_idx = self.sequence_length // 2
 
-        # Sliding window inference with batching
         with torch.no_grad():
-            # Create progress bar
             num_batches = (num_windows + batch_size - 1) // batch_size
-            pbar = tqdm(
-                total=num_batches,
-                desc="Predicting rally states",
-                unit="batch"
-            )
+            pbar = tqdm(total=num_batches, desc="Predicting rally states", unit="batch")
 
             for batch_start in range(0, num_windows, batch_size):
                 batch_end = min(batch_start + batch_size, num_windows)
 
-                # Extract batch of sequences
                 batch_sequences = []
                 for i in range(batch_start, batch_end):
                     sequence = features[i : i + self.sequence_length]
                     batch_sequences.append(sequence)
 
-                # Stack into batch tensor
-                batch_tensor = torch.FloatTensor(np.stack(batch_sequences)).to(self.device)
+                batch_tensor = torch.FloatTensor(np.stack(batch_sequences)).to(
+                    self.device
+                )
+                outputs = self.model(batch_tensor)
 
-                # Get model predictions for the batch
-                outputs = self.model(batch_tensor)  # shape: (batch_size, seq_len, 1)
-
-                # Extract middle predictions for each sequence in batch
                 for idx, i in enumerate(range(batch_start, batch_end)):
                     middle_pred = (outputs[idx, middle_idx, 0] > 0.5).int().item()
                     frame_idx = i + middle_idx
@@ -179,13 +162,11 @@ class RallyStateDetector:
 
             pbar.close()
 
-            # Handle edge frames at the beginning
+            # Handle edge frames
             if self.sequence_length // 2 > 0:
-                # Use first available prediction for frames before middle of first window
                 first_pred_idx = self.sequence_length // 2
                 predictions[:first_pred_idx] = predictions[first_pred_idx]
 
-            # Handle edge frames at the end
             last_pred_idx = (
                 num_frames - self.sequence_length + self.sequence_length // 2
             )
@@ -200,12 +181,9 @@ class RallyStateDetector:
         """
         Convert binary frame predictions to rally segments.
 
-        A rally segment is defined from the first frame with label 1 (start)
-        to the first frame with label 0 (end).
-
         Args:
-            predictions: Binary array of shape (num_frames,) with 0s and 1s
-            frame_numbers: List of frame numbers corresponding to predictions
+            predictions: Binary array with 0s and 1s
+            frame_numbers: List of frame numbers
 
         Returns:
             List of RallySegment objects
@@ -217,12 +195,9 @@ class RallyStateDetector:
 
         for pred, frame_num in zip(predictions, frame_numbers):
             if pred == 1 and not in_rally:
-                # Rally starts
                 in_rally = True
                 rally_start = frame_num
-
             elif pred == 0 and in_rally:
-                # Rally ends
                 rally_end = frame_num
                 segments.append(
                     RallySegment(
@@ -234,7 +209,6 @@ class RallyStateDetector:
                 rally_id += 1
                 in_rally = False
 
-        # Handle case where video ends during a rally
         if in_rally and rally_start is not None:
             segments.append(
                 RallySegment(
@@ -249,20 +223,11 @@ class RallyStateDetector:
     def _filter_short_segments(
         self, segments: List[RallySegment]
     ) -> List[RallySegment]:
-        """
-        Remove segments shorter than minimum segment length.
-
-        Args:
-            segments: List of rally segments
-
-        Returns:
-            Filtered list of segments
-        """
+        """Remove segments shorter than minimum segment length."""
         filtered = [
-            seg for seg in segments if seg.duration_frames >= self.min_segment_length
+            seg for seg in segments if seg.num_frames >= self.min_segment_length
         ]
 
-        # Reassign rally IDs
         for i, seg in enumerate(filtered):
             seg.rally_id = i
 
@@ -271,17 +236,7 @@ class RallyStateDetector:
     def _merge_nearby_segments(
         self, segments: List[RallySegment]
     ) -> List[RallySegment]:
-        """
-        Merge rally segments that are close together.
-
-        Segments separated by less than merge_gap_threshold frames are merged.
-
-        Args:
-            segments: List of rally segments (must be sorted by start_frame)
-
-        Returns:
-            List of merged segments
-        """
+        """Merge rally segments that are close together."""
         if not segments:
             return []
 
@@ -292,21 +247,17 @@ class RallyStateDetector:
             gap = next_seg.start_frame - current.end_frame
 
             if gap <= self.merge_gap_threshold:
-                # Merge segments
                 current = RallySegment(
                     rally_id=current.rally_id,
                     start_frame=current.start_frame,
                     end_frame=next_seg.end_frame,
                 )
             else:
-                # Save current and move to next
                 merged.append(current)
                 current = next_seg
 
-        # Don't forget the last segment
         merged.append(current)
 
-        # Reassign rally IDs
         for i, seg in enumerate(merged):
             seg.rally_id = i
 
@@ -314,38 +265,31 @@ class RallyStateDetector:
 
     def segment_rallies(
         self, input_data: RallySegmentationInput
-    ) -> RallySegmentationResult:
+    ) -> RallySegmentationOutput:
         """
-        Detect rally segments from ball and player trajectories using LSTM.
+        Detect rally segments from tracking DataFrame using LSTM.
 
         Args:
-            input_data: RallySegmentationInput containing ball positions and
-                       optional player positions
+            input_data: RallySegmentationInput containing DataFrame and calibration
 
         Returns:
-            RallySegmentationResult with detected rally segments
-
-        Raises:
-            ValueError: If required features are not provided in input
-            RuntimeError: If model prediction fails
-
-        Example:
-            >>> detector = RallyStateDetector()
-            >>> input_data = RallySegmentationInput(
-            ...     ball_positions=[245.3, 248.1, ...],
-            ...     frame_numbers=[0, 1, 2, ...]
-            ... )
-            >>> result = detector.segment_rallies(input_data)
-            >>> print(f"Detected {result.num_rallies} rallies")
+            RallySegmentationOutput with DataFrame (adds rally_id, is_rally_frame columns)
+            and segment list
         """
-        # Extract features using the new get_features_array method
+        df = input_data.df.copy()
+        frame_numbers = list(df.index)
+
+        # Extract features from DataFrame
         try:
-            features = input_data.get_features_array(self.features)
+            features = self._extract_features_from_df(df)
         except ValueError as e:
             raise ValueError(
-                f"Failed to extract features from input: {str(e)}\n"
+                f"Failed to extract features from DataFrame: {str(e)}\n"
                 f"Required features: {self.features}"
             )
+
+        # Handle NaN values in features (replace with interpolated values or 0)
+        features = np.nan_to_num(features, nan=0.0)
 
         # Run LSTM inference
         try:
@@ -354,18 +298,26 @@ class RallyStateDetector:
             raise RuntimeError(f"Model prediction failed: {str(e)}")
 
         # Convert predictions to segments
-        segments = self._predictions_to_segments(predictions, input_data.frame_numbers)
-
-        # Filter short segments
+        segments = self._predictions_to_segments(predictions, frame_numbers)
         segments = self._filter_short_segments(segments)
-
-        # Merge nearby segments
         segments = self._merge_nearby_segments(segments)
 
-        # Create result
-        result = RallySegmentationResult(
-            segments=segments,
-            total_frames=len(input_data.frame_numbers),
-        )
+        # Add rally columns to DataFrame
+        df["is_rally_frame"] = predictions.astype(bool)
+        df["rally_id"] = -1  # Default to -1 (not in rally)
 
-        return result
+        # Assign rally IDs to frames
+        for segment in segments:
+            mask = (df.index >= segment.start_frame) & (df.index <= segment.end_frame)
+            df.loc[mask, "rally_id"] = segment.rally_id
+
+        # Calculate statistics
+        rally_frame_count = int(df["is_rally_frame"].sum())
+
+        return RallySegmentationOutput(
+            df=df,
+            segments=segments,
+            total_frames=len(frame_numbers),
+            num_rallies=len(segments),
+            rally_frame_count=rally_frame_count,
+        )

@@ -1,31 +1,41 @@
+"""
+Player Tracker Evaluator
+
+Evaluates player tracking performance against COCO-format ground truth annotations.
+Uses the new DataFrame-based pipeline architecture.
+"""
+
 import json
 import cv2
 import numpy as np
+import pandas as pd
 from scipy.optimize import linear_sum_assignment
 from collections import defaultdict
 import os
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
+import tqdm
 
 from squashcopilot.modules.player_tracking import PlayerTracker
 from squashcopilot.modules.court_calibration import CourtCalibrator
 from squashcopilot.common.utils import load_config
 from squashcopilot.common import (
     Frame,
+    BoundingBox,
     CourtCalibrationInput,
+    CourtCalibrationOutput,
     PlayerTrackingInput,
-    PlayerTrackingResult,
     PlayerPostprocessingInput,
-    PlayerPostprocessingResult,
-    Homography,
+    PlayerPostprocessingOutput,
 )
+from squashcopilot.common.models import player_tracking_outputs_to_dataframe
 
 
 class PlayerTrackerEvaluator:
     def __init__(self, config: dict = None):
         if config is None:
             # Load the tests section from the player_tracking config
-            full_config = load_config(config_name='player_tracking')
-            config = full_config['tests']
+            full_config = load_config(config_name="player_tracking")
+            config = full_config["tests"]
         self.config = config
 
         # Get test directory path
@@ -67,19 +77,19 @@ class PlayerTrackerEvaluator:
         # Create Frame and CourtCalibrationInput
         first_frame = Frame(image=first_frame_img, frame_number=0, timestamp=0.0)
         calibration_input = CourtCalibrationInput(frame=first_frame)
-        calibration_result = self.court_calibrator.process_frame(calibration_input)
+        self.calibration: CourtCalibrationOutput = self.court_calibrator.process_frame(
+            calibration_input
+        )
 
-        if not calibration_result.calibrated:
+        if not self.calibration.calibration_success:
             raise ValueError("Failed to compute homography from first frame")
-
-        # Use floor homography for player tracking
-        self.floor_homography = calibration_result.homographies["floor"].matrix
-        self.wall_homography = calibration_result.homographies["wall"].matrix
 
         print("Homography computed successfully")
 
-        # Initialize tracker with homography
-        self.tracker = PlayerTracker(floor_homography=self.floor_homography, wall_homography=self.wall_homography)
+        # Initialize tracker with calibration
+        self.tracker = PlayerTracker()
+        self.tracker.set_calibration(self.calibration)
+
         mask = self.tracker._create_court_mask(first_frame_img.shape)
         if mask is not None:
             # Create visualization
@@ -87,7 +97,7 @@ class PlayerTrackerEvaluator:
             # Overlay mask in semi-transparent green
             mask_overlay = np.zeros_like(mask_viz)
             mask_overlay[mask > 0] = [0, 255, 0, 128]  # Green with 50% transparency
-            
+
             # Blend
             mask_viz = cv2.addWeighted(mask_viz, 1.0, mask_overlay, 0.3, 0)
 
@@ -97,7 +107,6 @@ class PlayerTrackerEvaluator:
             cv2.destroyAllWindows()
         else:
             print("Warning: Could not create court mask")
-    
 
     def reset_metrics(self):
         """Reset all tracking evaluation metrics"""
@@ -177,23 +186,27 @@ class PlayerTrackerEvaluator:
 
         return inter_area / union_area if union_area > 0 else 0
 
-    def establish_id_mapping(self, frame_result: PlayerTrackingResult, ground_truth_frame, frame_name):
-        """Establish or verify the mapping between tracker IDs and ground truth classes
+    def _establish_id_mapping(
+        self,
+        player_bboxes: Dict[int, List[float]],
+        ground_truth_frame,
+        frame_name: str,
+    ):
+        """Establish or verify the mapping between tracker IDs and ground truth classes.
 
         Args:
-            frame_result: PlayerTrackingResult with detected players
+            player_bboxes: Dict mapping player_id to bbox [x1, y1, x2, y2]
             ground_truth_frame: Ground truth annotations for this frame
             frame_name: Frame name for logging
         """
-        if len(frame_result.players) == 0 or len(ground_truth_frame) == 0:
+        if len(player_bboxes) == 0 or len(ground_truth_frame) == 0:
             return
 
-        # Build lists of player IDs and their bboxes
-        player_ids = list(frame_result.players.keys())
-        player_bboxes = [frame_result.players[pid].bbox.to_list() for pid in player_ids]
+        player_ids = list(player_bboxes.keys())
+        player_bbox_list = [player_bboxes[pid] for pid in player_ids]
 
         iou_matrix = np.zeros((len(player_ids), len(ground_truth_frame)))
-        for i, bbox in enumerate(player_bboxes):
+        for i, bbox in enumerate(player_bbox_list):
             for j, gt in enumerate(ground_truth_frame):
                 gt_bbox = gt["bbox"]
                 iou_matrix[i, j] = self.calculate_iou(bbox, gt_bbox)
@@ -220,34 +233,37 @@ class PlayerTrackerEvaluator:
                     f"(confidence: {current_confidence:.3f})"
                 )
 
-    def evaluate_frame(self, frame_result: PlayerTrackingResult, frame_name: str):
-        """Evaluate a single frame against ground truth
+    def evaluate_frame(self, player_bboxes: Dict[int, List[float]], frame_name: str):
+        """Evaluate a single frame against ground truth.
 
         Args:
-            frame_result: PlayerTrackingResult with detected players
+            player_bboxes: Dict mapping player_id to bbox [x1, y1, x2, y2]
             frame_name: Frame name for ground truth lookup
         """
         if frame_name not in self.ground_truth:
             return
 
         gt_frame = self.ground_truth[frame_name]
-        self.total_gt_boxes += len(gt_frame)
-        self.total_pred_boxes += len(frame_result.players)
 
-        self.establish_id_mapping(frame_result, gt_frame, frame_name)
+        self.total_gt_boxes += len(gt_frame)
+        self.total_pred_boxes += len(player_bboxes)
+
+        self._establish_id_mapping(player_bboxes, gt_frame, frame_name)
 
         if self.id_mapping is None:
             return
 
         # Filter players that are in the ID mapping
-        mapped_player_ids = [pid for pid in frame_result.players.keys() if pid in self.id_mapping]
+        mapped_player_ids = [
+            pid for pid in player_bboxes.keys() if pid in self.id_mapping
+        ]
 
         if len(mapped_player_ids) == 0:
             return
 
         iou_matrix = np.zeros((len(mapped_player_ids), len(gt_frame)))
         for i, player_id in enumerate(mapped_player_ids):
-            player_bbox = frame_result.players[player_id].bbox.to_list()
+            player_bbox = player_bboxes[player_id]
             for j, gt in enumerate(gt_frame):
                 iou_matrix[i, j] = self.calculate_iou(player_bbox, gt["bbox"])
 
@@ -293,7 +309,7 @@ class PlayerTrackerEvaluator:
         self.frame_results.append(
             {
                 "frame_name": frame_name,
-                "predictions": len(frame_result.players),
+                "predictions": len(player_bboxes),
                 "ground_truth": len(gt_frame),
                 "true_positives": len(matched_pred) if matched_pred else 0,
                 "id_mapping_used": self.id_mapping.copy() if self.id_mapping else None,
@@ -321,94 +337,134 @@ class PlayerTrackerEvaluator:
 
         cap.release()
 
-    def process_frames(self, use_preprocessing=False) -> List[PlayerTrackingResult]:
-        """Process frames and return tracking results"""
+    def process_frames(
+        self,
+    ) -> tuple[pd.DataFrame, Dict[int, List[Optional[BoundingBox]]]]:
+        """Process frames and return tracking results.
+
+        Returns:
+            Tuple of (DataFrame with tracking data, player_bboxes dict)
+        """
         results_list = []
 
-        print(
-            f"Processing frames (preprocessing={'ON' if use_preprocessing else 'OFF'})..."
-        )
+        # Get total frame count for progress bar
+        cap = cv2.VideoCapture(self.test_video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
 
-        for frame_idx, frame_img in enumerate(self.frame_generator()):
-            # Preprocess if enabled
-            if use_preprocessing:
-                frame_img = self.tracker.preprocess_frame(frame_img)
+        max_frames = self.config["processing"]["max_frames"]
+        if max_frames:
+            total_frames = min(total_frames, max_frames)
 
+        for frame_idx, frame_img in tqdm.tqdm(
+            enumerate(self.frame_generator()),
+            total=total_frames,
+            desc="Processing frames",
+        ):
             # Create Frame object
-            frame = Frame(image=frame_img, frame_number=frame_idx, timestamp=frame_idx / 30.0)
+            frame = Frame(
+                image=frame_img, frame_number=frame_idx, timestamp=frame_idx / 30.0
+            )
 
             # Create PlayerTrackingInput
             tracking_input = PlayerTrackingInput(
                 frame=frame,
-                floor_homography=Homography(matrix=self.floor_homography, source_plane="floor") if self.floor_homography is not None else None,
-                wall_homography=Homography(matrix=self.wall_homography, source_plane="wall") if self.wall_homography is not None else None
+                calibration=self.calibration,
             )
 
             # Track frame
-            results = self.tracker.process_frame(tracking_input)
-            results_list.append(results)
-
-            if (frame_idx + 1) % self.config["processing"]["progress_interval"] == 0:
-                print(f"Processed {frame_idx + 1} frames...")
+            output = self.tracker.process_frame(tracking_input)
+            results_list.append(output)
 
         print(f"Processing complete: {len(results_list)} frames")
-        return results_list
 
-    def apply_postprocessing(self, results_list: List[PlayerTrackingResult]) -> PlayerPostprocessingResult:
-        """Apply postprocessing to tracking results"""
-        print("Applying postprocessing (interpolation + smoothing)...")
+        # Convert to DataFrame + complex data using the model function
+        df, complex_data = player_tracking_outputs_to_dataframe(results_list)
 
-        # Extract positions history from PlayerTrackingResult objects
-        positions_history = {1: [], 2: []}
-        for results in results_list:
-            for player_id in [1, 2]:
-                if player_id in results.players:
-                    positions_history[player_id].append(results.players[player_id].position)
-                else:
-                    positions_history[player_id].append(None)
+        # Build player_bboxes dict from complex_data
+        player_bboxes = {
+            1: complex_data["player_1_bboxes"],
+            2: complex_data["player_2_bboxes"],
+        }
 
-        # Create PlayerPostprocessingInput
-        postprocessing_input = PlayerPostprocessingInput(positions_history=positions_history)
+        return df, player_bboxes
 
-        # Apply postprocessing - returns PlayerPostprocessingResult
-        postprocessing_result = self.tracker.postprocess(postprocessing_input)
-
-        print("Postprocessing complete")
-        return postprocessing_result
-
-    def evaluate_results(self, results, raw_results_list=None):
-        """Evaluate tracking results against ground truth
+    def apply_postprocessing(
+        self,
+        df: pd.DataFrame,
+        player_bboxes: Dict[int, List[Optional[BoundingBox]]],
+    ) -> PlayerPostprocessingOutput:
+        """Apply postprocessing to tracking results using DataFrame-based pipeline.
 
         Args:
-            results: Either List[PlayerTrackingResult] (raw) or PlayerPostprocessingResult (postprocessed)
-            raw_results_list: Required when results is PlayerPostprocessingResult, for bbox/confidence data
+            df: DataFrame with tracking data
+            player_bboxes: Dict mapping player_id to list of bboxes
+
+        Returns:
+            PlayerPostprocessingOutput with processed df, keypoints, and bboxes
+        """
+        print("Applying postprocessing (interpolation + smoothing)...")
+
+        # For now, keypoints are empty - can be extended later
+        player_keypoints: Dict[int, List[Optional[np.ndarray]]] = {
+            1: [None] * len(player_bboxes.get(1, [])),
+            2: [None] * len(player_bboxes.get(2, [])),
+        }
+
+        # Create PlayerPostprocessingInput
+        postprocess_input = PlayerPostprocessingInput(
+            df=df,
+            player_keypoints=player_keypoints,
+            player_bboxes=player_bboxes,
+        )
+
+        # Apply postprocessing - returns PlayerPostprocessingOutput
+        postprocess_output = self.tracker.postprocess(postprocess_input)
+
+        print(
+            f"Postprocessing complete. Gaps filled: "
+            f"P1={postprocess_output.num_player_1_gaps_filled}, "
+            f"P2={postprocess_output.num_player_2_gaps_filled}"
+        )
+        return postprocess_output
+
+    def evaluate_results(self, player_bboxes: Dict[int, List[Optional[BoundingBox]]]):
+        """Evaluate tracking results against ground truth.
+
+        Args:
+            player_bboxes: Dict mapping player_id to list of BoundingBox (one per frame)
         """
         print("Evaluating results...")
 
-        # Check if results is PlayerPostprocessingResult (postprocessed)
-        if isinstance(results, PlayerPostprocessingResult):
-            if raw_results_list is None:
-                raise ValueError("raw_results_list is required when evaluating PlayerPostprocessingResult")
+        num_frames = len(player_bboxes.get(1, []))
 
-            # Iterate through frames using raw results
-            for frame_idx, frame_result in enumerate(raw_results_list):
-                frame_name = self.frame_name_formatter(frame_idx)
-                self.evaluate_frame(frame_result, frame_name)
-        else:
-            # Raw results - List[PlayerTrackingResult]
-            for frame_idx, frame_result in enumerate(results):
-                frame_name = self.frame_name_formatter(frame_idx)
-                self.evaluate_frame(frame_result, frame_name)
+        for frame_idx in range(num_frames):
+            frame_name = self.frame_name_formatter(frame_idx)
+
+            # Extract bboxes for this frame as dict of [x1, y1, x2, y2]
+            frame_bboxes = {}
+            for player_id in [1, 2]:
+                bbox_list = player_bboxes.get(player_id, [])
+                if frame_idx < len(bbox_list) and bbox_list[frame_idx] is not None:
+                    bbox = bbox_list[frame_idx]
+                    frame_bboxes[player_id] = [bbox.x1, bbox.y1, bbox.x2, bbox.y2]
+
+            self.evaluate_frame(frame_bboxes, frame_name)
 
         print("Evaluation complete")
         return self.calculate_final_metrics()
 
-    def visualize_results(self, results, raw_results_list=None, output_path=None):
-        """Create visualization video from results
+    def visualize_results(
+        self,
+        df: pd.DataFrame,
+        player_bboxes: Dict[int, List[Optional[BoundingBox]]],
+        output_path: Optional[str] = None,
+    ):
+        """Create visualization video from results.
 
         Args:
-            results: Either List[PlayerTrackingResult] (raw) or PlayerPostprocessingResult (postprocessed)
-            raw_results_list: Required when results is PlayerPostprocessingResult, for bbox data
+            df: DataFrame with tracking data (positions)
+            player_bboxes: Dict mapping player_id to list of bboxes
             output_path: Path to save the output video
         """
         if not output_path:
@@ -434,103 +490,64 @@ class PlayerTrackerEvaluator:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-        # Check if results is PlayerPostprocessingResult (postprocessed)
-        if isinstance(results, PlayerPostprocessingResult):
-            if raw_results_list is None:
-                raise ValueError("raw_results_list is required when visualizing PlayerPostprocessingResult")
+        for frame_idx, frame in enumerate(self.frame_generator()):
+            frame_vis = frame.copy()
 
-            # Process frames with postprocessed results
-            for frame_idx, (frame, frame_result) in enumerate(
-                zip(self.frame_generator(), raw_results_list)
-            ):
-                frame_vis = frame.copy()
+            # Draw tracking visualization
+            for player_id in [1, 2]:
+                # Get position from DataFrame
+                if frame_idx in df.index:
+                    pos_x = df.loc[frame_idx, f"player_{player_id}_x_pixel"]
+                    pos_y = df.loc[frame_idx, f"player_{player_id}_y_pixel"]
+                else:
+                    pos_x = None
+                    pos_y = None
 
-                # Draw tracking visualization
-                for player_id in [1, 2]:
-                    # Get smoothed position from trajectory
-                    if player_id in results.trajectories:
-                        trajectory = results.trajectories[player_id]
-                        if frame_idx < len(trajectory.positions):
-                            smoothed_pos = trajectory.positions[frame_idx]
+                if pos_x is not None and pos_y is not None and not np.isnan(pos_x):
+                    color_key = f"player_{player_id}_color"
+                    color = tuple(self.config["visualization"][color_key])
+                    radius = self.config["visualization"]["circle_radius"]
+                    cv2.circle(frame_vis, (int(pos_x), int(pos_y)), radius, color, -1)
 
-                            color_key = f"player_{player_id}_color"
-                            color = tuple(self.config["visualization"][color_key])
-                            radius = self.config["visualization"]["circle_radius"]
-                            cv2.circle(frame_vis, (int(smoothed_pos.x), int(smoothed_pos.y)), radius, color, -1)
+                    # Get bbox
+                    bbox = None
+                    bbox_list = player_bboxes.get(player_id, [])
+                    if frame_idx < len(bbox_list):
+                        bbox = bbox_list[frame_idx]
 
-                            # Get bbox from raw results
-                            if player_id in frame_result.players:
-                                player_result = frame_result.players[player_id]
-                                bbox = player_result.bbox.to_list()
-                                thickness = self.config["visualization"]["bbox_thickness"]
-                                cv2.rectangle(
-                                    frame_vis,
-                                    (int(bbox[0]), int(bbox[1])),
-                                    (int(bbox[2]), int(bbox[3])),
-                                    color,
-                                    thickness,
-                                )
-                                cv2.putText(
-                                    frame_vis,
-                                    f"P{player_id}",
-                                    (int(bbox[0]), int(bbox[1]) - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.5,
-                                    color,
-                                    2,
-                                )
-
-                video_writer.write(frame_vis)
-        else:
-            # Raw results - List[PlayerTrackingResult]
-            for frame_idx, (frame, frame_result) in enumerate(
-                zip(self.frame_generator(), results)
-            ):
-                frame_vis = frame.copy()
-
-                # Draw tracking visualization
-                for player_id in [1, 2]:
-                    if player_id in frame_result.players:
-                        player_result = frame_result.players[player_id]
-                        color_key = f"player_{player_id}_color"
-                        color = tuple(self.config["visualization"][color_key])
-                        pos = (player_result.position.x, player_result.position.y)
-                        radius = self.config["visualization"]["circle_radius"]
-                        cv2.circle(frame_vis, (int(pos[0]), int(pos[1])), radius, color, -1)
-
-                        bbox = player_result.bbox.to_list()
+                    if bbox is not None:
                         thickness = self.config["visualization"]["bbox_thickness"]
                         cv2.rectangle(
                             frame_vis,
-                            (int(bbox[0]), int(bbox[1])),
-                            (int(bbox[2]), int(bbox[3])),
+                            (int(bbox.x1), int(bbox.y1)),
+                            (int(bbox.x2), int(bbox.y2)),
                             color,
                             thickness,
                         )
                         cv2.putText(
                             frame_vis,
                             f"P{player_id}",
-                            (int(bbox[0]), int(bbox[1]) - 10),
+                            (int(bbox.x1), int(bbox.y1) - 10),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.5,
                             color,
                             2,
                         )
 
-                video_writer.write(frame_vis)
+            video_writer.write(frame_vis)
 
         video_writer.release()
         print(f"Visualization video saved: {output_path}")
 
     def run_video(self):
         """Run complete evaluation pipeline with and without postprocessing"""
-        # Process frames once with preprocessing
+        # Process frames once
         print("\n" + "=" * 60)
         print("PROCESSING FRAMES")
         print("=" * 60)
 
         self.tracker.reset()
-        results_raw = self.process_frames(use_preprocessing=True)
+        df_raw, player_bboxes_raw = self.process_frames()
 
         # === EVALUATION WITHOUT POSTPROCESSING ===
         print("\n" + "=" * 60)
@@ -538,7 +555,7 @@ class PlayerTrackerEvaluator:
         print("=" * 60)
 
         self.reset_metrics()
-        metrics_raw = self.evaluate_results(results_raw)
+        metrics_raw = self.evaluate_results(player_bboxes_raw)
 
         # Save raw results
         if self.output_results_path:
@@ -548,22 +565,25 @@ class PlayerTrackerEvaluator:
         # Save raw visualization
         if self.output_video_path:
             raw_video_path = self.output_video_path.replace(".mp4", "_raw.mp4")
-            self.visualize_results(results_raw, output_path=raw_video_path)
+            self.visualize_results(
+                df_raw, player_bboxes_raw, output_path=raw_video_path
+            )
 
         # === APPLY POSTPROCESSING ===
         print("\n" + "=" * 60)
         print("APPLYING POSTPROCESSING")
         print("=" * 60)
 
-        results_postprocessed = self.apply_postprocessing(results_raw)
+        postprocess_output = self.apply_postprocessing(df_raw, player_bboxes_raw)
 
         # === EVALUATION WITH POSTPROCESSING ===
+        # Evaluates using interpolated bounding boxes from postprocessing
         print("\n" + "=" * 60)
         print("EVALUATION WITH POSTPROCESSING")
         print("=" * 60)
 
         self.reset_metrics()
-        metrics_postprocessed = self.evaluate_results(results_postprocessed, raw_results_list=results_raw)
+        metrics_postprocessed = self.evaluate_results(postprocess_output.player_bboxes)
 
         # Save postprocessed results
         if self.output_results_path:
@@ -577,7 +597,11 @@ class PlayerTrackerEvaluator:
             postprocessed_video_path = self.output_video_path.replace(
                 ".mp4", "_postprocessed.mp4"
             )
-            self.visualize_results(results_postprocessed, raw_results_list=results_raw, output_path=postprocessed_video_path)
+            self.visualize_results(
+                postprocess_output.df,
+                postprocess_output.player_bboxes,
+                output_path=postprocessed_video_path,
+            )
 
         return {"raw": metrics_raw, "postprocessed": metrics_postprocessed}
 

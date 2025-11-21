@@ -1,5 +1,5 @@
 # Ball Tracking Configuration
-# Configuration for ball detection, tracking, and hit detection in squash videos
+# Configuration for ball detection and tracking in squash videos
 
 # TrackNet Model Configuration
 model:
@@ -13,32 +13,16 @@ postprocessing:
     window: 20 # Rolling window size for outlier detection (frames)
     threshold: 80 # Maximum distance threshold for outlier removal (pixels)
 
-# Wall Hit Detection
-wall_hit_detection:
-    prominence: 50.0 # Minimum valley prominence for detecting wall hits
-    width: 10 # Minimum width of valleys (frames)
-    min_distance: 50 # Minimum distance between consecutive hits (frames)
-
-# Racket Hit Detection
-racket_hit_detection:
-    slope_window: 10 # Window size for slope calculation (frames)
-    slope_threshold: 3.0 # Minimum negative slope to detect racket hit
-    min_distance: 15 # Minimum distance between consecutive hits (frames)
-    lookback_frames: 50 # Number of frames to look back from wall hit
-    confidence_ratio: 0.7 # Closer player must be <70% of farther player's distance
-
 # Test Configuration
 tests:
     video:
-        input_path: data/video-3.mp4
+        video_dir: squashcopilot/videos # Video directory (relative to project root)
+        video_name: video-3 # Video name (without extension)
         max_frames: 5000
     tracking:
         trace_length: 5
         trace_color: [0, 0, 255]
         trace_thickness: 10
-    hit_detection:
-        wall_hits_enabled: true
-        racket_hits_enabled: true
     output:
         output_dir: outputs
         save_video: true

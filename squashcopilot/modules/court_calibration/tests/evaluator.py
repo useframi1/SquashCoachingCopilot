@@ -1,21 +1,29 @@
+"""
+Court Calibration Evaluator
+
+Evaluates court calibration performance and generates comprehensive visualizations
+for verifying homography accuracy.
+"""
+
 import cv2
 import numpy as np
 import os
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 
 from squashcopilot.modules.court_calibration import CourtCalibrator
 from squashcopilot.common.utils import load_config
 from squashcopilot.common import (
     Frame,
     CourtCalibrationInput,
-    CourtCalibrationResult,
-    WallColorDetectionInput,
-    WallColorResult,
+    CourtCalibrationOutput,
 )
 
 
 class CourtCalibrationEvaluator:
+    """Evaluates court calibration performance on test images."""
+
     def __init__(self, config: Optional[Dict] = None):
+        """Initialize evaluator with configuration."""
         if config is None:
             # Load the tests section from the court_calibration config
             full_config = load_config(config_name="court_calibration")
@@ -54,37 +62,23 @@ class CourtCalibrationEvaluator:
         # Compute homographies using CourtCalibrationInput
         print("Computing homography matrices...")
         calibration_input = CourtCalibrationInput(frame=self.test_frame)
-        calibration_result: CourtCalibrationResult = self.calibrator.process_frame(
+        self.calibration: CourtCalibrationOutput = self.calibrator.process_frame(
             calibration_input
         )
 
-        if not calibration_result.calibrated:
+        if not self.calibration.calibration_success:
             raise ValueError("Failed to compute floor and wall homographies")
-
-        self.homographies = calibration_result.homographies
-        self.keypoints = calibration_result.keypoints_per_class
 
         print("✓ Floor homography computed")
         print("✓ Wall homography computed")
 
-        # Detect wall color using WallColorDetectionInput
+        # Print ball color recommendation
         print("\nDetecting wall color...")
-        wall_color_input = WallColorDetectionInput(
-            frame=self.test_frame, keypoints_per_class=self.keypoints
-        )
-        wall_color_result: WallColorResult = self.calibrator.detect_wall_color(
-            wall_color_input
-        )
-
-        self.wall_color_info = wall_color_result
-
-        print(
-            f"✓ Wall color detected: {'White' if wall_color_result.is_white else 'Dark/Colored'}"
-        )
-        print(f"  Recommended ball: {wall_color_result.recommended_ball_color.upper()}")
+        ball_color = "Black" if self.calibration.is_black_ball else "White"
+        print(f"✓ Recommended ball: {ball_color.upper()}")
 
     def visualize_keypoints(self, frame: np.ndarray) -> np.ndarray:
-        """Draw detected keypoints on the frame"""
+        """Draw detected keypoints on the frame."""
         vis_frame = frame.copy()
 
         if not self.config["visualization"]["show_keypoints"]:
@@ -93,49 +87,61 @@ class CourtCalibrationEvaluator:
         color = tuple(self.config["visualization"]["keypoint_color"])
         radius = self.config["visualization"]["keypoint_radius"]
 
-        for class_name, keypoints_obj in self.keypoints.items():
-            # Extract points from Keypoints object
-            points = [
-                keypoints_obj.get_point("top_left"),
-                keypoints_obj.get_point("top_right"),
-                keypoints_obj.get_point("bottom_right"),
-                keypoints_obj.get_point("bottom_left"),
-            ]
+        # Group keypoints by class
+        keypoints_by_class = {}
+        for key, point in self.calibration.court_keypoints.items():
+            # Parse class name from key (e.g., "tin_top_left" -> "tin")
+            parts = key.rsplit("_", 2)  # Split from right to get class name
+            if len(parts) >= 3:
+                class_name = parts[0]
+                corner_type = f"{parts[-2]}_{parts[-1]}"
+            else:
+                continue
 
-            # Draw all 4 corners
-            for i, point in enumerate(points):
-                x, y = int(point.x), int(point.y)
-                cv2.circle(vis_frame, (x, y), radius, color, -1)
+            if class_name not in keypoints_by_class:
+                keypoints_by_class[class_name] = {}
+            keypoints_by_class[class_name][corner_type] = point
 
-                # Add label
-                label = f"{class_name}_{i}"
-                cv2.putText(
-                    vis_frame,
-                    label,
-                    (x + 10, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.4,
-                    color,
-                    1,
-                )
+        # Draw keypoints for each class
+        for class_name, corners in keypoints_by_class.items():
+            points = []
+            for corner_type in ["top_left", "top_right", "bottom_right", "bottom_left"]:
+                if corner_type in corners:
+                    point = corners[corner_type]
+                    points.append((point.x, point.y))
+
+                    # Draw point
+                    x, y = int(point.x), int(point.y)
+                    cv2.circle(vis_frame, (x, y), radius, color, -1)
+
+                    # Add label
+                    label = f"{class_name}_{corner_type}"
+                    cv2.putText(
+                        vis_frame,
+                        label,
+                        (x + 10, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.4,
+                        color,
+                        1,
+                    )
 
             # Draw polygon connecting the points
-            pts = np.array([[p.x, p.y] for p in points], dtype=np.int32).reshape(
-                (-1, 1, 2)
-            )
-            cv2.polylines(vis_frame, [pts], True, color, 2)
+            if len(points) == 4:
+                pts = np.array(points, dtype=np.int32).reshape((-1, 1, 2))
+                cv2.polylines(vis_frame, [pts], True, color, 2)
 
-        # Add wall color info overlay
-        self._draw_wall_color_info(vis_frame)
+        # Add ball color info overlay
+        self._draw_ball_color_info(vis_frame)
 
         return vis_frame
 
-    def _draw_wall_color_info(self, frame: np.ndarray) -> None:
-        """Draw wall color information overlay on the frame"""
+    def _draw_ball_color_info(self, frame: np.ndarray) -> None:
+        """Draw ball color information overlay on the frame."""
         # Position for the info box (top-right corner)
         margin = 20
-        box_width = 350
-        box_height = 120
+        box_width = 300
+        box_height = 80
         x = frame.shape[1] - box_width - margin
         y = margin
 
@@ -154,9 +160,7 @@ class CourtCalibrationEvaluator:
         text_y = y + 30
 
         # Wall type
-        wall_type = (
-            "WHITE WALL" if self.wall_color_info.is_white else "DARK/COLORED WALL"
-        )
+        wall_type = "WHITE WALL" if self.calibration.is_black_ball else "DARK/COLORED WALL"
         cv2.putText(
             frame,
             wall_type,
@@ -168,59 +172,23 @@ class CourtCalibrationEvaluator:
         )
 
         # Recommended ball
-        ball_text = f"Ball: {self.wall_color_info.recommended_ball_color.upper()}"
-        ball_color = (
-            (0, 0, 0)
-            if self.wall_color_info.recommended_ball_color == "black"
-            else (255, 255, 255)
-        )
+        ball_color = "BLACK" if self.calibration.is_black_ball else "WHITE"
+        ball_text = f"Recommended Ball: {ball_color}"
         cv2.putText(
             frame,
             ball_text,
             (text_x, text_y + 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            ball_color,
+            (255, 255, 255),
             2,
-        )
-
-        # Color swatch
-        swatch_size = 30
-        swatch_x = text_x
-        swatch_y = text_y + 50
-        wall_color_bgr = tuple(int(c) for c in self.wall_color_info.wall_color_bgr)
-        cv2.rectangle(
-            frame,
-            (swatch_x, swatch_y),
-            (swatch_x + swatch_size, swatch_y + swatch_size),
-            wall_color_bgr,
-            -1,
-        )
-        cv2.rectangle(
-            frame,
-            (swatch_x, swatch_y),
-            (swatch_x + swatch_size, swatch_y + swatch_size),
-            (255, 255, 255),
-            1,
-        )
-
-        # Stats
-        stats_text = f"B:{self.wall_color_info.mean_brightness:.0f}"
-        cv2.putText(
-            frame,
-            stats_text,
-            (swatch_x + swatch_size + 10, swatch_y + 20),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            1,
         )
 
     def test_inverse_transform(
         self, real_point: list, homography_type: str = "floor"
     ) -> np.ndarray:
         """
-        Apply inverse homography transform to convert real-world coordinates to pixel coordinates
+        Apply inverse homography transform to convert real-world coordinates to pixel coordinates.
 
         Args:
             real_point: [x, y] in meters
@@ -229,7 +197,12 @@ class CourtCalibrationEvaluator:
         Returns:
             Pixel coordinates [x, y]
         """
-        H = self.homographies[homography_type].matrix
+        if homography_type == "floor":
+            H = self.calibration.floor_homography
+        elif homography_type == "wall":
+            H = self.calibration.wall_homography
+        else:
+            raise ValueError(f"Unknown homography type: {homography_type}")
 
         # Compute inverse homography
         H_inv = np.linalg.inv(H)
@@ -241,7 +214,7 @@ class CourtCalibrationEvaluator:
         return pixel_pt[0][0]
 
     def visualize_test_points(self, frame: np.ndarray) -> np.ndarray:
-        """Visualize test points by applying inverse homography"""
+        """Visualize test points by applying inverse homography."""
         vis_frame = frame.copy()
 
         font_scale = self.config["visualization"]["font_scale"]
@@ -380,50 +353,53 @@ class CourtCalibrationEvaluator:
         return vis_frame
 
     def print_homography_info(self) -> None:
-        """Print information about the computed homographies"""
+        """Print information about the computed homographies."""
         print("\n" + "=" * 60)
         print("HOMOGRAPHY MATRICES")
         print("=" * 60)
 
         print("\nFloor Homography Matrix:")
-        print(self.homographies["floor"].matrix)
+        print(self.calibration.floor_homography)
 
         print("\nWall Homography Matrix:")
-        print(self.homographies["wall"].matrix)
+        print(self.calibration.wall_homography)
 
         print("\n" + "=" * 60)
-        print("WALL COLOR ANALYSIS")
+        print("BALL COLOR RECOMMENDATION")
         print("=" * 60)
 
-        print(
-            f"\nWall Type: {'WHITE' if self.wall_color_info.is_white else 'DARK/COLORED'}"
-        )
-        print(
-            f"Recommended Ball Color: {self.wall_color_info.recommended_ball_color.upper()}"
-        )
-        print(f"\nColor Statistics:")
-        print(f"   Mean RGB: {self.wall_color_info.wall_color_rgb}")
-        print(
-            f"   Mean Brightness (V): {self.wall_color_info.mean_brightness:.1f} / 255"
-        )
+        ball_color = "BLACK" if self.calibration.is_black_ball else "WHITE"
+        wall_type = "WHITE" if self.calibration.is_black_ball else "DARK/COLORED"
+        print(f"\nWall Type: {wall_type}")
+        print(f"Recommended Ball Color: {ball_color}")
 
         print("\n" + "=" * 60)
         print("DETECTED KEYPOINTS")
         print("=" * 60)
 
-        for class_name, keypoints_obj in self.keypoints.items():
+        # Group keypoints by class for display
+        keypoints_by_class = {}
+        for key, point in self.calibration.court_keypoints.items():
+            parts = key.rsplit("_", 2)
+            if len(parts) >= 3:
+                class_name = parts[0]
+                corner_type = f"{parts[-2]}_{parts[-1]}"
+            else:
+                continue
+
+            if class_name not in keypoints_by_class:
+                keypoints_by_class[class_name] = {}
+            keypoints_by_class[class_name][corner_type] = point
+
+        for class_name, corners in keypoints_by_class.items():
             print(f"\n{class_name}:")
-            points = [
-                keypoints_obj.get_point("top_left"),
-                keypoints_obj.get_point("top_right"),
-                keypoints_obj.get_point("bottom_right"),
-                keypoints_obj.get_point("bottom_left"),
-            ]
-            for i, point in enumerate(points):
-                print(f"   Point {i}: [{point.x:.1f}, {point.y:.1f}]")
+            for corner_type in ["top_left", "top_right", "bottom_right", "bottom_left"]:
+                if corner_type in corners:
+                    point = corners[corner_type]
+                    print(f"   {corner_type}: [{point.x:.1f}, {point.y:.1f}]")
 
     def save_visualization(self, output_path: Optional[str] = None) -> np.ndarray:
-        """Save visualization with detected keypoints and test points"""
+        """Save visualization with detected keypoints and test points."""
         if output_path is None:
             output_path = self.output_image_path
 
@@ -442,7 +418,7 @@ class CourtCalibrationEvaluator:
         return vis_frame
 
     def run_evaluation(self) -> np.ndarray:
-        """Run complete evaluation pipeline"""
+        """Run complete evaluation pipeline."""
         print("\n" + "=" * 60)
         print("COURT CALIBRATION EVALUATION")
         print("=" * 60)

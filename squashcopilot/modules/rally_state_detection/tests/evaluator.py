@@ -8,12 +8,14 @@ import cv2
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
+
 from tqdm import tqdm
 
 from squashcopilot.common.utils import load_config
-from squashcopilot.common.models.rally import (
+from squashcopilot.common import (
     RallySegmentationInput,
+    RallySegmentationOutput,
     RallySegment,
 )
 from squashcopilot.modules.rally_state_detection import RallyStateDetector
@@ -22,16 +24,21 @@ from squashcopilot.modules.rally_state_detection import RallyStateDetector
 class RallyStateEvaluator:
     """Evaluates and visualizes rally state detection performance."""
 
-    def __init__(self, config_name: str = "rally_state_detection"):
+    def __init__(self, config: Optional[Dict] = None):
         """
         Initialize evaluator with configuration.
 
         Args:
-            config_name: Name of the configuration file (without .yaml extension)
+            config: Configuration dictionary. If None, loads from rally_state_detection.yaml
         """
-        full_config = load_config(config_name=config_name)
-        self.config = full_config["evaluator"]
-        self.annotation_config = full_config["annotation"]
+        if config is None:
+            full_config = load_config(config_name="rally_state_detection")
+            self.config = full_config["tests"]
+            self.annotation_config = full_config["annotation"]
+        else:
+            self.config = config.get("tests", config)
+            self.annotation_config = config.get("annotation", {})
+
         self.video_name = self.config["video_name"]
         self.boundary_tolerance = self.config["boundary_tolerance"]
 
@@ -52,14 +59,14 @@ class RallyStateEvaluator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize detector
-        self.detector = RallyStateDetector(config=full_config)
+        self.detector = RallyStateDetector()
 
     def load_annotations(self) -> pd.DataFrame:
         """
         Load rally state annotations from CSV file.
 
         Returns:
-            DataFrame with frame, ball_y, and rally state labels
+            DataFrame with frame as index and ball/player coordinates
         """
         csv_path = self.data_dir / f"{self.video_name}_annotations.csv"
 
@@ -69,6 +76,10 @@ class RallyStateEvaluator:
         df = pd.read_csv(csv_path)
         print(f"Loaded {len(df)} annotated frames from {csv_path}")
 
+        # Set frame as index if not already
+        if "frame" in df.columns:
+            df = df.set_index("frame")
+
         return df
 
     def extract_ground_truth_segments(self, df: pd.DataFrame) -> List[RallySegment]:
@@ -76,20 +87,23 @@ class RallyStateEvaluator:
         Extract ground truth rally segments from annotations.
 
         Args:
-            df: DataFrame with frame and rally_state columns
+            df: DataFrame with rally_state column
 
         Returns:
             List of RallySegment objects representing ground truth
         """
-        label_col = self.annotation_config["label_column"]
+        label_col = self.annotation_config.get("label_column", "rally_state")
         segments = []
         rally_id = 0
         in_rally = False
         rally_start = None
 
-        for i, row in df.iterrows():
-            frame = row["frame"]
-            state = row[label_col]
+        # Reset index to iterate over frames
+        df_iter = df.reset_index()
+
+        for i, row in df_iter.iterrows():
+            frame = row["frame"] if "frame" in row else row.name
+            state = row.get(label_col, None)
 
             if state == "start" and not in_rally:
                 # Start of rally
@@ -102,8 +116,8 @@ class RallyStateEvaluator:
                 segments.append(
                     RallySegment(
                         rally_id=rally_id,
-                        start_frame=rally_start,
-                        end_frame=rally_end,
+                        start_frame=int(rally_start),
+                        end_frame=int(rally_end),
                     )
                 )
                 rally_id += 1
@@ -112,11 +126,16 @@ class RallyStateEvaluator:
 
         # Handle case where annotation ends during a rally
         if in_rally and rally_start is not None:
+            last_frame = (
+                df_iter["frame"].iloc[-1]
+                if "frame" in df_iter.columns
+                else df_iter.index[-1]
+            )
             segments.append(
                 RallySegment(
                     rally_id=rally_id,
-                    start_frame=rally_start,
-                    end_frame=df["frame"].iloc[-1],
+                    start_frame=int(rally_start),
+                    end_frame=int(last_frame),
                 )
             )
 
@@ -204,8 +223,10 @@ class RallyStateEvaluator:
         )
 
         boundary_accuracy = (
-            start_boundary_matches + end_boundary_matches
-        ) / total_boundaries
+            (start_boundary_matches + end_boundary_matches) / total_boundaries
+            if total_boundaries > 0
+            else 0.0
+        )
 
         return {
             "precision": precision,
@@ -232,11 +253,11 @@ class RallyStateEvaluator:
             df: DataFrame with annotations
             predicted_segments: Predicted rally segments
             ground_truth_segments: Ground truth segments
-            preprocessed_trajectory: Smoothed ball trajectory
         """
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 10), sharex=True)
 
-        frames = df["frame"].values
+        # Get frame numbers from index
+        frames = df.index.values
 
         # Top plot: Ball trajectory with ground truth
         ax1.plot(
@@ -308,12 +329,14 @@ class RallyStateEvaluator:
 
     def create_annotated_video(
         self,
+        df: pd.DataFrame,
         predicted_segments: List[RallySegment],
     ):
         """
-        Create an annotated video showing rally states.
+        Create an annotated video showing rally states for evaluated frames only.
 
         Args:
+            df: DataFrame with annotations (used to determine frame range)
             predicted_segments: Predicted rally segments
         """
         # Use the video path from config
@@ -335,9 +358,16 @@ class RallyStateEvaluator:
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        print(f"Video properties: {width}x{height} @ {fps}fps, {total_frames} frames")
+        # Get frame range from annotations
+        start_frame = int(df.index.min())
+        end_frame = int(df.index.max())
+        num_frames_to_process = end_frame - start_frame + 1
+
+        print(f"Video properties: {width}x{height} @ {fps}fps")
+        print(
+            f"Processing frames {start_frame} to {end_frame} ({num_frames_to_process} frames)"
+        )
 
         # Create output video writer
         output_path = self.output_dir / f"{self.video_name}_annotated.mp4"
@@ -350,11 +380,15 @@ class RallyStateEvaluator:
             for frame_num in range(segment.start_frame, segment.end_frame + 1):
                 frame_to_state[frame_num] = "Rally Active"
 
-        # Process each frame with progress bar
-        frame_idx = 0
-        pbar = tqdm(total=total_frames, desc="Creating annotated video", unit="frame")
+        # Seek to start frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        while True:
+        # Process frames with progress bar
+        pbar = tqdm(
+            total=num_frames_to_process, desc="Creating annotated video", unit="frame"
+        )
+
+        for frame_idx in range(start_frame, end_frame + 1):
             ret, frame = cap.read()
             if not ret:
                 break
@@ -415,8 +449,6 @@ class RallyStateEvaluator:
 
             # Write frame to output video
             out.write(frame)
-
-            frame_idx += 1
             pbar.update(1)
 
         pbar.close()
@@ -438,7 +470,7 @@ class RallyStateEvaluator:
         print("EVALUATION METRICS")
         print("=" * 70)
         print(f"Video: {self.video_name}")
-        print(f"Boundary Tolerance: ±{self.boundary_tolerance} frames")
+        print(f"Boundary Tolerance: +/-{self.boundary_tolerance} frames")
         print()
         print(f"Ground Truth Rallies: {metrics['ground_truth_rallies']}")
         print(f"Predicted Rallies: {metrics['predicted_rallies']}")
@@ -453,11 +485,49 @@ class RallyStateEvaluator:
         print()
         print(f"Boundary Accuracy: {metrics['boundary_accuracy']:.4f}")
         print(
-            f"  (Percentage of rally boundaries within ±{self.boundary_tolerance} frames)"
+            f"  (Percentage of rally boundaries within +/-{self.boundary_tolerance} frames)"
         )
         print("=" * 70)
 
-    def run(self):
+    def save_metrics(
+        self, metrics: Dict[str, float], output_path: Optional[Path] = None
+    ):
+        """
+        Save evaluation metrics to a text file.
+
+        Args:
+            metrics: Dictionary with evaluation metrics
+            output_path: Path to save metrics file
+        """
+        if output_path is None:
+            output_path = self.output_dir / f"{self.video_name}_metrics.txt"
+
+        with open(output_path, "w") as f:
+            f.write("=" * 60 + "\n")
+            f.write(f"RALLY STATE DETECTION METRICS - {self.video_name}\n")
+            f.write("=" * 60 + "\n\n")
+
+            f.write("CONFIGURATION:\n")
+            f.write(f"   Boundary Tolerance: +/-{self.boundary_tolerance} frames\n\n")
+
+            f.write("SEGMENT COUNTS:\n")
+            f.write(f"   Ground Truth Rallies: {metrics['ground_truth_rallies']}\n")
+            f.write(f"   Predicted Rallies: {metrics['predicted_rallies']}\n\n")
+
+            f.write("DETECTION RESULTS:\n")
+            f.write(f"   True Positives:  {metrics['true_positives']}\n")
+            f.write(f"   False Positives: {metrics['false_positives']}\n")
+            f.write(f"   False Negatives: {metrics['false_negatives']}\n\n")
+
+            f.write("METRICS:\n")
+            f.write(f"   Precision: {metrics['precision']:.4f}\n")
+            f.write(f"   Recall:    {metrics['recall']:.4f}\n")
+            f.write(f"   F1 Score:  {metrics['f1_score']:.4f}\n")
+            f.write(f"   Boundary Accuracy: {metrics['boundary_accuracy']:.4f}\n")
+
+        print(f"Metrics saved to: {output_path}")
+
+    def run_evaluation(self) -> Dict:
         """Run the complete evaluation pipeline."""
         print("=" * 70)
         print("RALLY STATE DETECTION EVALUATOR")
@@ -468,53 +538,55 @@ class RallyStateEvaluator:
         df = self.load_annotations()
 
         # Extract ground truth segments
-        print(f"Extracting ground truth rally segments...")
+        print("Extracting ground truth rally segments...")
         ground_truth_segments = self.extract_ground_truth_segments(df)
         print(f"Found {len(ground_truth_segments)} ground truth rallies")
 
-        # Prepare input for detector
-        print(f"\nRunning rally segmentation...")
+        # Prepare input for detector using DataFrame-based model
+        print("\nRunning rally segmentation...")
+
+        # Create a mock calibration (not needed for rally detection features)
+        # The detector only uses ball_y and player meter coordinates
         input_data = RallySegmentationInput(
-            ball_positions=df["ball_y"].tolist(),
-            frame_numbers=df["frame"].tolist(),
-            player_1_x=df["player_1_x_meter"].tolist(),
-            player_1_y=df["player_1_y_meter"].tolist(),
-            player_2_x=df["player_2_x_meter"].tolist(),
-            player_2_y=df["player_2_y_meter"].tolist(),
+            df=df,
+            calibration=None,  # Not needed for rally detection
         )
 
         # Run detector
-        result = self.detector.segment_rallies(input_data)
-        print(f"Detected {len(result.segments)} rallies")
+        result: RallySegmentationOutput = self.detector.segment_rallies(input_data)
+        print(f"Detected {result.num_rallies} rallies")
 
         # Compute metrics
-        print(f"\nComputing evaluation metrics...")
+        print("\nComputing evaluation metrics...")
         metrics = self.compute_metrics(result.segments, ground_truth_segments)
 
         # Print metrics
         self.print_metrics(metrics)
 
+        # Save metrics
+        self.save_metrics(metrics)
+
         # Plot comparison
-        print(f"\nGenerating comparison plot...")
+        print("\nGenerating comparison plot...")
         self.plot_comparison(df, result.segments, ground_truth_segments)
 
         # Create annotated video
-        print(f"\nCreating annotated video...")
-        self.create_annotated_video(result.segments)
+        print("\nCreating annotated video...")
+        self.create_annotated_video(df, result.segments)
 
         print("\n" + "=" * 70)
-        print("✓ Evaluation complete!")
-        print(f"✓ Output saved to: {self.output_dir}")
+        print("Evaluation complete!")
+        print(f"Output saved to: {self.output_dir}")
         print("=" * 70)
 
-        return metrics
-
-
-def main():
-    """Main entry point."""
-    evaluator = RallyStateEvaluator()
-    evaluator.run()
+        return {
+            "metrics": metrics,
+            "predicted_segments": result.segments,
+            "ground_truth_segments": ground_truth_segments,
+            "result": result,
+        }
 
 
 if __name__ == "__main__":
-    main()
+    evaluator = RallyStateEvaluator()
+    evaluator.run_evaluation()

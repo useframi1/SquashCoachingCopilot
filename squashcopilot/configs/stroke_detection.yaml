@@ -4,7 +4,7 @@
 # Inference Configuration
 inference:
     method: lstm
-    model_path: squashcopilot/modules/stroke_detection/model/weights/lstm_model.pt
+    model_path: squashcopilot/modules/stroke_detection/model/weights/stroke_lstm_best.pt
 
 # Normalization Settings
 normalization:
@@ -16,14 +16,6 @@ annotation:
     video_name: video-1 # Name of the video to annotate (e.g., video-1, video-2, etc.)
     annotations_dir: squashcopilot/annotation/annotations # Directory containing annotation folders
     output_dir: squashcopilot/modules/stroke_detection/stroke_annotations # Directory to save annotated stroke data
-
-# Evaluator Configuration
-evaluator:
-    video_name: video-3 # Video to evaluate on
-    data_dir: squashcopilot/modules/stroke_detection/tests/data # Directory with test annotations
-    output_dir: squashcopilot/modules/stroke_detection/tests/outputs # Directory to save evaluation results
-    ground_truth_path: null # Optional: path to ground truth stroke labels CSV (if separate from annotations)
-    create_video: true # Whether to create annotated video with predictions
 
 # Training Configuration
 training:
@@ -40,3 +32,10 @@ training:
         hidden_size: 128
         num_layers: 2 # Number of LSTM layers
         dropout: 0.3
+
+tests:
+    video_name: video-3 # Video to evaluate on
+    video_dir: squashcopilot/videos # Directory containing video files
+    data_dir: squashcopilot/modules/stroke_detection/tests/data # Directory with test annotations
+    output_dir: squashcopilot/modules/stroke_detection/tests/outputs # Directory to save evaluation results
+    create_video: true # Whether to create annotated video with predictions

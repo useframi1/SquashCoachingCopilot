@@ -64,6 +64,7 @@ packages = [
     "squashcopilot.modules.ball_tracking",
     "squashcopilot.modules.ball_tracking.model",
     "squashcopilot.modules.court_calibration",
+    "squashcopilot.modules.hit_detection",
     "squashcopilot.modules.player_tracking",
     "squashcopilot.modules.player_tracking.model",
     "squashcopilot.modules.rally_state_detection",
@@ -75,7 +76,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-"squashcopilot" = ["configs/*.yaml", "configs/tests/*.yaml"]
+"squashcopilot" = ["configs/*.yaml"]
 "squashcopilot.modules.ball_tracking" = ["model/weights/*.pt"]
 "squashcopilot.modules.player_tracking" = ["model/weights/*.pt"]
 "squashcopilot.modules.rally_state_detection" = ["model/weights/*.pkl"]
@@ -92,6 +93,7 @@ exclude = '''
   | __pycache__
   | build
   | dist
+  | tests
 )/
 '''
 

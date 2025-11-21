@@ -1,46 +1,90 @@
-# Annotation Module Configuration
-# Configuration for video annotation pipeline
+# Annotation Configuration
+# Configuration for the video annotation pipeline (generates training data with keypoints)
 
-# Video Settings
+# Input Video
 video:
-    name: video-1.mp4 # Name of the video file to annotate (in annotation/data/)
-    max_time: 300 # Maximum duration to process in seconds (null = process entire video)
-
-# Visualization Settings
-visualization:
-    ball_trail_length: 5 # Number of previous ball positions to show in trajectory
-    player_colors: # BGR colors for each player
-        player_1: [0, 255, 0] # Green
-        player_2: [255, 0, 0] # Blue
-    ball_color: [255, 255, 255] # White (BGR)
-    court_color: [255, 255, 0] # Cyan (BGR)
-    wall_hit_color: [0, 0, 255] # Red (BGR)
-    racket_hit_color: [255, 0, 255] # Magenta (BGR)
-
-    # Hit marker settings
-    wall_hit_marker:
-        circle_radius: 20
-        text: "WALL HIT"
-        text_position: [50, 50]
-
-    racket_hit_marker:
-        circle_radius: 25
-        text: "RACKET HIT"
-        text_position: [50, 100]
-
-    # Drawing parameters
-    bbox_thickness: 2
-    skeleton_thickness: 2
-    court_thickness: 2
-    keypoint_radius: 3
-    keypoint_confidence_threshold: 0.5
-    font: 0 # cv2.FONT_HERSHEY_SIMPLEX
-    font_scale: 1.5
-    font_thickness: 3
-    label_font_scale: 0.7
-    label_font_thickness: 2
+    name: video-1 # Name of the video file to annotate (without extension)
+    video_dir: squashcopilot/videos # Directory containing video files (relative to project root)
+    # Processing limits
+    max_time: 3 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:
-    video_codec: mp4v # FourCC codec for output video
-    csv_index: false # Whether to include index in CSV output
+    # Output directory for annotations (relative to annotation module)
+    base_directory: annotations
+
+    # Output filenames (supports {video_name} placeholder)
+    csv_filename: "{video_name}_annotations.csv"
+    video_filename: "{video_name}_annotated.mp4"
+
+    # Control which outputs to generate
+    save_annotated_video: true
+    save_csv: true
+
+    # CSV settings
+    csv_index: true # Include frame index in CSV
+
+    # Video codec for output video (mp4v, avc1, etc.)
+    video_codec: mp4v
+
+# Visualization Settings
+visualization:
+    # Court elements
+    draw_court_lines: true
+    court_line_color: [255, 255, 0] # Cyan
+    court_line_thickness: 2
+
+    # Player visualization
+    draw_player_boxes: true
+    draw_player_keypoints: true
+    draw_player_skeleton: true
+    player_colors:
+        player_1: [0, 255, 0] # Green (BGR)
+        player_2: [255, 0, 0] # Blue (BGR)
+    bbox_thickness: 2
+    keypoint_radius: 4
+    skeleton_thickness: 2
+
+    # Ball visualization
+    draw_ball: true
+    draw_ball_trajectory: true
+    ball_color: [0, 255, 255] # Yellow (BGR)
+    ball_radius: 6
+    ball_trajectory_length: 30 # Number of frames to show in trajectory
+    ball_trajectory_color: [0, 200, 200] # Faded yellow
+
+    # Hit markers
+    draw_hit_markers: true
+    wall_hit_color: [0, 0, 255] # Red (BGR)
+    racket_hit_color: [255, 0, 255] # Magenta (BGR)
+    hit_marker_radius: 20
+    hit_marker_duration: 30 # frames to show marker
+
+    # Rally information
+    show_rally_info: true
+    rally_info_position: [20, 40] # [x, y] in pixels
+    rally_info_color: [255, 255, 255] # White
+    rally_info_font_scale: 0.8
+
+    # Stroke labels
+    show_stroke_labels: true
+    stroke_label_duration: 45 # frames to show label after racket hit
+    stroke_label_color: [0, 255, 0] # Green
+    stroke_label_font_scale: 0.7
+
+    # Shot labels
+    show_shot_labels: true
+    shot_label_duration: 45 # frames to show label
+    shot_label_color: [255, 0, 255] # Magenta
+    shot_label_font_scale: 0.7
+
+    # Font settings
+    font: 0 # cv2.FONT_HERSHEY_SIMPLEX
+    font_thickness: 2
+    label_font_scale: 0.6
+    label_font_thickness: 2
+
+# Logging Configuration
+logging:
+    level: INFO # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    show_progress: true

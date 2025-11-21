@@ -17,7 +17,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from tqdm import tqdm
 
 from squashcopilot.common.utils import load_config
-from squashcopilot.modules.rally_state_detection.models.lstm_model import (
+from squashcopilot.modules.rally_state_detection.model.lstm_model import (
     RallyStateLSTM,
 )
 

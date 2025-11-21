@@ -1,0 +1,49 @@
+# Hit Detection Configuration
+# Configuration for wall and racket hit detection in squash videos
+
+# Wall Hit Detection
+wall_hit_detection:
+    prominence: 50.0 # Minimum valley prominence for detecting wall hits
+    width: 10 # Minimum width of valleys (frames)
+    min_distance: 50 # Minimum distance between consecutive hits (frames)
+
+# Racket Hit Detection
+racket_hit_detection:
+    slope_window: 10 # Window size for slope calculation (frames)
+    slope_threshold: 3.0 # Minimum negative slope to detect racket hit
+    min_distance: 15 # Minimum distance between consecutive hits (frames)
+    lookback_frames: 50 # Number of frames to look back from wall hit
+    confidence_ratio: 0.7 # Closer player must be <70% of farther player's distance
+
+# Test Configuration
+tests:
+    # Input data configuration
+    data:
+        annotations_dir: squashcopilot/annotation/annotations # Path to annotations directory (relative to project root)
+        video_dir: squashcopilot/videos # Path to video directory (relative to project root)
+        video: video-3 # Video to evaluate
+
+    # Hit detection visualization
+    visualization:
+        wall_hit_color: [0, 255, 0] # Green
+        racket_hit_color: [255, 0, 0] # Red (BGR)
+        ball_color: [0, 0, 255] # Blue
+        trace_length: 10 # Number of frames to show ball trace
+        marker_radius: 15 # Radius of hit markers
+        marker_thickness: 3 # Thickness of hit markers
+        font_scale: 0.6
+        font_thickness: 2
+
+    # Processing options
+    processing:
+        max_frames: null # Maximum frames to process (null for all)
+        show_preview: false # Show preview window during processing
+
+    # Output configuration
+    output:
+        output_dir: outputs # Relative to tests directory
+        save_video: true # Save annotated video with hit markers
+        save_plots: true # Save position plots with hit markers
+        save_metrics: true # Save evaluation metrics
+        video_codec: mp4v
+        plot_dpi: 300

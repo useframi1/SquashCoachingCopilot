@@ -1,0 +1,30 @@
+============================================================
+HIT DETECTION RESULTS - video-3
+============================================================
+
+OVERALL STATISTICS:
+   Total frames: 18000
+   Total wall hits: 172
+   Total racket hits: 165
+
+PER-RALLY STATISTICS:
+   Rally 0:
+      Frames: 0 - 17999 (18000 frames)
+      Wall hits: 172
+      Racket hits: 165
+
+DETECTOR CONFIGURATION:
+   Wall Hit Detection:
+      Prominence: 50.0
+      Width: 10
+      Min distance: 50
+   Racket Hit Detection:
+      Slope window: 10
+      Slope threshold: 3.0
+      Lookback frames: 50
+      Min distance: 15
+      Confidence ratio: 0.7
+
+PLAYER ATTRIBUTION:
+   Player 1 racket hits: 80
+   Player 2 racket hits: 85

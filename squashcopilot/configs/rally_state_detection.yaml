@@ -6,7 +6,7 @@ inference:
     method: lstm
 
     # Path to trained LSTM model weights (relative to project root)
-    model_path: squashcopilot/modules/rally_state_detection/models/weights/rally_state_lstm_best.pt
+    model_path: squashcopilot/modules/rally_state_detection/model/weights/rally_state_lstm_best.pt
 
     # Post-processing parameters
     min_segment_length: 120 # Minimum frames for a valid rally segment
@@ -20,7 +20,7 @@ annotation:
     annotations_dir: squashcopilot/annotation/annotations
 
     # Directory containing video files
-    video_dir: squashcopilot/annotation/data
+    video_dir: squashcopilot/videos
 
     # Output directory for annotated CSV files
     output_dir: squashcopilot/modules/rally_state_detection/tests/data
@@ -41,23 +41,6 @@ annotation:
     labels:
         start: start
         end: end
-
-evaluator:
-    # Video name to evaluate
-    video_name: video-5
-
-    # Directory containing annotated CSV files
-    data_dir: squashcopilot/modules/rally_state_detection/tests/data
-
-    # Directory containing video files
-    video_dir: squashcopilot/annotation/data
-
-    # Output directory for plots and results
-    output_dir: squashcopilot/modules/rally_state_detection/tests/outputs
-
-    # Tolerance for boundary matching (in frames)
-    # A predicted boundary within +/- tolerance of ground truth is considered correct
-    boundary_tolerance: 60
 
 # LSTM Training Configuration
 training:
@@ -113,3 +96,20 @@ training:
     # Model saving
     model_save_path: squashcopilot/modules/rally_state_detection/models/weights
     checkpoint_name: rally_state_lstm.pt
+
+tests:
+    # Video name to evaluate
+    video_name: video-5
+
+    # Directory containing annotated CSV files
+    data_dir: squashcopilot/modules/rally_state_detection/tests/data
+
+    # Directory containing video files
+    video_dir: squashcopilot/videos
+
+    # Output directory for plots and results
+    output_dir: squashcopilot/modules/rally_state_detection/tests/outputs
+
+    # Tolerance for boundary matching (in frames)
+    # A predicted boundary within +/- tolerance of ground truth is considered correct
+    boundary_tolerance: 60

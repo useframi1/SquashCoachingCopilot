@@ -1,98 +1,85 @@
 """
-Data models for the squash coaching copilot system.
+Data models for the squash coaching copilot pipeline.
+
+This module exports all data models for the DataFrame-based pipeline architecture.
 """
 
-# Ball detection models
-from .ball import (
-    BallTrackingInput,
-    BallDetectionResult,
-    BallPostprocessingInput,
-    BallTrajectory,
-    WallHitInput,
-    WallHit,
-    WallHitDetectionResult,
-    RacketHitInput,
-    RacketHit,
-    RacketHitDetectionResult,
-)
-
-# Court detection models
-from .court import (
+from .models import (
+    # Video metadata
+    VideoMetadata,
+    # Stage 1: Court Calibration
     CourtCalibrationInput,
-    CourtCalibrationResult,
-    WallColorDetectionInput,
-    WallColorResult,
-)
-
-# Player tracking models
-from .player import (
-    PlayerKeypointsData,
+    CourtCalibrationOutput,
+    # Stage 2a: Player Tracking
     PlayerTrackingInput,
-    PlayerDetectionResult,
-    PlayerTrackingResult,
+    PlayerTrackingOutput,
+    player_tracking_output_to_dict,
+    player_tracking_outputs_to_dataframe,
     PlayerPostprocessingInput,
-    PlayerTrajectory,
-    PlayerPostprocessingResult,
-)
-
-# Rally state models
-from .rally import (
-    RallySegmentationInput,
+    PlayerPostprocessingOutput,
+    # Stage 2b: Ball Tracking
+    BallTrackingInput,
+    BallTrackingOutput,
+    ball_tracking_output_to_dict,
+    ball_tracking_outputs_to_dataframe,
+    BallPostprocessingInput,
+    BallPostprocessingOutput,
+    # Stage 4: Rally Segmentation
     RallySegment,
-    RallySegmentationResult,
-)
-
-# Stroke detection models
-from .stroke import (
-    StrokeDetectionInput,
-    StrokeResult,
-    StrokeDetectionResult,
-)
-
-# Shot classification models
-from .shot import (
+    RallySegmentationInput,
+    RallySegmentationOutput,
+    # Stage 5a: Wall Hit Detection
+    WallHitDetectionInput,
+    WallHitDetectionOutput,
+    # Stage 5b: Racket Hit Detection
+    RacketHitDetectionInput,
+    RacketHitDetectionOutput,
+    # Stage 6a: Stroke Classification
+    StrokeClassificationInput,
+    StrokeClassificationOutput,
+    # Stage 6b: Shot Classification
     ShotClassificationInput,
-    ShotResult,
-    ShotClassificationResult,
-    ShotStatistics,
+    ShotClassificationOutput,
+    # Pipeline Session
+    PipelineSession,
 )
 
 __all__ = [
-    # Ball
-    "BallTrackingInput",
-    "BallDetectionResult",
-    "BallPostprocessingInput",
-    "BallTrajectory",
-    "WallHitInput",
-    "WallHit",
-    "WallHitDetectionResult",
-    "RacketHitInput",
-    "RacketHit",
-    "RacketHitDetectionResult",
-    # Court
+    # Video metadata
+    "VideoMetadata",
+    # Stage 1: Court Calibration
     "CourtCalibrationInput",
-    "CourtCalibrationResult",
-    "WallColorDetectionInput",
-    "WallColorResult",
-    # Player
-    "PlayerKeypointsData",
+    "CourtCalibrationOutput",
+    # Stage 2a: Player Tracking
     "PlayerTrackingInput",
-    "PlayerDetectionResult",
-    "PlayerTrackingResult",
+    "PlayerTrackingOutput",
+    "player_tracking_output_to_dict",
+    "player_tracking_outputs_to_dataframe",
     "PlayerPostprocessingInput",
-    "PlayerTrajectory",
-    "PlayerPostprocessingResult",
-    # Rally
-    "RallySegmentationInput",
+    "PlayerPostprocessingOutput",
+    # Stage 2b: Ball Tracking
+    "BallTrackingInput",
+    "BallTrackingOutput",
+    "ball_tracking_output_to_dict",
+    "ball_tracking_outputs_to_dataframe",
+    "BallPostprocessingInput",
+    "BallPostprocessingOutput",
+    # Stage 4: Rally Segmentation
     "RallySegment",
-    "RallySegmentationResult",
-    # Stroke
-    "StrokeDetectionInput",
-    "StrokeResult",
-    "StrokeDetectionResult",
-    # Shot
+    "RallySegmentationInput",
+    "RallySegmentationOutput",
+    # Stage 5a: Wall Hit Detection
+    "WallHitDetectionInput",
+    "WallHitDetectionOutput",
+    # Stage 5b: Racket Hit Detection
+    "RacketHitDetectionInput",
+    "RacketHitDetectionOutput",
+    # Stage 6a: Stroke Classification
+    "StrokeClassificationInput",
+    "StrokeClassificationOutput",
+    # Stage 6b: Shot Classification
     "ShotClassificationInput",
-    "ShotResult",
-    "ShotClassificationResult",
-    "ShotStatistics",
+    "ShotClassificationOutput",
+    # Pipeline Session
+    "PipelineSession",
 ]

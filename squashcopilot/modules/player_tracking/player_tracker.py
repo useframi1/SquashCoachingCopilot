@@ -1,51 +1,55 @@
+"""
+Player tracking module for the squash coaching copilot.
+
+Uses YOLO for detection and ResNet50 for re-identification.
+Outputs flat structure compatible with DataFrame-based pipeline.
+"""
+
 import cv2
 import numpy as np
+import pandas as pd
 import torch
 from collections import deque
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 from ultralytics import YOLO
 from torchvision.models import resnet50, ResNet50_Weights
-from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
 import os
 
 from squashcopilot.common.utils import load_config, get_package_dir
-
-from squashcopilot.common import (
-    Point2D,
-    BoundingBox,
+from squashcopilot.common.types.geometry import BoundingBox, Point2D
+from squashcopilot.common.models import (
     PlayerTrackingInput,
-    PlayerDetectionResult,
-    PlayerTrackingResult,
-    PlayerKeypointsData,
+    PlayerTrackingOutput,
     PlayerPostprocessingInput,
-    PlayerTrajectory,
-    PlayerPostprocessingResult,
+    PlayerPostprocessingOutput,
+    CourtCalibrationOutput,
 )
+from squashcopilot.common.constants import BODY_KEYPOINT_INDICES
+
+
 
 
 class PlayerTracker:
     """
-    A clean, modular tracker for identifying and tracking two squash players.
-    Returns the bottom-center position of each player's bounding box.
+    Player tracker for identifying and tracking two squash players.
+    Returns flat structure for DataFrame integration.
     """
 
     def __init__(
         self,
         config: dict = None,
-        floor_homography: np.ndarray = None,
-        wall_homography: np.ndarray = None,
+        calibration: CourtCalibrationOutput = None,
     ):
         """
         Initialize the player tracker.
+
         Args:
-            config (dict): Configuration dictionary. If None, loads from 'config.json'.
-            floor_homography (np.ndarray): 3x3 floor_homography matrix for court coordinate transformation.
-            wall_homography (np.ndarray): 3x3 wall_homography matrix for court coordinate transformation.
+            config: Configuration dictionary. If None, loads from config.json.
+            calibration: Court calibration output with homographies.
         """
         self.config = config if config else load_config(config_name="player_tracking")
-        self.floor_homography = floor_homography
-        self.wall_homography = wall_homography
+        self.calibration = calibration
         self.court_mask = None
         self.max_history = self.config["tracker"]["max_history"]
         self.reid_threshold = self.config["tracker"]["reid_threshold"]
@@ -76,401 +80,86 @@ class PlayerTracker:
             else False
         )
 
-        # Load ResNet50 and modify on CPU first, then move to device
+        # Load ResNet50 for re-identification
         self.reid_model = resnet50(weights=ResNet50_Weights.DEFAULT)
         in_features = self.reid_model.fc.in_features
         feature_size = self.config["models"]["reid_feature_size"]
         self.reid_model.fc = torch.nn.Linear(in_features, feature_size)
-
-        # Move entire model to device and set to eval mode
         self.reid_model = self.reid_model.to(self.device)
         self.reid_model.eval()
 
-    def _get_floor_from_homography(self, floor_homography):
-        """Get full court boundaries using floor_homography."""
+    def set_calibration(self, calibration: CourtCalibrationOutput):
+        """Update calibration data."""
+        self.calibration = calibration
+        self.court_mask = None  # Reset mask to be recreated
+
+    def _get_floor_from_homography(self) -> np.ndarray:
+        """Get full court boundaries using floor homography."""
+        if self.calibration is None or self.calibration.floor_homography is None:
+            return None
+
         # Full court in real coordinates (squash court dimensions in meters)
         court_real = np.array(
             [[0, 9.75], [6.4, 9.75], [6.4, 0], [0, 0]], dtype=np.float32
         )
 
-        # Inverse transform to get pixel coordinates
-        H_inv = np.linalg.inv(floor_homography)
+        H_inv = np.linalg.inv(self.calibration.floor_homography)
         court_pixels = cv2.perspectiveTransform(court_real.reshape(-1, 1, 2), H_inv)
-
         return court_pixels.reshape(-1, 2)
 
-    def _get_wall_from_homography(self, wall_homography):
+    def _get_wall_from_homography(self) -> np.ndarray:
         """Get wall boundaries using wall homography."""
-        # Wall in real coordinates (front wall from tin top to service line height)
+        if self.calibration is None or self.calibration.wall_homography is None:
+            return None
+
         wall_real = np.array(
             [[0, 0], [6.4, 0], [6.4, 1.78], [0, 1.78]], dtype=np.float32
         )
 
-        # Inverse transform to get pixel coordinates
-        H_inv = np.linalg.inv(wall_homography)
+        H_inv = np.linalg.inv(self.calibration.wall_homography)
         wall_pixels = cv2.perspectiveTransform(wall_real.reshape(-1, 1, 2), H_inv)
-
         return wall_pixels.reshape(-1, 2)
 
-    def _create_court_mask(self, frame_shape):
+    def _create_court_mask(self, frame_shape: Tuple[int, int, int]) -> np.ndarray:
         """Create expanded court mask to filter out audience."""
         h, w = frame_shape[:2]
 
-        # Get floor boundary if floor homography is available
-        if self.floor_homography is not None:
-            floor_points = self._get_floor_from_homography(self.floor_homography)
+        floor_points = self._get_floor_from_homography()
+        if floor_points is not None:
             floor_mask = np.zeros((h, w), dtype=np.uint8)
             floor_points_int = np.array(floor_points, dtype=np.int32)
             cv2.fillPoly(floor_mask, [floor_points_int], 255)
         else:
             floor_mask = np.zeros((h, w), dtype=np.uint8)
 
-        # Get wall boundary if wall homography is available
-        if self.wall_homography is not None:
-            wall_points = self._get_wall_from_homography(self.wall_homography)
+        wall_points = self._get_wall_from_homography()
+        if wall_points is not None:
             wall_mask = np.zeros((h, w), dtype=np.uint8)
             wall_points_int = np.array(wall_points, dtype=np.int32)
             cv2.fillPoly(wall_mask, [wall_points_int], 255)
         else:
             wall_mask = np.zeros((h, w), dtype=np.uint8)
 
-        combined_mask = cv2.bitwise_or(floor_mask, wall_mask)
-        return combined_mask
+        return cv2.bitwise_or(floor_mask, wall_mask)
 
-    def preprocess_frame(self, frame):
-        """
-        Preprocess frame before detection.
-
-        Args:
-            frame: BGR image (numpy array)
-
-        Returns:
-            numpy.ndarray: Preprocessed frame
-        """
-        # For now, just return the frame as-is
-        return frame
-
-    def postprocess(
-        self, input_data: PlayerPostprocessingInput
-    ) -> PlayerPostprocessingResult:
-        """
-        Apply interpolation for missing positions and smoothing filter.
-        Also interpolates keypoints and bounding boxes (without smoothing).
-
-        Args:
-            input_data: PlayerPostprocessingInput with player detection results per frame
-
-        Returns:
-            PlayerPostprocessingResult with smoothed trajectories
-        """
-        trajectories = {}
-
-        for player_id, detections in input_data.players_detections.items():
-            # Extract data from PlayerDetectionResult objects
-            pixel_positions = [det.position if det else None for det in detections]
-            real_positions_raw = [det.real_position if det else None for det in detections]
-            keypoints_raw = [det.keypoints if det else None for det in detections]
-            bboxes_raw = [det.bbox if det else None for det in detections]
-
-            # Process pixel positions (with interpolation and smoothing)
-            smoothed_positions = self._interpolate_and_smooth_positions(pixel_positions)
-
-            # Process real positions (with interpolation and smoothing)
-            real_positions = self._interpolate_and_smooth_positions(real_positions_raw)
-
-            # Process keypoints (interpolation only, no smoothing)
-            interpolated_keypoints = self._interpolate_keypoints(keypoints_raw)
-
-            # Process bounding boxes (interpolation only, no smoothing)
-            interpolated_bboxes = self._interpolate_bboxes(bboxes_raw)
-
-            # Count gaps filled
-            gaps_filled = sum(1 for p in pixel_positions if p is None)
-
-            trajectories[player_id] = PlayerTrajectory(
-                player_id=player_id,
-                positions=smoothed_positions,
-                original_positions=pixel_positions,
-                real_positions=real_positions,
-                original_real_positions=real_positions_raw,
-                keypoints=interpolated_keypoints,
-                original_keypoints=keypoints_raw,
-                bboxes=interpolated_bboxes,
-                original_bboxes=bboxes_raw,
-                gaps_filled=gaps_filled,
-            )
-
-        return PlayerPostprocessingResult(trajectories=trajectories)
-
-    def _interpolate_and_smooth_positions(
-        self, positions: List[Optional[Point2D]]
-    ) -> List[Point2D]:
-        """
-        Interpolate missing positions and apply Gaussian smoothing.
-
-        Args:
-            positions: List of positions (can contain None)
-
-        Returns:
-            List of smoothed Point2D positions
-        """
-        if not positions or len(positions) == 0:
-            return []
-
-        # Convert Point2D to tuples for processing
-        positions_tuples = [(p.x, p.y) if p else None for p in positions]
-
-        # Separate valid and invalid indices
-        valid_indices = [i for i, pos in enumerate(positions_tuples) if pos is not None]
-
-        if len(valid_indices) == 0:
-            return []
-
-        # Extract x and y coordinates from valid positions
-        valid_x = [positions_tuples[i][0] for i in valid_indices]
-        valid_y = [positions_tuples[i][1] for i in valid_indices]
-
-        # Interpolate missing positions
-        if len(valid_indices) > 1:
-            # Create interpolation functions
-            interp_x = interp1d(
-                valid_indices,
-                valid_x,
-                kind="linear",
-                fill_value="extrapolate",
-                bounds_error=False,
-            )
-            interp_y = interp1d(
-                valid_indices,
-                valid_y,
-                kind="linear",
-                fill_value="extrapolate",
-                bounds_error=False,
-            )
-
-            # Generate complete position arrays
-            all_indices = np.arange(len(positions_tuples))
-            interpolated_x = interp_x(all_indices)
-            interpolated_y = interp_y(all_indices)
-        else:
-            # If only one valid position, use it for all frames
-            interpolated_x = np.full(len(positions_tuples), valid_x[0])
-            interpolated_y = np.full(len(positions_tuples), valid_y[0])
-
-        # Apply Gaussian smoothing filter
-        sigma = self.config["tracker"].get("smoothing_sigma", 2.0)
-        smoothed_x = gaussian_filter1d(interpolated_x, sigma=sigma)
-        smoothed_y = gaussian_filter1d(interpolated_y, sigma=sigma)
-
-        # Convert back to Point2D
-        return [Point2D(x=float(x), y=float(y)) for x, y in zip(smoothed_x, smoothed_y)]
-
-    def _interpolate_keypoints(
-        self, keypoints_list: List[Optional[PlayerKeypointsData]]
-    ) -> List[Optional[PlayerKeypointsData]]:
-        """
-        Interpolate missing keypoints (no smoothing).
-
-        Args:
-            keypoints_list: List of keypoints (can contain None)
-
-        Returns:
-            List of interpolated PlayerKeypointsData
-        """
-        if not keypoints_list or len(keypoints_list) == 0:
-            return []
-
-        # Find valid keypoint indices
-        valid_indices = [
-            i
-            for i, kp in enumerate(keypoints_list)
-            if kp is not None and kp.xy is not None
-        ]
-
-        if len(valid_indices) == 0:
-            return keypoints_list
-
-        if len(valid_indices) == 1:
-            # If only one valid keypoint, use it for all frames
-            return keypoints_list
-
-        # Get the number of keypoints from the first valid entry
-        # xy contains [x0, y0, x1, y1, ...] so divide by 2 to get number of keypoints
-        num_keypoints = len(keypoints_list[valid_indices[0]].xy) // 2
-
-        # Interpolate each keypoint coordinate separately
-        interpolated_keypoints = []
-
-        for frame_idx in range(len(keypoints_list)):
-            if (
-                keypoints_list[frame_idx] is not None
-                and keypoints_list[frame_idx].xy is not None
-            ):
-                # Keep original keypoints
-                interpolated_keypoints.append(keypoints_list[frame_idx])
-            else:
-                # Interpolate keypoints for this frame
-                interpolated_xy = []
-                interpolated_conf = []
-
-                for kp_idx in range(num_keypoints):
-                    # Extract x, y coordinates for this keypoint across all valid frames
-                    # xy format is [x0, y0, x1, y1, ...] so x is at kp_idx*2, y is at kp_idx*2+1
-                    valid_x = [keypoints_list[i].xy[kp_idx * 2] for i in valid_indices]
-                    valid_y = [
-                        keypoints_list[i].xy[kp_idx * 2 + 1] for i in valid_indices
-                    ]
-
-                    # Interpolate for current frame
-                    if len(valid_indices) > 1:
-                        interp_x = interp1d(
-                            valid_indices,
-                            valid_x,
-                            kind="linear",
-                            fill_value="extrapolate",
-                            bounds_error=False,
-                        )
-                        interp_y = interp1d(
-                            valid_indices,
-                            valid_y,
-                            kind="linear",
-                            fill_value="extrapolate",
-                            bounds_error=False,
-                        )
-
-                        interpolated_xy.append(float(interp_x(frame_idx)))
-                        interpolated_xy.append(float(interp_y(frame_idx)))
-                    else:
-                        interpolated_xy.append(valid_x[0])
-                        interpolated_xy.append(valid_y[0])
-
-                    # Interpolate confidence if available
-                    if keypoints_list[valid_indices[0]].conf is not None:
-                        valid_conf = [
-                            keypoints_list[i].conf[kp_idx] for i in valid_indices
-                        ]
-                        if len(valid_indices) > 1:
-                            interp_conf = interp1d(
-                                valid_indices,
-                                valid_conf,
-                                kind="linear",
-                                fill_value="extrapolate",
-                                bounds_error=False,
-                            )
-                            interpolated_conf.append(float(interp_conf(frame_idx)))
-                        else:
-                            interpolated_conf.append(valid_conf[0])
-
-                interpolated_keypoints.append(
-                    PlayerKeypointsData(
-                        xy=interpolated_xy,
-                        conf=interpolated_conf if interpolated_conf else None,
-                    )
-                )
-
-        return interpolated_keypoints
-
-    def _interpolate_bboxes(
-        self, bboxes_list: List[Optional[BoundingBox]]
-    ) -> List[Optional[BoundingBox]]:
-        """
-        Interpolate missing bounding boxes (no smoothing).
-
-        Args:
-            bboxes_list: List of bounding boxes (can contain None)
-
-        Returns:
-            List of interpolated BoundingBox
-        """
-        if not bboxes_list or len(bboxes_list) == 0:
-            return []
-
-        # Find valid bbox indices
-        valid_indices = [i for i, bbox in enumerate(bboxes_list) if bbox is not None]
-
-        if len(valid_indices) == 0:
-            return bboxes_list
-
-        if len(valid_indices) == 1:
-            # If only one valid bbox, use it for all frames
-            return bboxes_list
-
-        # Extract bbox coordinates from valid indices
-        valid_x1 = [bboxes_list[i].x1 for i in valid_indices]
-        valid_y1 = [bboxes_list[i].y1 for i in valid_indices]
-        valid_x2 = [bboxes_list[i].x2 for i in valid_indices]
-        valid_y2 = [bboxes_list[i].y2 for i in valid_indices]
-
-        # Create interpolation functions
-        interp_x1 = interp1d(
-            valid_indices,
-            valid_x1,
-            kind="linear",
-            fill_value="extrapolate",
-            bounds_error=False,
-        )
-        interp_y1 = interp1d(
-            valid_indices,
-            valid_y1,
-            kind="linear",
-            fill_value="extrapolate",
-            bounds_error=False,
-        )
-        interp_x2 = interp1d(
-            valid_indices,
-            valid_x2,
-            kind="linear",
-            fill_value="extrapolate",
-            bounds_error=False,
-        )
-        interp_y2 = interp1d(
-            valid_indices,
-            valid_y2,
-            kind="linear",
-            fill_value="extrapolate",
-            bounds_error=False,
-        )
-
-        # Interpolate for all frames
-        interpolated_bboxes = []
-        for frame_idx in range(len(bboxes_list)):
-            if bboxes_list[frame_idx] is not None:
-                # Keep original bbox
-                interpolated_bboxes.append(bboxes_list[frame_idx])
-            else:
-                # Interpolate bbox for this frame
-                interpolated_bboxes.append(
-                    BoundingBox(
-                        x1=float(interp_x1(frame_idx)),
-                        y1=float(interp_y1(frame_idx)),
-                        x2=float(interp_x2(frame_idx)),
-                        y2=float(interp_y2(frame_idx)),
-                    )
-                )
-
-        return interpolated_bboxes
-
-    def process_frame(self, input_data: PlayerTrackingInput) -> PlayerTrackingResult:
+    def process_frame(self, input_data: PlayerTrackingInput) -> PlayerTrackingOutput:
         """
         Process a single frame and return player tracking information.
 
         Args:
-            input_data: PlayerTrackingInput with frame and optional floor_homography
+            input_data: PlayerTrackingInput with frame and calibration
 
         Returns:
-            PlayerTrackingResult with structured player detection data
+            PlayerTrackingOutput with flat player detection data
         """
         frame = input_data.frame.image
         frame_number = input_data.frame.frame_number
+        timestamp = input_data.frame.timestamp if hasattr(input_data.frame, 'timestamp') else frame_number / 30.0
         frame_width = frame.shape[1]
 
-        # Update floor_homography if provided
-        if input_data.floor_homography:
-            self.floor_homography = input_data.floor_homography.matrix
-
-        # Update wall_homography if provided
-        if input_data.wall_homography:
-            self.wall_homography = input_data.wall_homography.matrix
+        # Update calibration if provided
+        if input_data.calibration is not None:
+            self.calibration = input_data.calibration
 
         # Detect people in frame
         detections, keypoints = self._detect_people(frame)
@@ -478,61 +167,97 @@ class PlayerTracker:
         # Assign detections to player IDs
         assignments = self._assign_detections(detections, frame, frame_width)
 
-        # Build PlayerTrackingResult
-        players = {}
+        # Initialize output with no detections
+        output = PlayerTrackingOutput(
+            frame_number=frame_number,
+            timestamp=timestamp,
+            # Player 1
+            player_1_detected=False,
+            player_1_x_pixel=None,
+            player_1_y_pixel=None,
+            player_1_x_meter=None,
+            player_1_y_meter=None,
+            player_1_confidence=0.0,
+            player_1_bbox=None,
+            player_1_keypoints=None,
+            # Player 2
+            player_2_detected=False,
+            player_2_x_pixel=None,
+            player_2_y_pixel=None,
+            player_2_x_meter=None,
+            player_2_y_meter=None,
+            player_2_confidence=0.0,
+            player_2_bbox=None,
+            player_2_keypoints=None,
+        )
 
+        # Fill in detected players
         for det_idx, player_id in assignments.items():
             bbox = detections[det_idx][0:4]
-            confidence = detections[det_idx][4]
+            confidence = float(detections[det_idx][4])
 
-            # Calculate bottom-center position
-            center_x = (bbox[0] + bbox[2]) / 2
-            bottom_y = bbox[3]
-            position = (center_x, bottom_y)
-            pixel_point = np.array([[position]], dtype=np.float32)
-            real_point = cv2.perspectiveTransform(pixel_point, self.floor_homography)
+            # Calculate bottom-center position (player's foot position) in pixels
+            center_x_pixel = (bbox[0] + bbox[2]) / 2
+            bottom_y_pixel = bbox[3]
 
-            # Get keypoints for this detection
-            kp = keypoints[det_idx] if keypoints[det_idx] is not None else None
+            # Convert to meter coordinates using calibration
+            center_x_meter = None
+            center_y_meter = None
+            if self.calibration is not None and self.calibration.floor_homography is not None:
+                pixel_point = Point2D(x=center_x_pixel, y=bottom_y_pixel)
+                meter_point = self.calibration.pixel_to_floor(pixel_point)
+                center_x_meter = meter_point.x
+                center_y_meter = meter_point.y
 
-            # Create PlayerDetectionResult
-            players[player_id] = PlayerDetectionResult(
-                player_id=player_id,
-                position=Point2D(x=position[0], y=position[1]),
-                real_position=(
-                    Point2D(x=float(real_point[0][0][0]), y=float(real_point[0][0][1]))
-                    if real_point is not None
-                    else None
-                ),
-                bbox=BoundingBox.from_list(bbox.tolist()),
-                confidence=float(confidence),
-                keypoints=PlayerKeypointsData(
-                    xy=kp["xy"].flatten().tolist() if kp is not None else None,
-                    conf=(
-                        kp["conf"].tolist()
-                        if kp is not None and kp["conf"] is not None
-                        else None
-                    ),
-                ),
-                frame_number=frame_number,
+            # Extract body keypoints (indices 5-16, which is 12 keypoints)
+            kp_array = None
+            if keypoints[det_idx] is not None:
+                full_kp = keypoints[det_idx]["xy"]
+                # Extract only body keypoints (indices 5-16)
+                kp_array = full_kp[BODY_KEYPOINT_INDICES].copy()
+
+            # Create bounding box
+            bbox_obj = BoundingBox(
+                x1=float(bbox[0]),
+                y1=float(bbox[1]),
+                x2=float(bbox[2]),
+                y2=float(bbox[3]),
             )
 
             # Update position history
-            self.player_positions[player_id].append(position)
+            self.player_positions[player_id].append((center_x_pixel, bottom_y_pixel))
 
-        return PlayerTrackingResult(players=players, frame_number=frame_number)
+            # Set output fields based on player ID
+            if player_id == 1:
+                output.player_1_detected = True
+                output.player_1_x_pixel = float(center_x_pixel)
+                output.player_1_y_pixel = float(bottom_y_pixel)
+                output.player_1_x_meter = center_x_meter
+                output.player_1_y_meter = center_y_meter
+                output.player_1_confidence = confidence
+                output.player_1_bbox = bbox_obj
+                output.player_1_keypoints = kp_array
+            else:  # player_id == 2
+                output.player_2_detected = True
+                output.player_2_x_pixel = float(center_x_pixel)
+                output.player_2_y_pixel = float(bottom_y_pixel)
+                output.player_2_x_meter = center_x_meter
+                output.player_2_y_meter = center_y_meter
+                output.player_2_confidence = confidence
+                output.player_2_bbox = bbox_obj
+                output.player_2_keypoints = kp_array
 
-    def _detect_people(self, frame):
+        return output
+
+    def _detect_people(self, frame: np.ndarray):
         """
         Detect people in the frame using YOLO.
 
         Returns:
             tuple: (detections, keypoints)
-                - detections: list of top 2 person detections sorted by confidence
-                - keypoints: list of keypoint arrays (None if pose not supported)
         """
         # Create mask on first frame
-        if self.court_mask is None and self.floor_homography is not None:
+        if self.court_mask is None and self.calibration is not None:
             self.court_mask = self._create_court_mask(frame.shape)
 
         # Apply mask before detection
@@ -566,7 +291,6 @@ class PlayerTracker:
         person_keypoints = []
         if keypoints_data is not None:
             for i in range(len(person_dets)):
-                # Find original index in detections
                 det_idx = next(
                     j
                     for j, det in enumerate(detections)
@@ -586,51 +310,32 @@ class PlayerTracker:
 
         return person_dets, person_keypoints
 
-    def _assign_detections(self, detections, frame, frame_width):
-        """
-        Assign detections to player IDs using re-identification and position.
-
-        Returns:
-            dict: {detection_index: player_id}
-        """
+    def _assign_detections(self, detections, frame, frame_width) -> Dict[int, int]:
+        """Assign detections to player IDs using re-identification and position."""
         if len(detections) == 0:
             return {}
 
-        # Initialize players on first frame
         if not self.players_initialized:
             return self._initialize_players(detections, frame)
 
-        # Extract features for current detections
         det_features = [
             self._extract_features(frame, det[0:4]) for det in detections[:2]
         ]
 
-        # Reinitialize if both players lost
         if self.player_features[1] is None and self.player_features[2] is None:
             return self._initialize_players(detections, frame)
 
-        # Calculate matching scores
         matching_scores = self._calculate_matching_scores(
             detections, det_features, frame_width
         )
 
-        # Assign detections to players
-        assignments = self._greedy_assignment(matching_scores, det_features)
+        return self._greedy_assignment(matching_scores, det_features)
 
-        return assignments
-
-    def _initialize_players(self, detections, frame):
-        """
-        Initialize players based on left/right positioning.
-
-        Returns:
-            dict: Initial player assignments
-        """
+    def _initialize_players(self, detections, frame) -> Dict[int, int]:
+        """Initialize players based on left/right positioning."""
         if len(detections) < 2:
-            print("Warning: Less than 2 players detected")
             return {}
 
-        # Extract features
         det_features = [
             self._extract_features(frame, det[0:4]) for det in detections[:2]
         ]
@@ -649,12 +354,7 @@ class PlayerTracker:
         return assignments
 
     def _calculate_matching_scores(self, detections, det_features, frame_width):
-        """
-        Calculate matching scores between detections and tracked players.
-
-        Returns:
-            dict: {(det_idx, player_id): score}
-        """
+        """Calculate matching scores between detections and tracked players."""
         matching_scores = {}
 
         for i, det in enumerate(detections[:2]):
@@ -679,24 +379,19 @@ class PlayerTracker:
                     )
                     pos_score = distance / frame_width
 
-                # Combined score (weighted)
+                # Combined score
                 reid_weight = self.config["tracker"]["reid_weight"]
                 pos_weight = self.config["tracker"]["position_weight"]
                 score = reid_score * reid_weight + pos_score * pos_weight
                 matching_scores[(i, player_id)] = score
+
         return matching_scores
 
-    def _greedy_assignment(self, matching_scores, det_features):
-        """
-        Perform greedy assignment of detections to players.
-
-        Returns:
-            dict: {det_idx: player_id}
-        """
+    def _greedy_assignment(self, matching_scores, det_features) -> Dict[int, int]:
+        """Perform greedy assignment of detections to players."""
         assignments = {}
         assigned_players = set()
 
-        # Assign based on best scores
         for (det_idx, player_id), score in sorted(
             matching_scores.items(), key=lambda x: x[1]
         ):
@@ -727,13 +422,8 @@ class PlayerTracker:
 
         return assignments
 
-    def _extract_features(self, frame, bbox):
-        """
-        Extract re-identification features from a bounding box.
-
-        Returns:
-            numpy.ndarray: Feature vector or None if invalid bbox
-        """
+    def _extract_features(self, frame, bbox) -> Optional[np.ndarray]:
+        """Extract re-identification features from a bounding box."""
         frame_height, frame_width = frame.shape[:2]
         x1, y1, x2, y2 = map(int, bbox)
         x1, y1 = max(0, x1), max(0, y1)
@@ -743,25 +433,18 @@ class PlayerTracker:
         if person_img.size == 0:
             return None
 
-        # Prepare image for ResNet50
         input_size = tuple(self.config["models"]["reid_input_size"])
         person_img = cv2.resize(person_img, input_size)
         person_tensor = torch.from_numpy(person_img).permute(2, 0, 1).float() / 255.0
         person_tensor = person_tensor.unsqueeze(0).to(self.device)
 
-        # Extract features
         with torch.no_grad():
             features = self.reid_model(person_tensor)
 
         return features.squeeze().cpu().numpy()
 
-    def _feature_distance(self, feat1, feat2):
-        """
-        Calculate cosine distance between two feature vectors.
-
-        Returns:
-            float: Distance (0 = identical, 2 = opposite)
-        """
+    def _feature_distance(self, feat1, feat2) -> float:
+        """Calculate cosine distance between two feature vectors."""
         if feat1 is None or feat2 is None:
             return float("inf")
 
@@ -779,3 +462,244 @@ class PlayerTracker:
         self.player_features = {1: None, 2: None}
         self.players_initialized = False
         self.court_mask = None
+
+    def postprocess(
+        self,
+        input_data: PlayerPostprocessingInput,
+    ) -> PlayerPostprocessingOutput:
+        """
+        Apply interpolation for missing positions and smoothing filter.
+        Also interpolates keypoints and bounding boxes (without smoothing).
+
+        Uses vectorized numpy operations for efficiency.
+
+        Args:
+            input_data: PlayerPostprocessingInput with df, player_keypoints, player_bboxes
+
+        Returns:
+            PlayerPostprocessingOutput with processed df, keypoints, bboxes, and gap counts
+        """
+        df = input_data.df.copy()
+        player_keypoints = input_data.player_keypoints
+        player_bboxes = input_data.player_bboxes
+
+        # Get smoothing sigma from config
+        smooth_sigma = self.config["tracker"].get("smoothing_sigma", 2.0)
+
+        gaps_filled = {1: 0, 2: 0}
+
+        # Process each player's positions (with interpolation and smoothing)
+        for player_id in [1, 2]:
+            x_pixel_col = f'player_{player_id}_x_pixel'
+            y_pixel_col = f'player_{player_id}_y_pixel'
+            x_meter_col = f'player_{player_id}_x_meter'
+            y_meter_col = f'player_{player_id}_y_meter'
+
+            # Process pixel coordinates
+            if x_pixel_col in df.columns and y_pixel_col in df.columns:
+                x_values = df[x_pixel_col].values.astype(float)
+                y_values = df[y_pixel_col].values.astype(float)
+
+                # Count gaps
+                gaps_filled[player_id] = int(np.isnan(x_values).sum())
+
+                # Interpolate and smooth
+                x_smooth = self._interpolate_and_smooth_1d(x_values, smooth_sigma)
+                y_smooth = self._interpolate_and_smooth_1d(y_values, smooth_sigma)
+
+                df[x_pixel_col] = x_smooth
+                df[y_pixel_col] = y_smooth
+
+            # Process meter coordinates (same interpolation and smoothing)
+            if x_meter_col in df.columns and y_meter_col in df.columns:
+                x_meter_values = df[x_meter_col].values.astype(float)
+                y_meter_values = df[y_meter_col].values.astype(float)
+
+                # Interpolate and smooth
+                x_meter_smooth = self._interpolate_and_smooth_1d(x_meter_values, smooth_sigma)
+                y_meter_smooth = self._interpolate_and_smooth_1d(y_meter_values, smooth_sigma)
+
+                df[x_meter_col] = x_meter_smooth
+                df[y_meter_col] = y_meter_smooth
+
+        # Process keypoints (interpolation only, no smoothing)
+        processed_keypoints = {}
+        for player_id in [1, 2]:
+            kp_list = player_keypoints.get(player_id, [])
+            interpolated_kp = self._interpolate_keypoints(kp_list)
+            processed_keypoints[player_id] = interpolated_kp
+
+        # Process bounding boxes (interpolation only, no smoothing)
+        processed_bboxes = {}
+        for player_id in [1, 2]:
+            bbox_list = player_bboxes.get(player_id, [])
+            interpolated_bboxes = self._interpolate_bboxes(bbox_list)
+            processed_bboxes[player_id] = interpolated_bboxes
+
+        return PlayerPostprocessingOutput(
+            df=df,
+            player_keypoints=processed_keypoints,
+            player_bboxes=processed_bboxes,
+            num_player_1_gaps_filled=gaps_filled[1],
+            num_player_2_gaps_filled=gaps_filled[2],
+        )
+
+    def _interpolate_and_smooth_1d(
+        self,
+        values: np.ndarray,
+        smooth_sigma: float = 2.0,
+    ) -> np.ndarray:
+        """
+        Interpolate missing values and apply Gaussian smoothing (vectorized).
+
+        Args:
+            values: 1D array with possible NaN values
+            smooth_sigma: Gaussian smoothing sigma
+
+        Returns:
+            Interpolated and smoothed array
+        """
+        valid_mask = ~np.isnan(values)
+        n_valid = np.sum(valid_mask)
+
+        if n_valid == 0:
+            return values
+
+        if n_valid < 2:
+            # Fill all with the single valid value
+            result = np.full_like(values, values[valid_mask][0])
+        else:
+            # Use np.interp for fast linear interpolation
+            valid_indices = np.where(valid_mask)[0]
+            valid_values = values[valid_mask]
+            all_indices = np.arange(len(values))
+
+            result = np.interp(
+                all_indices,
+                valid_indices,
+                valid_values,
+                left=valid_values[0],
+                right=valid_values[-1],
+            )
+
+        # Apply Gaussian smoothing
+        return gaussian_filter1d(result, sigma=smooth_sigma)
+
+    def _interpolate_keypoints(
+        self,
+        keypoints_list: List[Optional[np.ndarray]],
+    ) -> List[Optional[np.ndarray]]:
+        """
+        Interpolate missing keypoints using vectorized operations.
+
+        Args:
+            keypoints_list: List of keypoint arrays (shape: num_keypoints x 2), can contain None
+
+        Returns:
+            List of interpolated keypoint arrays
+        """
+        if not keypoints_list or len(keypoints_list) == 0:
+            return []
+
+        n_frames = len(keypoints_list)
+
+        # Find valid keypoint indices
+        valid_mask = np.array([kp is not None for kp in keypoints_list])
+        valid_indices = np.where(valid_mask)[0]
+
+        if len(valid_indices) == 0:
+            return keypoints_list
+
+        if len(valid_indices) == 1:
+            # Fill all with the single valid keypoint
+            single_kp = keypoints_list[valid_indices[0]]
+            return [single_kp.copy() for _ in range(n_frames)]
+
+        # Get shape from first valid entry
+        first_valid_kp = keypoints_list[valid_indices[0]]
+        num_keypoints, num_coords = first_valid_kp.shape  # (num_keypoints, 2)
+
+        # Stack valid keypoints into 3D array: (n_valid, num_keypoints, 2)
+        valid_kps = np.array([keypoints_list[i] for i in valid_indices])
+
+        # Interpolate all keypoints at once
+        all_indices = np.arange(n_frames)
+        interpolated = np.zeros((n_frames, num_keypoints, num_coords))
+
+        for kp_idx in range(num_keypoints):
+            for coord_idx in range(num_coords):
+                valid_values = valid_kps[:, kp_idx, coord_idx]
+                interpolated[:, kp_idx, coord_idx] = np.interp(
+                    all_indices,
+                    valid_indices,
+                    valid_values,
+                    left=valid_values[0],
+                    right=valid_values[-1],
+                )
+
+        # Convert back to list, keeping originals where they exist
+        result = []
+        for i in range(n_frames):
+            if keypoints_list[i] is not None:
+                result.append(keypoints_list[i])
+            else:
+                result.append(interpolated[i])
+
+        return result
+
+    def _interpolate_bboxes(
+        self,
+        bboxes_list: List[Optional[BoundingBox]],
+    ) -> List[Optional[BoundingBox]]:
+        """
+        Interpolate missing bounding boxes using vectorized operations.
+
+        Args:
+            bboxes_list: List of bounding boxes (can contain None)
+
+        Returns:
+            List of interpolated BoundingBox
+        """
+        if not bboxes_list or len(bboxes_list) == 0:
+            return []
+
+        n_frames = len(bboxes_list)
+
+        # Find valid bbox indices
+        valid_mask = np.array([bbox is not None for bbox in bboxes_list])
+        valid_indices = np.where(valid_mask)[0]
+
+        if len(valid_indices) == 0:
+            return bboxes_list
+
+        if len(valid_indices) == 1:
+            # If only one valid bbox, return as-is (no interpolation needed)
+            return bboxes_list
+
+        # Extract bbox coordinates into arrays
+        valid_x1 = np.array([bboxes_list[i].x1 for i in valid_indices])
+        valid_y1 = np.array([bboxes_list[i].y1 for i in valid_indices])
+        valid_x2 = np.array([bboxes_list[i].x2 for i in valid_indices])
+        valid_y2 = np.array([bboxes_list[i].y2 for i in valid_indices])
+
+        # Interpolate all coordinates at once
+        all_indices = np.arange(n_frames)
+        interp_x1 = np.interp(all_indices, valid_indices, valid_x1, left=valid_x1[0], right=valid_x1[-1])
+        interp_y1 = np.interp(all_indices, valid_indices, valid_y1, left=valid_y1[0], right=valid_y1[-1])
+        interp_x2 = np.interp(all_indices, valid_indices, valid_x2, left=valid_x2[0], right=valid_x2[-1])
+        interp_y2 = np.interp(all_indices, valid_indices, valid_y2, left=valid_y2[0], right=valid_y2[-1])
+
+        # Build result list, keeping originals where they exist
+        result = []
+        for i in range(n_frames):
+            if bboxes_list[i] is not None:
+                result.append(bboxes_list[i])
+            else:
+                result.append(BoundingBox(
+                    x1=float(interp_x1[i]),
+                    y1=float(interp_y1[i]),
+                    x2=float(interp_x2[i]),
+                    y2=float(interp_y2[i]),
+                ))
+
+        return result

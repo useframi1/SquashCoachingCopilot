@@ -53,7 +53,6 @@ class StrokeType(str, Enum):
 
     FOREHAND = "forehand"
     BACKHAND = "backhand"
-    NEITHER = "neither"  # No stroke detected
 
     def __str__(self) -> str:
         return self.value

@@ -5,7 +5,7 @@
 video_path: "tests/video-3.mp4"
 
 # Processing limits
-max_seconds: 5 # Maximum seconds of video to process (null = process entire video)
+max_seconds: 3 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:
@@ -24,6 +24,29 @@ output:
     save_annotated_video: true
     save_csv: true
     save_statistics: true
+
+    # CSV columns to export (null = export all columns)
+    # Specify a list of column names to export only those columns
+    csv_columns:
+        - frame_number
+        - timestamp
+        - ball_x
+        - ball_y
+        - player_1_x_meter
+        - player_1_y_meter
+        - player_2_x_meter
+        - player_2_y_meter
+        - is_rally_frame
+        - rally_id
+        - is_wall_hit
+        - wall_hit_x_meter
+        - wall_hit_y_meter
+        - is_racket_hit
+        - racket_hit_player_id
+        - stroke_type
+        - shot_type
+        - shot_direction
+        - shot_depth
 
 # Module Configurations
 # Each module references its own config file

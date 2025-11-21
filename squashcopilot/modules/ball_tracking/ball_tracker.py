@@ -1,23 +1,32 @@
+"""
+Ball tracking module for the squash coaching copilot.
+
+Uses TrackNet model for ball detection.
+Updates TrackingOutput with ball detection data.
+"""
+
 import cv2
 import numpy as np
-from typing import List, Tuple, Optional
-from squashcopilot.common.utils import load_config
-from .model.tracknet_tracker import TrackNetTracker
+import pandas as pd
+from typing import Optional, List, Tuple
 
-from squashcopilot.common import (
-    Point2D,
+from squashcopilot.common.utils import load_config
+from squashcopilot.common.types.geometry import Point2D
+from squashcopilot.common.types.base import Frame
+from squashcopilot.common.models import (
     BallTrackingInput,
-    BallDetectionResult,
+    BallTrackingOutput,
     BallPostprocessingInput,
-    BallTrajectory,
+    BallPostprocessingOutput,
 )
+from .model.tracknet_tracker import TrackNetTracker
 
 
 class BallTracker:
     """Ball tracking using TrackNet model.
 
-    This class provides ball detection and tracking using the TrackNet deep learning model,
-    along with preprocessing and postprocessing capabilities.
+    This class provides ball detection using the TrackNet deep learning model,
+    along with preprocessing capabilities for black ball detection.
     """
 
     def __init__(self, config: dict = None):
@@ -37,7 +46,7 @@ class BallTracker:
         # Initialize TrackNet tracker
         self.tracker = TrackNetTracker(config=config)
 
-        # Expose the device attribute for compatibility with evaluator
+        # Expose the device attribute for compatibility
         self.device = getattr(self.tracker, "device", "N/A")
 
     def set_is_black_ball(self, is_black: bool):
@@ -48,11 +57,11 @@ class BallTracker:
         """
         self.is_black_ball = is_black
 
-    def preprocess_frame(self, frame):
-        """Preprocess the input frame if needed.
+    def preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Preprocess the input frame for black ball detection.
 
         Args:
-            frame: Input frame (BGR format, any resolution)
+            frame: Input frame (BGR format)
 
         Returns:
             Preprocessed frame (BGR format).
@@ -63,60 +72,90 @@ class BallTracker:
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
         l_channel, a_channel, b_channel = cv2.split(lab)
 
-        # Apply CLAHE only for black ball
+        # Apply CLAHE
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
         l_channel = clahe.apply(l_channel)
 
-        # Apply dilation in both cases
+        # Apply dilation
         l_dilated = cv2.dilate(
             l_channel,
             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
             iterations=1,
         )
 
-        # Merge and convert back to BGR for color-enhanced frame
+        # Merge and convert back to BGR
         enhanced_lab = cv2.merge([l_dilated, a_channel, b_channel])
         enhanced_color = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
 
-        # Return the color-enhanced frame to the tracker
         return enhanced_color
 
     def reset(self):
         """Reset the tracker state."""
         self.tracker.reset()
 
-    def process_frame(self, input_data: BallTrackingInput) -> BallDetectionResult:
-        """Process a single frame and return ball detection result.
+    def process_frame(self, input_data: BallTrackingInput) -> BallTrackingOutput:
+        """Process a single frame and return ball tracking output.
 
         Args:
-            input_data: BallTrackingInput containing frame and metadata
+            input_data: BallTrackingInput with frame
 
         Returns:
-            BallDetectionResult with position and metadata
+            BallTrackingOutput with ball detection data
         """
-        frame = input_data.frame.image
-        frame_number = input_data.frame.frame_number
+        frame = input_data.frame
+        image = frame.image
+        frame_number = frame.frame_number
+        timestamp = frame.timestamp if hasattr(frame, 'timestamp') else frame_number / 30.0
 
-        # Preprocess if needed
+        # Preprocess if black ball
+        if self.is_black_ball:
+            image = self.preprocess_frame(image)
+
+        # Get detection from tracker
+        x, y = self.tracker.process_frame(image)
+
+        # Create output
+        if x is not None and y is not None:
+            return BallTrackingOutput(
+                frame_number=frame_number,
+                timestamp=timestamp,
+                ball_detected=True,
+                ball_x=float(x),
+                ball_y=float(y),
+                ball_confidence=1.0,  # TrackNet doesn't provide confidence
+            )
+        else:
+            return BallTrackingOutput(
+                frame_number=frame_number,
+                timestamp=timestamp,
+                ball_detected=False,
+                ball_x=None,
+                ball_y=None,
+                ball_confidence=0.0,
+            )
+
+    def detect(self, frame: np.ndarray) -> Optional[Point2D]:
+        """Simple detection method returning ball position.
+
+        Args:
+            frame: Input frame (BGR format)
+
+        Returns:
+            Point2D with ball position or None if not detected
+        """
         if self.is_black_ball:
             frame = self.preprocess_frame(frame)
 
-        # Get detection from tracker
         x, y = self.tracker.process_frame(frame)
 
-        # Create result
         if x is not None and y is not None:
-            position = Point2D(x=float(x), y=float(y))
-            return BallDetectionResult(
-                position=position,
-                confidence=1.0,  # TrackNet doesn't provide confidence
-                frame_number=frame_number,
-                detected=True,
-            )
-        else:
-            return BallDetectionResult.not_detected(frame_number)
+            return Point2D(x=float(x), y=float(y))
+        return None
 
-    def postprocess(self, input_data: BallPostprocessingInput) -> BallTrajectory:
+    def postprocess(
+        self,
+        input_data: BallPostprocessingInput,
+    ) -> BallPostprocessingOutput:
         """Apply postprocessing pipeline to ball positions.
 
         Steps:
@@ -124,32 +163,33 @@ class BallTracker:
         2. Fill missing values using linear interpolation
 
         Args:
-            input_data: BallPostprocessingInput with positions and config
+            input_data: BallPostprocessingInput with df
 
         Returns:
-            BallTrajectory with smoothed positions and statistics
+            BallPostprocessingOutput with processed df and metadata
         """
-        # Convert Point2D to tuples for processing
-        positions_tuples = [
-            (p.x, p.y) if p is not None else (None, None) for p in input_data.positions
-        ]
+        df = input_data.df.copy()
 
-        # Get config
-        if input_data.config:
-            window = input_data.config.get("postprocessing.window", 10)
-            threshold = input_data.config.get("postprocessing.threshold", 100)
-        else:
-            config = self.config.get("postprocessing", {})
-            window = config.get("window", 10)
-            threshold = config.get("threshold", 100)
+        # Get postprocessing config
+        postprocess_config = self.config.get("postprocessing", {})
+        window = postprocess_config.get("window", 10)
+        threshold = postprocess_config.get("threshold", 100)
+
+        # Convert ball_x, ball_y to positions list
+        positions: List[Tuple[Optional[float], Optional[float]]] = []
+        for _, row in df.iterrows():
+            x = row.get('ball_x')
+            y = row.get('ball_y')
+            if pd.notna(x) and pd.notna(y):
+                positions.append((float(x), float(y)))
+            else:
+                positions.append((None, None))
 
         # Step 1: Remove outliers (track how many)
-        cleaned = self._remove_outliers(
-            positions_tuples, window=window, threshold=threshold
-        )
+        cleaned = self._remove_outliers(positions, window=window, threshold=threshold)
         outliers_removed = sum(
             1
-            for orig, clean in zip(positions_tuples, cleaned)
+            for orig, clean in zip(positions, cleaned)
             if orig[0] is not None and clean[0] is None
         )
 
@@ -157,14 +197,14 @@ class BallTracker:
         gaps_filled = sum(1 for p in cleaned if p[0] is None)
         imputed = self._impute_missing(cleaned)
 
-        # Convert back to Point2D
-        smoothed_positions = [Point2D(x=float(x), y=float(y)) for x, y in imputed]
+        # Update DataFrame with processed positions
+        df['ball_x'] = [float(x) for x, y in imputed]
+        df['ball_y'] = [float(y) for x, y in imputed]
 
-        return BallTrajectory(
-            positions=smoothed_positions,
-            original_positions=input_data.positions,
-            outliers_removed=outliers_removed,
-            gaps_filled=gaps_filled,
+        return BallPostprocessingOutput(
+            df=df,
+            num_ball_outliers=outliers_removed,
+            num_ball_gaps_filled=gaps_filled,
         )
 
     def _remove_outliers(
@@ -260,4 +300,4 @@ class BallTracker:
                 right=valid_values[-1],
             )
 
-        return [(int(x), int(y)) for x, y in zip(x_coords, y_coords)]
+        return [(float(x), float(y)) for x, y in zip(x_coords, y_coords)]
