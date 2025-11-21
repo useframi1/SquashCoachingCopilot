@@ -3,7 +3,7 @@
 
 # TrackNet Model Configuration
 model:
-    model_path: model/weights/model_best.pt # Path to TrackNet model weights
+    model_path: model/weights/ball_tracker.pt # Path to TrackNet model weights
     device: auto # Device for inference: 'auto', 'cpu', or 'cuda:0'
     model_width: 640 # Model input width in pixels
     model_height: 360 # Model input height in pixels
