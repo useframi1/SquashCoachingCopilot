@@ -158,7 +158,7 @@ class StrokeDetector:
         return normalized
 
     def _predict_stroke(self, sequence: np.ndarray) -> tuple:
-        """Predict stroke type for a sequence."""
+        """Predict stroke type for a single sequence."""
         with torch.no_grad():
             sequence_tensor = torch.FloatTensor(sequence).unsqueeze(0).to(self.device)
             output = self.model(sequence_tensor)
@@ -176,15 +176,66 @@ class StrokeDetector:
 
         return predicted_label, confidence_score
 
+    def _predict_strokes_batch(
+        self,
+        sequences: List[np.ndarray],
+        batch_size: int = 32,
+    ) -> List[tuple]:
+        """
+        Predict stroke types for a batch of sequences.
+
+        Args:
+            sequences: List of normalized keypoint sequences, each shape (seq_len, features)
+            batch_size: Number of sequences to process in parallel
+
+        Returns:
+            List of (predicted_label, confidence_score) tuples
+        """
+        if len(sequences) == 0:
+            return []
+
+        results = []
+
+        with torch.no_grad():
+            for batch_start in range(0, len(sequences), batch_size):
+                batch_end = min(batch_start + batch_size, len(sequences))
+                batch_sequences = sequences[batch_start:batch_end]
+
+                # Stack into batch tensor: (batch_size, seq_len, features)
+                batch_tensor = torch.FloatTensor(np.stack(batch_sequences)).to(self.device)
+
+                # Forward pass
+                output = self.model(batch_tensor)
+                probs = torch.softmax(output, dim=1)
+                confidences, predicted_indices = torch.max(probs, 1)
+
+                # Decode predictions
+                for i in range(len(batch_sequences)):
+                    pred_idx = predicted_indices[i].item()
+                    confidence = confidences[i].item()
+
+                    if self.label_encoder is not None:
+                        predicted_label = self.label_encoder.inverse_transform([pred_idx])[0]
+                    else:
+                        predicted_label = str(pred_idx)
+
+                    results.append((predicted_label, confidence))
+
+        return results
+
     def detect_strokes(
         self,
         input_data: StrokeClassificationInput,
+        batch_size: int = 32,
     ) -> StrokeClassificationOutput:
         """
         Detect stroke types for all racket hits and add columns to DataFrame.
 
+        Uses batch processing for efficient GPU inference.
+
         Args:
             input_data: StrokeClassificationInput with df and player_keypoints
+            batch_size: Number of sequences to process in parallel on GPU
 
         Returns:
             StrokeClassificationOutput with df containing added columns:
@@ -201,7 +252,9 @@ class StrokeDetector:
         racket_hit_frames = df[df["is_racket_hit"]].index.tolist()
         frame_numbers = df.index.tolist()
 
-        stroke_counts = {"forehand": 0, "backhand": 0, "neither": 0}
+        # Phase 1: Collect all valid sequences and their hit frames
+        valid_sequences = []
+        valid_hit_frames = []
 
         for hit_frame in racket_hit_frames:
             player_id = int(df.loc[hit_frame, "racket_hit_player_id"])
@@ -256,14 +309,18 @@ class StrokeDetector:
                 window_keypoints_flat
             )
 
-            # Predict stroke type
-            stroke_type_str, confidence = self._predict_stroke(normalized_keypoints)
+            valid_sequences.append(normalized_keypoints)
+            valid_hit_frames.append(hit_frame)
 
-            # Update DataFrame
+        # Phase 2: Batch predict all sequences
+        predictions = self._predict_strokes_batch(valid_sequences, batch_size)
+
+        # Phase 3: Map results back to DataFrame
+        stroke_counts = {"forehand": 0, "backhand": 0, "neither": 0}
+
+        for hit_frame, (stroke_type_str, confidence) in zip(valid_hit_frames, predictions):
             df.loc[hit_frame, "stroke_type"] = stroke_type_str
             df.loc[hit_frame, "stroke_confidence"] = confidence
-
-            # Track counts
             stroke_counts[stroke_type_str] = stroke_counts.get(stroke_type_str, 0) + 1
 
         # Compute stats

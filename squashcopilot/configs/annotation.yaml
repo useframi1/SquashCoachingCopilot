@@ -1,12 +1,24 @@
 # Annotation Configuration
 # Configuration for the video annotation pipeline (generates training data with keypoints)
 
+# Module Enable/Disable
+# Set to false to skip a module. If an annotations.csv already exists,
+# only enabled modules' columns will be updated; disabled modules' columns remain untouched.
+modules:
+    court_calibration: true
+    player_tracking: false
+    ball_tracking: true
+    rally_segmentation: false
+    hit_detection: false
+    stroke_classification: false
+    shot_classification: false
+
 # Input Video
 video:
     name: video-1 # Name of the video file to annotate (without extension)
     video_dir: squashcopilot/videos # Directory containing video files (relative to project root)
     # Processing limits
-    max_time: 3 # Maximum seconds of video to process (null = process entire video)
+    max_time: 1 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:

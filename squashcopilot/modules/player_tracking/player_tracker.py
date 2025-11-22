@@ -453,6 +453,441 @@ class PlayerTracker:
 
         return 1 - np.dot(feat1, feat2)
 
+    def process_batch(
+        self,
+        frames: List[np.ndarray],
+        frame_numbers: List[int],
+        timestamps: List[float],
+        batch_size: int = 32,
+    ) -> List[PlayerTrackingOutput]:
+        """
+        Process a batch of frames with batched YOLO detection and ReID.
+
+        This method processes multiple frames efficiently by:
+        1. Batching YOLO detection across all frames
+        2. Batching ReID feature extraction for all detected persons
+        3. Sequential assignment (stateful, cannot be parallelized)
+
+        Args:
+            frames: List of input frames (BGR format).
+            frame_numbers: List of frame numbers corresponding to each frame.
+            timestamps: List of timestamps corresponding to each frame.
+            batch_size: Number of frames to process in parallel for YOLO.
+
+        Returns:
+            List of PlayerTrackingOutput for each input frame.
+        """
+        if len(frames) == 0:
+            return []
+
+        # Create court mask on first frame if needed
+        if self.court_mask is None and self.calibration is not None:
+            self.court_mask = self._create_court_mask(frames[0].shape)
+
+        # Phase 1: Batch YOLO detection
+        all_detections, all_keypoints = self._detect_people_batch(frames, batch_size)
+
+        # Phase 2: Batch ReID feature extraction for all detections
+        all_features = self._extract_features_batch(frames, all_detections, batch_size)
+
+        # Phase 3: Sequential assignment and output building
+        outputs = []
+        for i, (frame, frame_number, timestamp) in enumerate(
+            zip(frames, frame_numbers, timestamps)
+        ):
+            detections = all_detections[i]
+            keypoints = all_keypoints[i]
+            det_features = all_features[i]
+            frame_width = frame.shape[1]
+
+            # Assign detections to player IDs (uses stateful tracking)
+            assignments = self._assign_detections_with_features(
+                detections, det_features, frame_width
+            )
+
+            # Build output
+            output = self._build_output(
+                frame_number, timestamp, detections, keypoints, assignments
+            )
+            outputs.append(output)
+
+        return outputs
+
+    def _detect_people_batch(
+        self,
+        frames: List[np.ndarray],
+        batch_size: int = 32,
+    ) -> Tuple[List[List], List[List]]:
+        """
+        Batch YOLO detection across multiple frames.
+
+        Args:
+            frames: List of input frames.
+            batch_size: Number of frames to process in parallel.
+
+        Returns:
+            Tuple of (all_detections, all_keypoints) where each is a list per frame.
+        """
+        all_detections = []
+        all_keypoints = []
+
+        # Apply court mask to all frames if available
+        if self.court_mask is not None:
+            detection_frames = [
+                cv2.bitwise_and(frame, frame, mask=self.court_mask)
+                for frame in frames
+            ]
+        else:
+            detection_frames = frames
+
+        # Process frames in batches through YOLO
+        for batch_start in range(0, len(detection_frames), batch_size):
+            batch_end = min(batch_start + batch_size, len(detection_frames))
+            batch_frames = detection_frames[batch_start:batch_end]
+
+            # YOLO batch inference
+            results_list = self.detector(batch_frames, verbose=False)
+
+            for results in results_list:
+                detections = results.boxes.xyxy.cpu().numpy()
+                confidences = results.boxes.conf.cpu().numpy()
+                classes = results.boxes.cls.cpu().numpy()
+                detections = np.hstack([detections, confidences[:, None], classes[:, None]])
+
+                # Extract keypoints if available
+                keypoints_data = None
+                if self.has_pose and results.keypoints is not None:
+                    keypoints_data = {
+                        "xy": results.keypoints.xy.cpu().numpy(),
+                        "conf": (
+                            results.keypoints.conf.cpu().numpy()
+                            if hasattr(results.keypoints, "conf")
+                            else None
+                        ),
+                    }
+
+                # Filter for person class (class 0) and get top 2
+                person_dets = [det for det in detections if det[5] == 0]
+                person_dets = sorted(person_dets, key=lambda x: x[4], reverse=True)[:2]
+
+                # Get corresponding keypoints for top 2 detections
+                person_keypoints = []
+                if keypoints_data is not None:
+                    for det in person_dets:
+                        det_idx = next(
+                            (j for j, d in enumerate(detections) if np.array_equal(d, det)),
+                            None
+                        )
+                        if det_idx is not None:
+                            kp = {
+                                "xy": keypoints_data["xy"][det_idx],
+                                "conf": (
+                                    keypoints_data["conf"][det_idx]
+                                    if keypoints_data["conf"] is not None
+                                    else None
+                                ),
+                            }
+                            person_keypoints.append(kp)
+                        else:
+                            person_keypoints.append(None)
+                else:
+                    person_keypoints = [None] * len(person_dets)
+
+                all_detections.append(person_dets)
+                all_keypoints.append(person_keypoints)
+
+        return all_detections, all_keypoints
+
+    def _extract_features_batch(
+        self,
+        frames: List[np.ndarray],
+        all_detections: List[List],
+        batch_size: int = 32,
+    ) -> List[List[Optional[np.ndarray]]]:
+        """
+        Batch ReID feature extraction for all detections across frames.
+
+        Args:
+            frames: List of input frames.
+            all_detections: List of detections per frame.
+
+        Returns:
+            List of feature lists per frame.
+        """
+        # Collect all crops and their indices
+        crops = []
+        crop_indices = []  # (frame_idx, det_idx)
+
+        input_size = tuple(self.config["models"]["reid_input_size"])
+
+        for frame_idx, (frame, detections) in enumerate(zip(frames, all_detections)):
+            frame_height, frame_width = frame.shape[:2]
+            for det_idx, det in enumerate(detections[:2]):
+                bbox = det[0:4]
+                x1, y1, x2, y2 = map(int, bbox)
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(frame_width, x2), min(frame_height, y2)
+
+                person_img = frame[y1:y2, x1:x2]
+                if person_img.size == 0:
+                    continue
+
+                person_img = cv2.resize(person_img, input_size)
+                crops.append(person_img)
+                crop_indices.append((frame_idx, det_idx))
+
+        # Initialize result structure
+        all_features = [[None, None] for _ in range(len(frames))]
+
+        if len(crops) == 0:
+            return all_features
+
+        # Batch through ReID model
+        all_reid_features = []
+
+        with torch.no_grad():
+            for batch_start in range(0, len(crops), batch_size):
+                batch_end = min(batch_start + batch_size, len(crops))
+                batch_crops = crops[batch_start:batch_end]
+
+                # Stack into tensor: (N, C, H, W)
+                batch_tensor = torch.stack([
+                    torch.from_numpy(crop).permute(2, 0, 1).float() / 255.0
+                    for crop in batch_crops
+                ]).to(self.device)
+
+                features = self.reid_model(batch_tensor)
+                all_reid_features.append(features.cpu().numpy())
+
+        # Concatenate all features
+        all_reid_features = np.concatenate(all_reid_features, axis=0)
+
+        # Map features back to frame/detection indices
+        for feat_idx, (frame_idx, det_idx) in enumerate(crop_indices):
+            all_features[frame_idx][det_idx] = all_reid_features[feat_idx]
+
+        return all_features
+
+    def _assign_detections_with_features(
+        self,
+        detections: List,
+        det_features: List[Optional[np.ndarray]],
+        frame_width: int,
+    ) -> Dict[int, int]:
+        """
+        Assign detections to player IDs using pre-computed features.
+
+        Args:
+            detections: List of detections for this frame.
+            det_features: Pre-computed ReID features for each detection.
+            frame_width: Frame width for position scoring.
+
+        Returns:
+            Dictionary mapping detection index to player ID.
+        """
+        if len(detections) == 0:
+            return {}
+
+        if not self.players_initialized:
+            return self._initialize_players_with_features(detections, det_features)
+
+        if self.player_features[1] is None and self.player_features[2] is None:
+            return self._initialize_players_with_features(detections, det_features)
+
+        matching_scores = self._calculate_matching_scores_with_features(
+            detections, det_features, frame_width
+        )
+
+        return self._greedy_assignment_with_features(
+            matching_scores, det_features, len(detections)
+        )
+
+    def _initialize_players_with_features(
+        self,
+        detections: List,
+        det_features: List[Optional[np.ndarray]],
+    ) -> Dict[int, int]:
+        """Initialize players based on left/right positioning with pre-computed features."""
+        if len(detections) < 2:
+            return {}
+
+        # Sort by x-coordinate (left to right)
+        detections_with_idx = [(i, det) for i, det in enumerate(detections[:2])]
+        detections_with_idx.sort(key=lambda x: (x[1][0] + x[1][2]) / 2)
+
+        # Assign: leftmost = Player 1, rightmost = Player 2
+        assignments = {}
+        for player_id, (det_idx, _) in enumerate(detections_with_idx, 1):
+            assignments[det_idx] = player_id
+            if det_idx < len(det_features) and det_features[det_idx] is not None:
+                self.player_features[player_id] = det_features[det_idx]
+
+        self.players_initialized = True
+        return assignments
+
+    def _calculate_matching_scores_with_features(
+        self,
+        detections: List,
+        det_features: List[Optional[np.ndarray]],
+        frame_width: int,
+    ) -> Dict[Tuple[int, int], float]:
+        """Calculate matching scores using pre-computed features."""
+        matching_scores = {}
+
+        for i, det in enumerate(detections[:2]):
+            bbox = det[0:4]
+            center = ((bbox[0] + bbox[2]) / 2, bbox[3])
+
+            for player_id in [1, 2]:
+                if self.player_features[player_id] is None:
+                    continue
+
+                # ReID score
+                feat = det_features[i] if i < len(det_features) else None
+                reid_score = self._feature_distance(feat, self.player_features[player_id])
+
+                # Position score
+                pos_score = 0
+                if len(self.player_positions[player_id]) > 0:
+                    last_pos = self.player_positions[player_id][-1]
+                    distance = np.sqrt(
+                        (center[0] - last_pos[0]) ** 2 + (center[1] - last_pos[1]) ** 2
+                    )
+                    pos_score = distance / frame_width
+
+                # Combined score
+                reid_weight = self.config["tracker"]["reid_weight"]
+                pos_weight = self.config["tracker"]["position_weight"]
+                score = reid_score * reid_weight + pos_score * pos_weight
+                matching_scores[(i, player_id)] = score
+
+        return matching_scores
+
+    def _greedy_assignment_with_features(
+        self,
+        matching_scores: Dict[Tuple[int, int], float],
+        det_features: List[Optional[np.ndarray]],
+        num_detections: int,
+    ) -> Dict[int, int]:
+        """Perform greedy assignment with pre-computed features."""
+        assignments = {}
+        assigned_players = set()
+
+        for (det_idx, player_id), score in sorted(
+            matching_scores.items(), key=lambda x: x[1]
+        ):
+            if det_idx in assignments or player_id in assigned_players:
+                continue
+            if score < self.reid_threshold:
+                assignments[det_idx] = player_id
+                assigned_players.add(player_id)
+
+                # Update player features with exponential moving average
+                if det_idx < len(det_features) and det_features[det_idx] is not None:
+                    self.player_features[player_id] = (
+                        0.5 * self.player_features[player_id]
+                        + 0.5 * det_features[det_idx]
+                    )
+
+        # Handle remaining unassigned detections
+        unassigned_dets = [
+            i for i in range(min(2, num_detections)) if i not in assignments
+        ]
+        unassigned_players = [i for i in [1, 2] if i not in assigned_players]
+
+        if len(unassigned_dets) == 1 and len(unassigned_players) == 1:
+            det_idx = unassigned_dets[0]
+            player_id = unassigned_players[0]
+            assignments[det_idx] = player_id
+            if det_idx < len(det_features) and det_features[det_idx] is not None:
+                self.player_features[player_id] = det_features[det_idx]
+
+        return assignments
+
+    def _build_output(
+        self,
+        frame_number: int,
+        timestamp: float,
+        detections: List,
+        keypoints: List,
+        assignments: Dict[int, int],
+    ) -> PlayerTrackingOutput:
+        """Build PlayerTrackingOutput from detections and assignments."""
+        output = PlayerTrackingOutput(
+            frame_number=frame_number,
+            timestamp=timestamp,
+            player_1_detected=False,
+            player_1_x_pixel=None,
+            player_1_y_pixel=None,
+            player_1_x_meter=None,
+            player_1_y_meter=None,
+            player_1_confidence=0.0,
+            player_1_bbox=None,
+            player_1_keypoints=None,
+            player_2_detected=False,
+            player_2_x_pixel=None,
+            player_2_y_pixel=None,
+            player_2_x_meter=None,
+            player_2_y_meter=None,
+            player_2_confidence=0.0,
+            player_2_bbox=None,
+            player_2_keypoints=None,
+        )
+
+        for det_idx, player_id in assignments.items():
+            # Bounds check to avoid index errors
+            if det_idx >= len(detections):
+                continue
+
+            bbox = detections[det_idx][0:4]
+            confidence = float(detections[det_idx][4])
+
+            center_x_pixel = (bbox[0] + bbox[2]) / 2
+            bottom_y_pixel = bbox[3]
+
+            center_x_meter = None
+            center_y_meter = None
+            if self.calibration is not None and self.calibration.floor_homography is not None:
+                pixel_point = Point2D(x=center_x_pixel, y=bottom_y_pixel)
+                meter_point = self.calibration.pixel_to_floor(pixel_point)
+                center_x_meter = meter_point.x
+                center_y_meter = meter_point.y
+
+            kp_array = None
+            if det_idx < len(keypoints) and keypoints[det_idx] is not None:
+                full_kp = keypoints[det_idx]["xy"]
+                kp_array = full_kp[BODY_KEYPOINT_INDICES].copy()
+
+            bbox_obj = BoundingBox(
+                x1=float(bbox[0]),
+                y1=float(bbox[1]),
+                x2=float(bbox[2]),
+                y2=float(bbox[3]),
+            )
+
+            self.player_positions[player_id].append((center_x_pixel, bottom_y_pixel))
+
+            if player_id == 1:
+                output.player_1_detected = True
+                output.player_1_x_pixel = float(center_x_pixel)
+                output.player_1_y_pixel = float(bottom_y_pixel)
+                output.player_1_x_meter = center_x_meter
+                output.player_1_y_meter = center_y_meter
+                output.player_1_confidence = confidence
+                output.player_1_bbox = bbox_obj
+                output.player_1_keypoints = kp_array
+            else:
+                output.player_2_detected = True
+                output.player_2_x_pixel = float(center_x_pixel)
+                output.player_2_y_pixel = float(bottom_y_pixel)
+                output.player_2_x_meter = center_x_meter
+                output.player_2_y_meter = center_y_meter
+                output.player_2_confidence = confidence
+                output.player_2_bbox = bbox_obj
+                output.player_2_keypoints = kp_array
+
+        return output
+
     def reset(self):
         """Reset tracker state (useful for processing new videos)."""
         self.player_positions = {

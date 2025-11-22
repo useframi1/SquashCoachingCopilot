@@ -25,12 +25,10 @@ from squashcopilot.common.models import (
     VideoMetadata,
     CourtCalibrationInput,
     CourtCalibrationOutput,
-    PlayerTrackingInput,
     PlayerTrackingOutput,
     player_tracking_outputs_to_dataframe,
     PlayerPostprocessingInput,
     PlayerPostprocessingOutput,
-    BallTrackingInput,
     BallTrackingOutput,
     ball_tracking_outputs_to_dataframe,
     BallPostprocessingInput,
@@ -61,6 +59,7 @@ from squashcopilot.modules.stroke_detection.stroke_detector import StrokeDetecto
 from squashcopilot.modules.shot_type_classification.shot_classifier import (
     ShotClassifier,
 )
+from squashcopilot.pipeline.frame_reader import BatchFrameReader, FrameBatch
 
 
 class Pipeline:
@@ -102,7 +101,9 @@ class Pipeline:
         # Get or create logger for this module
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(level)
-        self.logger.propagate = False  # Don't propagate to root logger (avoids duplicate messages)
+        self.logger.propagate = (
+            False  # Don't propagate to root logger (avoids duplicate messages)
+        )
 
         # Only add handler if logger doesn't have one yet
         if not self.logger.handlers:
@@ -313,13 +314,20 @@ class Pipeline:
         calibration: CourtCalibrationOutput,
         video_metadata: VideoMetadata,
     ) -> tuple:
-        """Stage 2: Frame-by-frame tracking -> DataFrame."""
-        self.logger.info("Stage 2: Frame-by-Frame Tracking")
+        """Stage 2: Frame-by-frame tracking -> DataFrame.
+
+        Uses batch processing for ball tracking to optimize GPU utilization.
+        Player tracking still processes frame-by-frame (to be optimized in Phase 2).
+        """
+        self.logger.info("Stage 2: Frame-by-Frame Tracking (using batch processing)")
         stage_start = time.time()
 
-        cap = cv2.VideoCapture(video_path)
         total_frames = video_metadata.total_frames
         fps = video_metadata.fps
+
+        # Get batch processing config
+        batch_size = self.config["processing"].get("batch_size", 32)
+        prefetch_batches = self.config["processing"].get("prefetch_batches", 2)
 
         player_outputs = []
         ball_outputs = []
@@ -332,72 +340,91 @@ class Pipeline:
         if self.player_tracker and calibration:
             self.player_tracker.set_calibration(calibration)
 
-        frame_number = 0
+        # Create batch frame reader
+        frame_reader = BatchFrameReader(
+            video_path=video_path,
+            batch_size=batch_size,
+            max_frames=total_frames,
+            fps=fps,
+            prefetch=True,
+            prefetch_batches=prefetch_batches,
+        )
+
+        # Progress bar for total frames
         pbar = tqdm(
             total=total_frames,
             desc="Tracking frames",
             disable=not self.config["logging"]["show_progress"],
         )
 
-        while cap.isOpened() and frame_number < total_frames:
-            ret, frame_img = cap.read()
-            if not ret:
-                break
+        # Carryover frames for ball tracking continuity across batches
+        ball_carryover_frames = None
 
-            timestamp = frame_number / fps
-            frame = Frame(
-                image=frame_img, frame_number=frame_number, timestamp=timestamp
-            )
-
-            # Track players
-            player_tracking_input = PlayerTrackingInput(
-                frame=frame, calibration=calibration
-            )
-            if self.player_tracker:
-                player_output = self.player_tracker.process_frame(player_tracking_input)
-            else:
-                player_output = PlayerTrackingOutput(
-                    frame_number=frame_number,
-                    timestamp=timestamp,
-                    player_1_detected=False,
-                    player_1_x_pixel=None,
-                    player_1_y_pixel=None,
-                    player_1_x_meter=None,
-                    player_1_y_meter=None,
-                    player_1_confidence=0.0,
-                    player_1_bbox=None,
-                    player_1_keypoints=None,
-                    player_2_detected=False,
-                    player_2_x_pixel=None,
-                    player_2_y_pixel=None,
-                    player_2_x_meter=None,
-                    player_2_y_meter=None,
-                    player_2_confidence=0.0,
-                    player_2_bbox=None,
-                    player_2_keypoints=None,
-                )
-
-            # Track ball
-            ball_tracking_input = BallTrackingInput(frame=frame)
+        for batch in frame_reader:
+            # Process ball tracking in batch (GPU optimized)
             if self.ball_tracker:
-                ball_output = self.ball_tracker.process_frame(ball_tracking_input)
-            else:
-                ball_output = BallTrackingOutput(
-                    frame_number=frame_number,
-                    timestamp=timestamp,
-                    ball_detected=False,
-                    ball_x=None,
-                    ball_y=None,
-                    ball_confidence=0.0,
+                batch_ball_outputs, ball_carryover_frames = (
+                    self.ball_tracker.process_batch(
+                        frames=batch.images,
+                        frame_numbers=batch.frame_numbers,
+                        timestamps=batch.timestamps,
+                        batch_size=batch_size,
+                        carryover_frames=ball_carryover_frames,
+                    )
                 )
+                ball_outputs.extend(batch_ball_outputs)
+            else:
+                # Create empty outputs if ball tracker disabled
+                for fn, ts in zip(batch.frame_numbers, batch.timestamps):
+                    ball_outputs.append(
+                        BallTrackingOutput(
+                            frame_number=fn,
+                            timestamp=ts,
+                            ball_detected=False,
+                            ball_x=None,
+                            ball_y=None,
+                            ball_confidence=0.0,
+                        )
+                    )
 
-            player_outputs.append(player_output)
-            ball_outputs.append(ball_output)
-            frame_number += 1
-            pbar.update(1)
+            # Process player tracking in batch (GPU optimized)
+            if self.player_tracker:
+                batch_player_outputs = self.player_tracker.process_batch(
+                    frames=batch.images,
+                    frame_numbers=batch.frame_numbers,
+                    timestamps=batch.timestamps,
+                    batch_size=batch_size,
+                )
+                player_outputs.extend(batch_player_outputs)
+            else:
+                # Create empty outputs if player tracker disabled
+                for fn, ts in zip(batch.frame_numbers, batch.timestamps):
+                    player_outputs.append(
+                        PlayerTrackingOutput(
+                            frame_number=fn,
+                            timestamp=ts,
+                            player_1_detected=False,
+                            player_1_x_pixel=None,
+                            player_1_y_pixel=None,
+                            player_1_x_meter=None,
+                            player_1_y_meter=None,
+                            player_1_confidence=0.0,
+                            player_1_bbox=None,
+                            player_1_keypoints=None,
+                            player_2_detected=False,
+                            player_2_x_pixel=None,
+                            player_2_y_pixel=None,
+                            player_2_x_meter=None,
+                            player_2_y_meter=None,
+                            player_2_confidence=0.0,
+                            player_2_bbox=None,
+                            player_2_keypoints=None,
+                        )
+                    )
+
+            pbar.update(len(batch))
 
         pbar.close()
-        cap.release()
 
         # Convert to DataFrames + complex data
         player_df, complex_data = player_tracking_outputs_to_dataframe(player_outputs)
@@ -446,10 +473,18 @@ class Pipeline:
             player_2_gaps = player_postprocess_output.num_player_2_gaps_filled
 
             # Update complex_data with processed keypoints/bboxes
-            complex_data["player_1_keypoints"] = player_postprocess_output.player_keypoints.get(1, [])
-            complex_data["player_2_keypoints"] = player_postprocess_output.player_keypoints.get(2, [])
-            complex_data["player_1_bboxes"] = player_postprocess_output.player_bboxes.get(1, [])
-            complex_data["player_2_bboxes"] = player_postprocess_output.player_bboxes.get(2, [])
+            complex_data["player_1_keypoints"] = (
+                player_postprocess_output.player_keypoints.get(1, [])
+            )
+            complex_data["player_2_keypoints"] = (
+                player_postprocess_output.player_keypoints.get(2, [])
+            )
+            complex_data["player_1_bboxes"] = (
+                player_postprocess_output.player_bboxes.get(1, [])
+            )
+            complex_data["player_2_bboxes"] = (
+                player_postprocess_output.player_bboxes.get(2, [])
+            )
 
         # Postprocess ball trajectory
         if self.ball_tracker:
@@ -553,7 +588,10 @@ class Pipeline:
             stroke_input = StrokeClassificationInput(
                 df=df, player_keypoints=player_keypoints
             )
-            stroke_output = self.stroke_detector.detect_strokes(stroke_input)
+            batch_size = self.config["processing"].get("batch_size", 32)
+            stroke_output = self.stroke_detector.detect_strokes(
+                stroke_input, batch_size=batch_size
+            )
             df = stroke_output.df
 
         # Shot classification
@@ -606,15 +644,23 @@ class Pipeline:
             csv_columns = self.config["output"].get("csv_columns")
             if csv_columns:
                 # Only include columns that exist in the DataFrame
-                available_columns = [col for col in csv_columns if col in export_df.columns]
-                missing_columns = [col for col in csv_columns if col not in export_df.columns]
+                available_columns = [
+                    col for col in csv_columns if col in export_df.columns
+                ]
+                missing_columns = [
+                    col for col in csv_columns if col not in export_df.columns
+                ]
                 if missing_columns:
-                    self.logger.warning(f"CSV columns not found in data: {missing_columns}")
+                    self.logger.warning(
+                        f"CSV columns not found in data: {missing_columns}"
+                    )
                 export_df = export_df[available_columns]
 
             export_df.to_csv(csv_path)
             output_paths["csv"] = str(csv_path)
-            self.logger.info(f"CSV exported: {csv_path} ({len(export_df.columns)} columns)")
+            self.logger.info(
+                f"CSV exported: {csv_path} ({len(export_df.columns)} columns)"
+            )
 
         # Export statistics JSON
         if self.config["output"]["save_statistics"]:
@@ -699,7 +745,6 @@ class Pipeline:
     ):
         """Render annotated video with visualizations."""
         df = session.current_df
-        rally_segments = session.rally_segments
 
         if df is None or df.empty:
             self.logger.warning("No data to render")

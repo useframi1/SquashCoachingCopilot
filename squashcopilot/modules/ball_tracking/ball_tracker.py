@@ -39,7 +39,7 @@ class BallTracker:
 
         # Load configuration
         if config is None:
-            config = load_config(config_name='ball_tracking')
+            config = load_config(config_name="ball_tracking")
 
         self.config = config
 
@@ -105,7 +105,9 @@ class BallTracker:
         frame = input_data.frame
         image = frame.image
         frame_number = frame.frame_number
-        timestamp = frame.timestamp if hasattr(frame, 'timestamp') else frame_number / 30.0
+        timestamp = (
+            frame.timestamp if hasattr(frame, "timestamp") else frame_number / 30.0
+        )
 
         # Preprocess if black ball
         if self.is_black_ball:
@@ -152,6 +154,98 @@ class BallTracker:
             return Point2D(x=float(x), y=float(y))
         return None
 
+    def process_batch(
+        self,
+        frames: List[np.ndarray],
+        frame_numbers: List[int],
+        timestamps: List[float],
+        batch_size: int = 32,
+        carryover_frames: Optional[List[np.ndarray]] = None,
+    ) -> Tuple[List[BallTrackingOutput], List[np.ndarray]]:
+        """
+        Process a batch of frames and return ball tracking outputs.
+
+        This method processes multiple frames efficiently by batching them
+        through the TrackNet model on GPU.
+
+        Args:
+            frames: List of input frames (BGR format).
+            frame_numbers: List of frame numbers corresponding to each frame.
+            timestamps: List of timestamps corresponding to each frame.
+            batch_size: Number of sliding windows to process in parallel on GPU.
+            carryover_frames: Optional frames from previous batch for continuity.
+                             Should be the last 2 frames from the previous batch.
+
+        Returns:
+            Tuple of:
+                - List of BallTrackingOutput for each input frame.
+                - List of last 2 frames for carryover to next batch.
+        """
+        if len(frames) == 0:
+            return [], []
+
+        # Preprocess frames if black ball
+        if self.is_black_ball:
+            processed_frames = [self.preprocess_frame(frame) for frame in frames]
+        else:
+            processed_frames = frames
+
+        # Prepend carryover frames for cross-batch continuity
+        if carryover_frames and len(carryover_frames) > 0:
+            # Carryover frames are already preprocessed from previous batch
+            full_frames = carryover_frames + processed_frames
+            # Offset for results: skip carryover frame results
+            carryover_offset = len(carryover_frames)
+        else:
+            full_frames = processed_frames
+            carryover_offset = 0
+
+        # Get ball coordinates from tracker
+        all_coords = self.tracker.process_batch(full_frames, batch_size=batch_size)
+
+        # Extract results for current batch (skip carryover results)
+        current_coords = all_coords[carryover_offset:]
+
+        # Build outputs
+        outputs = []
+        for i, (x, y) in enumerate(current_coords):
+            frame_number = frame_numbers[i]
+            timestamp = timestamps[i]
+
+            if x is not None and y is not None:
+                output = BallTrackingOutput(
+                    frame_number=frame_number,
+                    timestamp=timestamp,
+                    ball_detected=True,
+                    ball_x=float(x),
+                    ball_y=float(y),
+                    ball_confidence=1.0,
+                )
+            else:
+                output = BallTrackingOutput(
+                    frame_number=frame_number,
+                    timestamp=timestamp,
+                    ball_detected=False,
+                    ball_x=None,
+                    ball_y=None,
+                    ball_confidence=0.0,
+                )
+            outputs.append(output)
+
+        # Prepare carryover: last 2 processed frames for next batch
+        if len(processed_frames) >= 2:
+            next_carryover = processed_frames[-2:]
+        elif len(processed_frames) == 1:
+            # If only 1 frame, carry it plus last from previous carryover if available
+            if carryover_frames and len(carryover_frames) >= 1:
+                next_carryover = [carryover_frames[-1], processed_frames[0]]
+            else:
+                next_carryover = processed_frames
+        else:
+            next_carryover = []
+
+        return outputs, next_carryover
+
     def postprocess(
         self,
         input_data: BallPostprocessingInput,
@@ -178,8 +272,8 @@ class BallTracker:
         # Convert ball_x, ball_y to positions list
         positions: List[Tuple[Optional[float], Optional[float]]] = []
         for _, row in df.iterrows():
-            x = row.get('ball_x')
-            y = row.get('ball_y')
+            x = row.get("ball_x")
+            y = row.get("ball_y")
             if pd.notna(x) and pd.notna(y):
                 positions.append((float(x), float(y)))
             else:
@@ -198,8 +292,8 @@ class BallTracker:
         imputed = self._impute_missing(cleaned)
 
         # Update DataFrame with processed positions
-        df['ball_x'] = [float(x) for x, y in imputed]
-        df['ball_y'] = [float(y) for x, y in imputed]
+        df["ball_x"] = [float(x) for x, y in imputed]
+        df["ball_y"] = [float(y) for x, y in imputed]
 
         return BallPostprocessingOutput(
             df=df,

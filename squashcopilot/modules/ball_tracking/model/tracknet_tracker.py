@@ -2,6 +2,7 @@ import torch
 import cv2
 import numpy as np
 from collections import deque
+from typing import List, Optional, Tuple
 from .model import BallTrackerNet
 from ..utils import postprocess
 from squashcopilot.common.utils import get_package_dir
@@ -135,3 +136,118 @@ class TrackNetTracker:
         )
 
         return x, y
+
+    def process_batch(
+        self,
+        frames: List[np.ndarray],
+        batch_size: int = 32,
+    ) -> List[Tuple[Optional[int], Optional[int]]]:
+        """
+        Process a batch of frames and return ball coordinates for each.
+
+        Builds 3-frame sliding windows from the input frames and processes
+        them through TrackNet in batches for GPU efficiency.
+
+        Args:
+            frames: List of input frames (BGR format, any resolution).
+                    Must be at least 3 frames for any detections.
+            batch_size: Number of windows to process in parallel on GPU.
+
+        Returns:
+            List of (x, y) tuples for each input frame.
+            First 2 frames return (None, None) due to temporal context requirement.
+        """
+        num_frames = len(frames)
+        results: List[Tuple[Optional[int], Optional[int]]] = []
+
+        if num_frames == 0:
+            return results
+
+        # Get original frame dimensions from first frame
+        original_height, original_width = frames[0].shape[:2]
+
+        # Resize all frames to model dimensions
+        resized_frames = [
+            cv2.resize(frame, (self.model_width, self.model_height))
+            for frame in frames
+        ]
+
+        # First 2 frames have no temporal context - return None
+        results.append((None, None))
+        if num_frames >= 2:
+            results.append((None, None))
+
+        if num_frames < 3:
+            return results
+
+        # Build all 3-frame sliding windows
+        # Window i contains frames [i, i+1, i+2] and produces output for frame i+2
+        num_windows = num_frames - 2
+        windows = []
+
+        for i in range(num_windows):
+            img_preprev = resized_frames[i]      # t-2
+            img_prev = resized_frames[i + 1]     # t-1
+            img_curr = resized_frames[i + 2]     # t (current)
+
+            # Concatenate: current, previous, pre-previous (9 channels)
+            window = np.concatenate((img_curr, img_prev, img_preprev), axis=2)
+            window = window.astype(np.float32) / 255.0
+            window = np.rollaxis(window, 2, 0)  # HWC -> CHW
+            windows.append(window)
+
+        # Process windows in batches
+        all_outputs = []
+        with torch.no_grad():
+            for batch_start in range(0, num_windows, batch_size):
+                batch_end = min(batch_start + batch_size, num_windows)
+                batch_windows = windows[batch_start:batch_end]
+
+                # Stack into batch tensor: (batch, 9, H, W)
+                batch_tensor = torch.from_numpy(np.stack(batch_windows)).float()
+                batch_tensor = batch_tensor.to(self.device)
+
+                # Forward pass
+                out = self.model(batch_tensor)
+                output = out.argmax(dim=1).detach().cpu().numpy()
+
+                all_outputs.append(output)
+
+        # Concatenate all batch outputs
+        all_outputs = np.concatenate(all_outputs, axis=0)
+
+        # Postprocess each output to get coordinates
+        for i in range(num_windows):
+            # Extract single output (add batch dimension for postprocess)
+            single_output = all_outputs[i:i+1]
+            x_pred, y_pred = postprocess(single_output)
+
+            x, y = self._get_scaled_coordinates(
+                x_pred, y_pred, original_width, original_height
+            )
+            results.append((x, y))
+
+        return results
+
+    def get_carryover_frames(self) -> List[np.ndarray]:
+        """
+        Get frames needed for cross-batch continuity.
+
+        When processing in batches, the last 2 frames of a batch need to be
+        carried over to the next batch to maintain the 3-frame sliding window.
+
+        Returns:
+            List of last 2 frames from the buffer (may be empty or have 1-2 frames).
+        """
+        return list(self.frame_buffer)
+
+    def set_carryover_frames(self, frames: List[np.ndarray]):
+        """
+        Set carryover frames from previous batch.
+
+        Args:
+            frames: List of frames to prepend (typically last 2 from previous batch).
+        """
+        self.frame_buffer.clear()
+        for frame in frames:
+            self.frame_buffer.append(frame)

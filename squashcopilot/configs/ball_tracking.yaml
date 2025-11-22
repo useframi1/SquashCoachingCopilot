@@ -13,16 +13,27 @@ postprocessing:
     window: 20 # Rolling window size for outlier detection (frames)
     threshold: 80 # Maximum distance threshold for outlier removal (pixels)
 
-# Test Configuration
+# Annotation Configuration
+annotation:
+    video_dir: squashcopilot/videos # Video directory (relative to project root)
+    video_name: video-3 # Video name to annotate (without extension)
+    output_dir: squashcopilot/modules/ball_tracking/tests/ground_truth # Output directory for annotations
+    autosave_interval: 50 # Frames between autosaves
+    show_tracker_prediction: true # Show the tracker's prediction on each frame
+
+# Test/Evaluation Configuration
 tests:
     video:
         video_dir: squashcopilot/videos # Video directory (relative to project root)
         video_name: video-3 # Video name (without extension)
-        max_frames: 5000
+    predictions_dir: squashcopilot/annotation/annotations # Directory containing prediction CSVs from annotation module
+    ground_truth_dir: squashcopilot/modules/ball_tracking/tests/ground_truth # Directory containing ground truth CSVs
+    pixel_tolerance: 10 # Pixels tolerance for correct detection
+    use_ground_truth: true # Set to true to evaluate against ground truth annotations
     tracking:
         trace_length: 5
         trace_color: [0, 0, 255]
-        trace_thickness: 10
+        trace_thickness: 5
     output:
         output_dir: outputs
         save_video: true

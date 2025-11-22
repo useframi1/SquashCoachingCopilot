@@ -1,0 +1,27 @@
+{
+  "video_info": {
+    "filename": "video-1",
+    "duration_seconds": 3.0,
+    "fps": 60.0,
+    "total_frames": 180,
+    "resolution": [
+      1280,
+      720
+    ]
+  },
+  "rallies": {
+    "total_rallies": 1,
+    "total_play_time_seconds": 3.0
+  },
+  "hits": {
+    "wall_hits": 2,
+    "racket_hits": 2
+  },
+  "strokes": {
+    "backhand": 1,
+    "forehand": 1
+  },
+  "shots": {
+    "cross_court_drive": 1
+  }
+}

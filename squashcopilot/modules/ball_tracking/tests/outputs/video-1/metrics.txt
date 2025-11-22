@@ -1,0 +1,23 @@
+BALL TRACKING EVALUATION
+==================================================
+
+Video: video-1
+Evaluated Frames: 1300
+Pixel Tolerance: 10 pixels
+
+Detection Metrics:
+  True Positives:   933
+  False Positives:  367
+  False Negatives:  0
+  True Negatives:   0
+
+Performance Metrics:
+  Precision:        0.7177
+  Recall:           1.0000
+  F1 Score:         0.8356
+  Accuracy:         0.7177
+
+Position Error (for correct detections):
+  MAE:              22.03 pixels
+  RMSE:             85.69 pixels
+  Within Tolerance: 87.85%
