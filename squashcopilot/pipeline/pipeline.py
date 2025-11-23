@@ -11,12 +11,14 @@ the DataFrame with new columns.
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
 import json
 
 import cv2
 import numpy as np
 import pandas as pd
+import torch
 from tqdm import tqdm
 
 from squashcopilot.common.types import Frame
@@ -34,16 +36,11 @@ from squashcopilot.common.models import (
     BallPostprocessingInput,
     BallPostprocessingOutput,
     RallySegmentationInput,
-    RallySegmentationOutput,
     RallySegment,
     WallHitDetectionInput,
-    WallHitDetectionOutput,
     RacketHitDetectionInput,
-    RacketHitDetectionOutput,
     StrokeClassificationInput,
-    StrokeClassificationOutput,
     ShotClassificationInput,
-    ShotClassificationOutput,
     PipelineSession,
 )
 
@@ -59,7 +56,7 @@ from squashcopilot.modules.stroke_detection.stroke_detector import StrokeDetecto
 from squashcopilot.modules.shot_type_classification.shot_classifier import (
     ShotClassifier,
 )
-from squashcopilot.pipeline.frame_reader import BatchFrameReader, FrameBatch
+from squashcopilot.pipeline.frame_reader import BatchFrameReader
 
 
 class Pipeline:
@@ -308,6 +305,79 @@ class Pipeline:
         self.logger.info(f"Stage 1 completed in {time.time() - stage_start:.2f}s")
         return calibration
 
+    def _process_ball_batch(
+        self,
+        images: List[np.ndarray],
+        frame_numbers: List[int],
+        timestamps: List[float],
+        batch_size: int,
+        carryover_frames: Optional[List[np.ndarray]],
+    ) -> Tuple[List[BallTrackingOutput], Optional[List[np.ndarray]]]:
+        """Process ball tracking for a batch (helper for parallel execution)."""
+        if self.ball_tracker:
+            return self.ball_tracker.process_batch(
+                frames=images,
+                frame_numbers=frame_numbers,
+                timestamps=timestamps,
+                batch_size=batch_size,
+                carryover_frames=carryover_frames,
+            )
+        else:
+            # Create empty outputs if ball tracker disabled
+            empty_outputs = [
+                BallTrackingOutput(
+                    frame_number=fn,
+                    timestamp=ts,
+                    ball_detected=False,
+                    ball_x=None,
+                    ball_y=None,
+                    ball_confidence=0.0,
+                )
+                for fn, ts in zip(frame_numbers, timestamps)
+            ]
+            return empty_outputs, carryover_frames
+
+    def _process_player_batch(
+        self,
+        images: List[np.ndarray],
+        frame_numbers: List[int],
+        timestamps: List[float],
+        batch_size: int,
+    ) -> List[PlayerTrackingOutput]:
+        """Process player tracking for a batch (helper for parallel execution)."""
+        if self.player_tracker:
+            return self.player_tracker.process_batch(
+                frames=images,
+                frame_numbers=frame_numbers,
+                timestamps=timestamps,
+                batch_size=batch_size,
+            )
+        else:
+            # Create empty outputs if player tracker disabled
+            return [
+                PlayerTrackingOutput(
+                    frame_number=fn,
+                    timestamp=ts,
+                    player_1_detected=False,
+                    player_1_x_pixel=None,
+                    player_1_y_pixel=None,
+                    player_1_x_meter=None,
+                    player_1_y_meter=None,
+                    player_1_confidence=0.0,
+                    player_1_bbox=None,
+                    player_1_keypoints=None,
+                    player_2_detected=False,
+                    player_2_x_pixel=None,
+                    player_2_y_pixel=None,
+                    player_2_x_meter=None,
+                    player_2_y_meter=None,
+                    player_2_confidence=0.0,
+                    player_2_bbox=None,
+                    player_2_keypoints=None,
+                )
+                for fn, ts in zip(frame_numbers, timestamps)
+            ]
+
     def _stage2_track_frames(
         self,
         video_path: str,
@@ -316,10 +386,18 @@ class Pipeline:
     ) -> tuple:
         """Stage 2: Frame-by-frame tracking -> DataFrame.
 
-        Uses batch processing for ball tracking to optimize GPU utilization.
-        Player tracking still processes frame-by-frame (to be optimized in Phase 2).
+        Uses batch processing for both ball and player tracking to optimize GPU utilization.
+        Ball and player tracking run in parallel using CUDA streams for true GPU parallelism.
+
+        CUDA Streams Strategy:
+        - Each tracker gets its own CUDA stream
+        - Streams allow overlapping GPU memory transfers and kernel execution
+        - ThreadPoolExecutor handles CPU preprocessing overlap
+        - Combined effect: both trackers can utilize GPU simultaneously
         """
-        self.logger.info("Stage 2: Frame-by-Frame Tracking (using batch processing)")
+        self.logger.info(
+            "Stage 2: Frame-by-Frame Tracking (using CUDA streams for parallel GPU execution)"
+        )
         stage_start = time.time()
 
         total_frames = video_metadata.total_frames
@@ -360,69 +438,63 @@ class Pipeline:
         # Carryover frames for ball tracking continuity across batches
         ball_carryover_frames = None
 
-        for batch in frame_reader:
-            # Process ball tracking in batch (GPU optimized)
-            if self.ball_tracker:
-                batch_ball_outputs, ball_carryover_frames = (
-                    self.ball_tracker.process_batch(
-                        frames=batch.images,
-                        frame_numbers=batch.frame_numbers,
-                        timestamps=batch.timestamps,
-                        batch_size=batch_size,
-                        carryover_frames=ball_carryover_frames,
-                    )
-                )
-                ball_outputs.extend(batch_ball_outputs)
-            else:
-                # Create empty outputs if ball tracker disabled
-                for fn, ts in zip(batch.frame_numbers, batch.timestamps):
-                    ball_outputs.append(
-                        BallTrackingOutput(
-                            frame_number=fn,
-                            timestamp=ts,
-                            ball_detected=False,
-                            ball_x=None,
-                            ball_y=None,
-                            ball_confidence=0.0,
-                        )
-                    )
+        # Check if CUDA is available for stream-based parallelism
+        use_cuda_streams = torch.cuda.is_available()
 
-            # Process player tracking in batch (GPU optimized)
+        if use_cuda_streams:
+            # Create separate CUDA streams for ball and player tracking
+            # This allows overlapping GPU operations between the two trackers
+            ball_stream = torch.cuda.Stream()
+            player_stream = torch.cuda.Stream()
+
+            # Assign streams to trackers so their inference uses the correct stream
+            if self.ball_tracker and hasattr(self.ball_tracker, "tracker"):
+                self.ball_tracker.tracker._cuda_stream = ball_stream
             if self.player_tracker:
-                batch_player_outputs = self.player_tracker.process_batch(
-                    frames=batch.images,
-                    frame_numbers=batch.frame_numbers,
-                    timestamps=batch.timestamps,
-                    batch_size=batch_size,
-                )
-                player_outputs.extend(batch_player_outputs)
-            else:
-                # Create empty outputs if player tracker disabled
-                for fn, ts in zip(batch.frame_numbers, batch.timestamps):
-                    player_outputs.append(
-                        PlayerTrackingOutput(
-                            frame_number=fn,
-                            timestamp=ts,
-                            player_1_detected=False,
-                            player_1_x_pixel=None,
-                            player_1_y_pixel=None,
-                            player_1_x_meter=None,
-                            player_1_y_meter=None,
-                            player_1_confidence=0.0,
-                            player_1_bbox=None,
-                            player_1_keypoints=None,
-                            player_2_detected=False,
-                            player_2_x_pixel=None,
-                            player_2_y_pixel=None,
-                            player_2_x_meter=None,
-                            player_2_y_meter=None,
-                            player_2_confidence=0.0,
-                            player_2_bbox=None,
-                            player_2_keypoints=None,
-                        )
-                    )
+                self.player_tracker._cuda_stream = player_stream
+        else:
+            ball_stream = None
+            player_stream = None
+            self.logger.info("CUDA not available, using sequential execution")
 
-            pbar.update(len(batch))
+        # Use ThreadPoolExecutor for CPU preprocessing overlap
+        # Combined with CUDA streams, this allows:
+        # 1. CPU preprocessing for ball tracking overlaps with GPU inference for player tracking
+        # 2. CPU preprocessing for player tracking overlaps with GPU inference for ball tracking
+        # 3. GPU operations from both trackers can overlap via different streams
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            for batch in frame_reader:
+                # Submit both tasks in parallel to ThreadPoolExecutor
+                # Each tracker will use its assigned CUDA stream internally
+                ball_future = executor.submit(
+                    self._process_ball_batch,
+                    batch.images,
+                    batch.frame_numbers,
+                    batch.timestamps,
+                    batch_size,
+                    ball_carryover_frames,
+                )
+                player_future = executor.submit(
+                    self._process_player_batch,
+                    batch.images,
+                    batch.frame_numbers,
+                    batch.timestamps,
+                    batch_size,
+                )
+
+                # Wait for both to complete
+                batch_ball_outputs, ball_carryover_frames = ball_future.result()
+                batch_player_outputs = player_future.result()
+
+                if use_cuda_streams:
+                    # Synchronize CUDA to ensure all GPU operations are complete
+                    # before processing next batch
+                    torch.cuda.synchronize()
+
+                ball_outputs.extend(batch_ball_outputs)
+                player_outputs.extend(batch_player_outputs)
+
+                pbar.update(len(batch))
 
         pbar.close()
 

@@ -10,10 +10,12 @@ import numpy as np
 import pandas as pd
 import torch
 from collections import deque
+from contextlib import nullcontext
 from typing import Dict, List, Optional, Tuple
 from ultralytics import YOLO
 from torchvision.models import resnet50, ResNet50_Weights
 from scipy.ndimage import gaussian_filter1d
+from concurrent.futures import ThreadPoolExecutor
 import os
 
 from squashcopilot.common.utils import load_config, get_package_dir
@@ -62,6 +64,9 @@ class PlayerTracker:
         }
         self.player_features = {1: None, 2: None}
         self.players_initialized = False
+
+        # CUDA stream for parallel execution (can be assigned by pipeline)
+        self._cuda_stream = None
 
         # Initialize models
         self._initialize_models()
@@ -513,6 +518,10 @@ class PlayerTracker:
 
         return outputs
 
+    def _apply_court_mask(self, frame: np.ndarray) -> np.ndarray:
+        """Apply court mask to a single frame (for parallel processing)."""
+        return cv2.bitwise_and(frame, frame, mask=self.court_mask)
+
     def _detect_people_batch(
         self,
         frames: List[np.ndarray],
@@ -520,6 +529,9 @@ class PlayerTracker:
     ) -> Tuple[List[List], List[List]]:
         """
         Batch YOLO detection across multiple frames.
+
+        Optimizations applied:
+        - Parallel court masking using ThreadPoolExecutor
 
         Args:
             frames: List of input frames.
@@ -531,12 +543,12 @@ class PlayerTracker:
         all_detections = []
         all_keypoints = []
 
-        # Apply court mask to all frames if available
+        # Apply court mask to all frames in parallel if available
+        # cv2.bitwise_and releases GIL, so threading is effective
         if self.court_mask is not None:
-            detection_frames = [
-                cv2.bitwise_and(frame, frame, mask=self.court_mask)
-                for frame in frames
-            ]
+            num_workers = min(8, len(frames))
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                detection_frames = list(executor.map(self._apply_court_mask, frames))
         else:
             detection_frames = frames
 
@@ -598,6 +610,33 @@ class PlayerTracker:
 
         return all_detections, all_keypoints
 
+    def _extract_single_crop(
+        self,
+        args: Tuple[np.ndarray, np.ndarray, int, int, Tuple[int, int]],
+    ) -> Optional[Tuple[np.ndarray, int, int]]:
+        """Extract and resize a single person crop (for parallel processing).
+
+        Args:
+            args: Tuple of (frame, detection, frame_idx, det_idx, input_size)
+
+        Returns:
+            Tuple of (resized_crop, frame_idx, det_idx) or None if invalid
+        """
+        frame, det, frame_idx, det_idx, input_size = args
+        frame_height, frame_width = frame.shape[:2]
+
+        bbox = det[0:4]
+        x1, y1, x2, y2 = map(int, bbox)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(frame_width, x2), min(frame_height, y2)
+
+        person_img = frame[y1:y2, x1:x2]
+        if person_img.size == 0:
+            return None
+
+        person_img = cv2.resize(person_img, input_size)
+        return (person_img, frame_idx, det_idx)
+
     def _extract_features_batch(
         self,
         frames: List[np.ndarray],
@@ -607,6 +646,9 @@ class PlayerTracker:
         """
         Batch ReID feature extraction for all detections across frames.
 
+        Optimizations applied:
+        - Parallel crop extraction and resizing using ThreadPoolExecutor
+
         Args:
             frames: List of input frames.
             all_detections: List of detections per frame.
@@ -614,38 +656,50 @@ class PlayerTracker:
         Returns:
             List of feature lists per frame.
         """
-        # Collect all crops and their indices
-        crops = []
-        crop_indices = []  # (frame_idx, det_idx)
-
         input_size = tuple(self.config["models"]["reid_input_size"])
 
+        # Prepare arguments for parallel crop extraction
+        crop_args = []
         for frame_idx, (frame, detections) in enumerate(zip(frames, all_detections)):
-            frame_height, frame_width = frame.shape[:2]
             for det_idx, det in enumerate(detections[:2]):
-                bbox = det[0:4]
-                x1, y1, x2, y2 = map(int, bbox)
-                x1, y1 = max(0, x1), max(0, y1)
-                x2, y2 = min(frame_width, x2), min(frame_height, y2)
-
-                person_img = frame[y1:y2, x1:x2]
-                if person_img.size == 0:
-                    continue
-
-                person_img = cv2.resize(person_img, input_size)
-                crops.append(person_img)
-                crop_indices.append((frame_idx, det_idx))
+                crop_args.append((frame, det, frame_idx, det_idx, input_size))
 
         # Initialize result structure
         all_features = [[None, None] for _ in range(len(frames))]
 
+        if len(crop_args) == 0:
+            return all_features
+
+        # Parallel crop extraction - cv2.resize releases GIL
+        num_workers = min(8, len(crop_args))
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            crop_results = list(executor.map(self._extract_single_crop, crop_args))
+
+        # Filter valid crops and collect indices
+        crops = []
+        crop_indices = []
+        for result in crop_results:
+            if result is not None:
+                crop, frame_idx, det_idx = result
+                crops.append(crop)
+                crop_indices.append((frame_idx, det_idx))
+
         if len(crops) == 0:
             return all_features
+
+        # Use assigned CUDA stream if available, otherwise use default stream
+        stream_context = (
+            torch.cuda.stream(self._cuda_stream)
+            if self._cuda_stream is not None
+            else torch.cuda.stream(torch.cuda.default_stream(self.device))
+            if self.device.type == "cuda"
+            else nullcontext()
+        )
 
         # Batch through ReID model
         all_reid_features = []
 
-        with torch.no_grad():
+        with torch.no_grad(), stream_context:
             for batch_start in range(0, len(crops), batch_size):
                 batch_end = min(batch_start + batch_size, len(crops))
                 batch_crops = crops[batch_start:batch_end]

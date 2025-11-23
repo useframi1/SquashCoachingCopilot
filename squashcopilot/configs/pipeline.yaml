@@ -2,10 +2,10 @@
 # Master configuration for the complete squash video analysis pipeline
 
 # Input Video Path
-video_path: "tests/video-3.mp4"
+video_path: "tests/video-1.mp4"
 
 # Processing limits
-max_seconds: 3 # Maximum seconds of video to process (null = process entire video)
+max_seconds: 300 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:
@@ -80,8 +80,8 @@ processing:
     video_writer_codec: "mp4v"
 
     # Batch processing settings for GPU inference optimization
-    batch_size: 1 # Number of frames per batch for neural network inference
-    prefetch_batches: 2 # Number of batches to prefetch in background (memory vs speed tradeoff)
+    batch_size: 32 # Number of frames per batch for neural network inference
+    prefetch_batches: 16 # Number of batches to prefetch in background (memory vs speed tradeoff)
 
 # Visualization Settings
 visualization:

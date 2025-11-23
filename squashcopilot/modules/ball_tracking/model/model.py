@@ -102,8 +102,107 @@ class BallTrackerNet(nn.Module):
 
 
 if __name__ == "__main__":
-    device = "cpu"
-    model = BallTrackerNet().to(device)
-    inp = torch.rand(1, 9, 360, 640)
-    out = model(inp)
-    print("out = {}".format(out.shape))
+    import time
+    from squashcopilot.common.utils import get_package_dir
+
+    # Test on GPU if available
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    # Load pretrained weights
+    parent_dir = get_package_dir(__file__)
+    model_path = parent_dir + "/weights/ball_tracker.pt"
+    print(f"Loading weights from: {model_path}")
+
+    # Create model in FP32 with pretrained weights
+    model_fp32 = BallTrackerNet()
+    model_fp32.load_state_dict(
+        torch.load(model_path, map_location=device, weights_only=False)
+    )
+    model_fp32 = model_fp32.to(device)
+    model_fp32.eval()
+
+    # Create model in FP16 with SAME pretrained weights
+    model_fp16 = BallTrackerNet()
+    model_fp16.load_state_dict(
+        torch.load(model_path, map_location=device, weights_only=False)
+    )
+    model_fp16 = model_fp16.to(device).half()
+    model_fp16.eval()
+
+    # Test input (batch_size=8 to avoid OOM on smaller GPUs)
+    batch_size = 8
+    inp_fp32 = torch.rand(batch_size, 9, 360, 640, device=device)
+    inp_fp16 = inp_fp32.half()
+
+    # Warmup
+    print("\nWarming up...")
+    with torch.no_grad():
+        for _ in range(5):
+            _ = model_fp32(inp_fp32)
+            if device == "cuda":
+                _ = model_fp16(inp_fp16)
+    if device == "cuda":
+        torch.cuda.synchronize()
+
+    # Benchmark FP32
+    print("\nBenchmarking FP32...")
+    num_iterations = 50
+    if device == "cuda":
+        torch.cuda.synchronize()
+    start = time.perf_counter()
+    with torch.no_grad():
+        for _ in range(num_iterations):
+            out_fp32 = model_fp32(inp_fp32)
+    if device == "cuda":
+        torch.cuda.synchronize()
+    fp32_time = (time.perf_counter() - start) / num_iterations
+    print(f"FP32 output shape: {out_fp32.shape}")
+    print(f"FP32 inference time: {fp32_time * 1000:.2f} ms per batch")
+    print(f"FP32 throughput: {batch_size / fp32_time:.1f} frames/sec")
+
+    # Benchmark FP16 (only on CUDA)
+    if device == "cuda":
+        print("\nBenchmarking FP16...")
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        with torch.no_grad():
+            for _ in range(num_iterations):
+                out_fp16 = model_fp16(inp_fp16)
+        torch.cuda.synchronize()
+        fp16_time = (time.perf_counter() - start) / num_iterations
+        print(f"FP16 output shape: {out_fp16.shape}")
+        print(f"FP16 inference time: {fp16_time * 1000:.2f} ms per batch")
+        print(f"FP16 throughput: {batch_size / fp16_time:.1f} frames/sec")
+
+        # Speedup
+        speedup = fp32_time / fp16_time
+        print(f"\nFP16 Speedup: {speedup:.2f}x")
+
+        # Memory comparison
+        torch.cuda.reset_peak_memory_stats()
+        with torch.no_grad():
+            _ = model_fp32(inp_fp32)
+        fp32_memory = torch.cuda.max_memory_allocated() / 1024**2
+
+        torch.cuda.reset_peak_memory_stats()
+        with torch.no_grad():
+            _ = model_fp16(inp_fp16)
+        fp16_memory = torch.cuda.max_memory_allocated() / 1024**2
+
+        print(f"\nMemory usage:")
+        print(f"FP32: {fp32_memory:.1f} MB")
+        print(f"FP16: {fp16_memory:.1f} MB")
+        print(f"Memory reduction: {(1 - fp16_memory / fp32_memory) * 100:.1f}%")
+
+        # Accuracy comparison (output difference)
+        with torch.no_grad():
+            out_fp32 = model_fp32(inp_fp32)
+            out_fp16_as_fp32 = model_fp16(inp_fp16).float()
+            # Compare argmax outputs (what we actually use for ball detection)
+            argmax_fp32 = out_fp32.argmax(dim=1)
+            argmax_fp16 = out_fp16_as_fp32.argmax(dim=1)
+            match_rate = (argmax_fp32 == argmax_fp16).float().mean().item()
+            print(f"\nArgmax match rate: {match_rate * 100:.2f}%")
+    else:
+        print("\nFP16 benchmarking skipped (requires CUDA)")
