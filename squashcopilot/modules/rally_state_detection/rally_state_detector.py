@@ -303,13 +303,16 @@ class RallyStateDetector:
         segments = self._merge_nearby_segments(segments)
 
         # Add rally columns to DataFrame
-        df["is_rally_frame"] = predictions.astype(bool)
+        # Initialize both columns - will be set based on final filtered segments
+        df["is_rally_frame"] = False
         df["rally_id"] = -1  # Default to -1 (not in rally)
 
-        # Assign rally IDs to frames
+        # Assign rally IDs and is_rally_frame based on final filtered segments
+        # This ensures consistency: is_rally_frame=True only when rally_id >= 0
         for segment in segments:
             mask = (df.index >= segment.start_frame) & (df.index <= segment.end_frame)
             df.loc[mask, "rally_id"] = segment.rally_id
+            df.loc[mask, "is_rally_frame"] = True
 
         # Calculate statistics
         rally_frame_count = int(df["is_rally_frame"].sum())

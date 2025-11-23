@@ -121,8 +121,37 @@ class WallHitDetector:
                 if calibration is not None and calibration.wall_homography is not None:
                     pixel_point = Point2D(x=hit_x_pixel, y=hit_y_pixel)
                     meter_point = calibration.pixel_to_wall(pixel_point)
-                    df.loc[frame_num, "wall_hit_x_meter"] = meter_point.x
-                    df.loc[frame_num, "wall_hit_y_meter"] = meter_point.y
+
+                    # Sanity check: clamp out-of-bounds meter coordinates
+                    # Wall dimensions: width = 6.4m (x: 0 to 6.4)
+                    x_meter = meter_point.x
+                    y_meter = meter_point.y
+
+                    # Get wall center from tin keypoints (tin spans full wall width)
+                    tin_left = calibration.court_keypoints.get("tin_top_left")
+                    tin_right = calibration.court_keypoints.get("tin_top_right")
+                    if tin_left and tin_right:
+                        center_x_pixel = (tin_left.x + tin_right.x) / 2
+                    else:
+                        # Fallback: use median ball x coordinate
+                        center_x_pixel = df["ball_x"].median()
+
+                    # If x_meter is out of bounds, clamp based on pixel position
+                    if x_meter < 0:
+                        # Check which edge the pixel is closer to
+                        if hit_x_pixel < center_x_pixel:
+                            x_meter = 0.0  # Closer to left edge
+                        else:
+                            x_meter = 6.4  # Closer to right edge
+                    elif x_meter > 6.4:
+                        # Also clamp if x exceeds wall width
+                        if hit_x_pixel < center_x_pixel:
+                            x_meter = 0.0
+                        else:
+                            x_meter = 6.4
+
+                    df.loc[frame_num, "wall_hit_x_meter"] = x_meter
+                    df.loc[frame_num, "wall_hit_y_meter"] = y_meter
 
         # Compute stats
         stats = self.get_wall_hit_stats(df, segments)

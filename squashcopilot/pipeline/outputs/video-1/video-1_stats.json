@@ -1,28 +1,28 @@
 {
   "video_info": {
     "filename": "video-1",
-    "duration_seconds": 300.0,
+    "duration_seconds": 60.0,
     "fps": 60.0,
-    "total_frames": 18000,
+    "total_frames": 3600,
     "resolution": [
       1280,
       720
     ]
   },
   "rallies": {
-    "total_rallies": 15,
-    "total_play_time_seconds": 210.23333333333335
+    "total_rallies": 3,
+    "total_play_time_seconds": 44.05
   },
   "hits": {
-    "wall_hits": 123,
-    "racket_hits": 121
+    "wall_hits": 27,
+    "racket_hits": 27
   },
   "strokes": {
-    "backhand": 67,
-    "forehand": 54
+    "backhand": 16,
+    "forehand": 11
   },
   "shots": {
-    "straight_drive": 71,
-    "cross_court_drive": 35
+    "straight_drive": 18,
+    "cross_court_drive": 6
   }
 }

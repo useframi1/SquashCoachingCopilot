@@ -2,7 +2,7 @@
 # Master configuration for the complete squash video analysis pipeline
 
 # Input Video Path
-video_path: "tests/video-1.mp4"
+video_path: "tests/video-4.mp4"
 
 # Processing limits
 max_seconds: 300 # Maximum seconds of video to process (null = process entire video)
