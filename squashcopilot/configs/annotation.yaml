@@ -6,19 +6,19 @@
 # only enabled modules' columns will be updated; disabled modules' columns remain untouched.
 modules:
     court_calibration: true
-    player_tracking: false
+    player_tracking: true
     ball_tracking: true
-    rally_segmentation: false
-    hit_detection: false
-    stroke_classification: false
-    shot_classification: false
+    rally_segmentation: true
+    hit_detection: true
+    stroke_classification: true
+    shot_classification: true
 
 # Input Video
 video:
-    name: video-1 # Name of the video file to annotate (without extension)
+    name: video-5 # Name of the video file to annotate (without extension)
     video_dir: squashcopilot/videos # Directory containing video files (relative to project root)
     # Processing limits
-    max_time: 1 # Maximum seconds of video to process (null = process entire video)
+    max_time: 300 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:
@@ -95,6 +95,12 @@ visualization:
     font_thickness: 2
     label_font_scale: 0.6
     label_font_thickness: 2
+
+# Processing Options
+processing:
+    # Batch processing settings for GPU inference optimization
+    batch_size: 32 # Number of frames per batch for neural network inference
+    prefetch_batches: 16 # Number of batches to prefetch in background (memory vs speed tradeoff)
 
 # Logging Configuration
 logging:

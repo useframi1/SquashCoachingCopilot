@@ -6,18 +6,18 @@ Evaluated Frames: 1300
 Pixel Tolerance: 10 pixels
 
 Detection Metrics:
-  True Positives:   933
-  False Positives:  367
+  True Positives:   940
+  False Positives:  360
   False Negatives:  0
   True Negatives:   0
 
 Performance Metrics:
-  Precision:        0.7177
+  Precision:        0.7231
   Recall:           1.0000
-  F1 Score:         0.8356
-  Accuracy:         0.7177
+  F1 Score:         0.8393
+  Accuracy:         0.7231
 
 Position Error (for correct detections):
-  MAE:              22.03 pixels
-  RMSE:             85.69 pixels
-  Within Tolerance: 87.85%
+  MAE:              21.11 pixels
+  RMSE:             85.76 pixels
+  Within Tolerance: 88.51%

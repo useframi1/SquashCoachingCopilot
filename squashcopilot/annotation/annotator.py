@@ -11,11 +11,13 @@ The key difference from Pipeline is that keypoints are saved to the CSV output.
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
 import pandas as pd
+import torch
 from tqdm import tqdm
 
 from squashcopilot.common.types import Frame
@@ -25,27 +27,20 @@ from squashcopilot.common.models import (
     VideoMetadata,
     CourtCalibrationInput,
     CourtCalibrationOutput,
-    PlayerTrackingInput,
     PlayerTrackingOutput,
     player_tracking_outputs_to_dataframe,
     PlayerPostprocessingInput,
     PlayerPostprocessingOutput,
-    BallTrackingInput,
     BallTrackingOutput,
     ball_tracking_outputs_to_dataframe,
     BallPostprocessingInput,
     BallPostprocessingOutput,
     RallySegmentationInput,
-    RallySegmentationOutput,
     RallySegment,
     WallHitDetectionInput,
-    WallHitDetectionOutput,
     RacketHitDetectionInput,
-    RacketHitDetectionOutput,
     StrokeClassificationInput,
-    StrokeClassificationOutput,
     ShotClassificationInput,
-    ShotClassificationOutput,
     PipelineSession,
 )
 
@@ -61,6 +56,7 @@ from squashcopilot.modules.stroke_detection.stroke_detector import StrokeDetecto
 from squashcopilot.modules.shot_type_classification.shot_classifier import (
     ShotClassifier,
 )
+from squashcopilot.pipeline.frame_reader import BatchFrameReader
 
 # Module column ownership - defines which columns each module is responsible for
 MODULE_COLUMNS = {
@@ -484,6 +480,38 @@ class Annotator:
         self.logger.info(f"Stage 1 completed in {time.time() - stage_start:.2f}s")
         return calibration
 
+    def _process_ball_batch(
+        self,
+        images: List[np.ndarray],
+        frame_numbers: List[int],
+        timestamps: List[float],
+        batch_size: int,
+        carryover_frames: Optional[List[np.ndarray]],
+    ) -> Tuple[List[BallTrackingOutput], Optional[List[np.ndarray]]]:
+        """Process ball tracking for a batch (helper for parallel execution)."""
+        return self.ball_tracker.process_batch(
+            frames=images,
+            frame_numbers=frame_numbers,
+            timestamps=timestamps,
+            batch_size=batch_size,
+            carryover_frames=carryover_frames,
+        )
+
+    def _process_player_batch(
+        self,
+        images: List[np.ndarray],
+        frame_numbers: List[int],
+        timestamps: List[float],
+        batch_size: int,
+    ) -> List[PlayerTrackingOutput]:
+        """Process player tracking for a batch (helper for parallel execution)."""
+        return self.player_tracker.process_batch(
+            frames=images,
+            frame_numbers=frame_numbers,
+            timestamps=timestamps,
+            batch_size=batch_size,
+        )
+
     def _stage2_track_frames(
         self,
         video_path: str,
@@ -491,7 +519,11 @@ class Annotator:
         video_metadata: VideoMetadata,
         enabled_modules: Optional[Dict[str, bool]] = None,
     ) -> tuple:
-        """Stage 2: Frame-by-frame tracking -> DataFrame."""
+        """Stage 2: Frame-by-frame tracking -> DataFrame.
+
+        Uses batch processing for both ball and player tracking to optimize GPU utilization.
+        Ball and player tracking run in parallel using CUDA streams for true GPU parallelism.
+        """
         if enabled_modules is None:
             enabled_modules = self._get_enabled_modules()
 
@@ -505,13 +537,16 @@ class Annotator:
             tracking_desc.append("ball")
 
         self.logger.info(
-            f"Stage 2: Frame-by-Frame Tracking ({', '.join(tracking_desc)})"
+            f"Stage 2: Frame-by-Frame Tracking ({', '.join(tracking_desc)}) using batch processing"
         )
         stage_start = time.time()
 
-        cap = cv2.VideoCapture(video_path)
         total_frames = video_metadata.total_frames
         fps = video_metadata.fps
+
+        # Get batch processing config
+        batch_size = self.config.get("processing", {}).get("batch_size", 32)
+        prefetch_batches = self.config.get("processing", {}).get("prefetch_batches", 16)
 
         player_outputs = []
         ball_outputs = []
@@ -524,41 +559,101 @@ class Annotator:
         if player_enabled and calibration:
             self.player_tracker.set_calibration(calibration)
 
-        frame_number = 0
-        pbar = tqdm(total=total_frames, desc="Tracking frames")
+        # Create batch frame reader
+        frame_reader = BatchFrameReader(
+            video_path=video_path,
+            batch_size=batch_size,
+            max_frames=total_frames,
+            fps=fps,
+            prefetch=True,
+            prefetch_batches=prefetch_batches,
+        )
 
-        while cap.isOpened() and frame_number < total_frames:
-            ret, frame_img = cap.read()
-            if not ret:
-                break
+        # Progress bar for total frames
+        pbar = tqdm(
+            total=total_frames,
+            desc="Tracking frames",
+            disable=not self.config.get("logging", {}).get("show_progress", True),
+        )
 
-            timestamp = frame_number / fps
-            frame = Frame(
-                image=frame_img, frame_number=frame_number, timestamp=timestamp
-            )
+        # Carryover frames for ball tracking continuity across batches
+        ball_carryover_frames = None
 
-            # Track players
+        # Check if CUDA is available for stream-based parallelism
+        use_cuda_streams = torch.cuda.is_available()
+
+        if use_cuda_streams:
+            # Create separate CUDA streams for ball and player tracking
+            ball_stream = torch.cuda.Stream()
+            player_stream = torch.cuda.Stream()
+
+            # Assign streams to trackers
+            if ball_enabled and hasattr(self.ball_tracker, "tracker"):
+                self.ball_tracker.tracker._cuda_stream = ball_stream
             if player_enabled:
-                player_tracking_input = PlayerTrackingInput(
-                    frame=frame, calibration=calibration
-                )
-                player_output = self.player_tracker.process_frame(player_tracking_input)
-                player_outputs.append(player_output)
+                self.player_tracker._cuda_stream = player_stream
+        else:
+            self.logger.info("CUDA not available, using sequential execution")
 
-            # Track ball
-            if ball_enabled:
-                ball_tracking_input = BallTrackingInput(frame=frame)
-                ball_output = self.ball_tracker.process_frame(ball_tracking_input)
-                ball_outputs.append(ball_output)
+        # Use ThreadPoolExecutor for CPU preprocessing overlap
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            for batch in frame_reader:
+                if player_enabled and ball_enabled:
+                    # Both trackers enabled - run in parallel
+                    ball_future = executor.submit(
+                        self._process_ball_batch,
+                        batch.images,
+                        batch.frame_numbers,
+                        batch.timestamps,
+                        batch_size,
+                        ball_carryover_frames,
+                    )
+                    player_future = executor.submit(
+                        self._process_player_batch,
+                        batch.images,
+                        batch.frame_numbers,
+                        batch.timestamps,
+                        batch_size,
+                    )
 
-            frame_number += 1
-            pbar.update(1)
+                    batch_ball_outputs, ball_carryover_frames = ball_future.result()
+                    batch_player_outputs = player_future.result()
+
+                    ball_outputs.extend(batch_ball_outputs)
+                    player_outputs.extend(batch_player_outputs)
+
+                elif ball_enabled:
+                    # Only ball tracking
+                    batch_ball_outputs, ball_carryover_frames = (
+                        self._process_ball_batch(
+                            batch.images,
+                            batch.frame_numbers,
+                            batch.timestamps,
+                            batch_size,
+                            ball_carryover_frames,
+                        )
+                    )
+                    ball_outputs.extend(batch_ball_outputs)
+
+                elif player_enabled:
+                    # Only player tracking
+                    batch_player_outputs = self._process_player_batch(
+                        batch.images,
+                        batch.frame_numbers,
+                        batch.timestamps,
+                        batch_size,
+                    )
+                    player_outputs.extend(batch_player_outputs)
+
+                if use_cuda_streams:
+                    torch.cuda.synchronize()
+
+                pbar.update(len(batch))
 
         pbar.close()
-        cap.release()
 
         # Convert to DataFrames + complex data
-        df = pd.DataFrame(index=range(frame_number))
+        df = pd.DataFrame(index=range(total_frames))
         df["timestamp"] = df.index / fps
         complex_data = {}
 
@@ -829,6 +924,7 @@ class Annotator:
         """Add keypoint columns to the DataFrame.
 
         This is the key difference from Pipeline - keypoints are saved to CSV.
+        Uses vectorized operations for performance.
 
         Args:
             df: DataFrame with tracking data
@@ -840,41 +936,30 @@ class Annotator:
         player_1_keypoints = complex_data.get("player_1_keypoints", [])
         player_2_keypoints = complex_data.get("player_2_keypoints", [])
 
-        # Initialize keypoint columns with NaN
-        for player_id in [1, 2]:
-            for kp_name in KEYPOINT_NAMES:
-                df[f"player_{player_id}_kp_{kp_name}_x"] = np.nan
-                df[f"player_{player_id}_kp_{kp_name}_y"] = np.nan
+        num_frames = len(df)
+        num_keypoints = len(KEYPOINT_NAMES)
 
-        # Fill in keypoint data
-        for frame_idx in df.index:
-            # Player 1 keypoints
-            if (
-                frame_idx < len(player_1_keypoints)
-                and player_1_keypoints[frame_idx] is not None
-            ):
-                kp_array = player_1_keypoints[frame_idx]
-                if kp_array is not None and len(kp_array) >= len(KEYPOINT_NAMES):
-                    for i, kp_name in enumerate(KEYPOINT_NAMES):
-                        if i < len(kp_array):
-                            x, y = kp_array[i][0], kp_array[i][1]
-                            if x != 0 or y != 0:
-                                df.loc[frame_idx, f"player_1_kp_{kp_name}_x"] = x
-                                df.loc[frame_idx, f"player_1_kp_{kp_name}_y"] = y
+        # Pre-allocate arrays for all keypoint data (much faster than row-by-row)
+        # Shape: (num_frames, num_keypoints) for each coordinate
+        for player_id, keypoints_list in [(1, player_1_keypoints), (2, player_2_keypoints)]:
+            # Pre-allocate numpy arrays filled with NaN
+            x_data = np.full((num_frames, num_keypoints), np.nan)
+            y_data = np.full((num_frames, num_keypoints), np.nan)
 
-            # Player 2 keypoints
-            if (
-                frame_idx < len(player_2_keypoints)
-                and player_2_keypoints[frame_idx] is not None
-            ):
-                kp_array = player_2_keypoints[frame_idx]
-                if kp_array is not None and len(kp_array) >= len(KEYPOINT_NAMES):
-                    for i, kp_name in enumerate(KEYPOINT_NAMES):
-                        if i < len(kp_array):
-                            x, y = kp_array[i][0], kp_array[i][1]
-                            if x != 0 or y != 0:
-                                df.loc[frame_idx, f"player_2_kp_{kp_name}_x"] = x
-                                df.loc[frame_idx, f"player_2_kp_{kp_name}_y"] = y
+            # Fill arrays from keypoints list
+            for frame_idx in range(min(num_frames, len(keypoints_list))):
+                kp_array = keypoints_list[frame_idx]
+                if kp_array is not None and len(kp_array) >= num_keypoints:
+                    for i in range(num_keypoints):
+                        x, y = kp_array[i][0], kp_array[i][1]
+                        if x != 0 or y != 0:
+                            x_data[frame_idx, i] = x
+                            y_data[frame_idx, i] = y
+
+            # Assign all columns at once using vectorized assignment
+            for i, kp_name in enumerate(KEYPOINT_NAMES):
+                df[f"player_{player_id}_kp_{kp_name}_x"] = x_data[:, i]
+                df[f"player_{player_id}_kp_{kp_name}_y"] = y_data[:, i]
 
         return df
 

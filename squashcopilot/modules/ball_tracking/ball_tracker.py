@@ -184,24 +184,20 @@ class BallTracker:
         if len(frames) == 0:
             return [], []
 
-        # Preprocess frames if black ball
-        if self.is_black_ball:
-            processed_frames = [self.preprocess_frame(frame) for frame in frames]
-        else:
-            processed_frames = frames
-
         # Prepend carryover frames for cross-batch continuity
         if carryover_frames and len(carryover_frames) > 0:
-            # Carryover frames are already preprocessed from previous batch
-            full_frames = carryover_frames + processed_frames
+            full_frames = carryover_frames + frames
             # Offset for results: skip carryover frame results
             carryover_offset = len(carryover_frames)
         else:
-            full_frames = processed_frames
+            full_frames = frames
             carryover_offset = 0
 
         # Get ball coordinates from tracker
-        all_coords = self.tracker.process_batch(full_frames, batch_size=batch_size)
+        # GPU-based preprocessing is done inside tracker if is_black_ball=True
+        all_coords = self.tracker.process_batch(
+            full_frames, batch_size=batch_size, is_black_ball=self.is_black_ball
+        )
 
         # Extract results for current batch (skip carryover results)
         current_coords = all_coords[carryover_offset:]
@@ -232,15 +228,15 @@ class BallTracker:
                 )
             outputs.append(output)
 
-        # Prepare carryover: last 2 processed frames for next batch
-        if len(processed_frames) >= 2:
-            next_carryover = processed_frames[-2:]
-        elif len(processed_frames) == 1:
+        # Prepare carryover: last 2 frames for next batch
+        if len(frames) >= 2:
+            next_carryover = frames[-2:]
+        elif len(frames) == 1:
             # If only 1 frame, carry it plus last from previous carryover if available
             if carryover_frames and len(carryover_frames) >= 1:
-                next_carryover = [carryover_frames[-1], processed_frames[0]]
+                next_carryover = [carryover_frames[-1], frames[0]]
             else:
-                next_carryover = processed_frames
+                next_carryover = frames
         else:
             next_carryover = []
 

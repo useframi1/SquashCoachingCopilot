@@ -7,6 +7,9 @@ from contextlib import nullcontext
 from typing import List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 import kornia
+import kornia.color
+import kornia.morphology
+import kornia.enhance
 from .model import BallTrackerNet
 from ..utils import postprocess
 from squashcopilot.common.utils import get_package_dir
@@ -81,10 +84,69 @@ class TrackNetTracker:
         self._gpu_buffer = None
         self._gpu_buffer_size = 0
 
+        # Pre-computed dilation kernel for black ball preprocessing (GPU)
+        # Elliptical 3x3 kernel matching cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        # Kornia morphology expects 2D kernel (H, W)
+        self._dilation_kernel = torch.tensor(
+            [[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=torch.float32, device=self.device
+        )  # Shape: (3, 3)
+
     def reset(self):
         """Reset the tracker state (clears frame buffer)."""
         self.frame_buffer.clear()
         self.frame_count = 0
+
+    def _preprocess_black_ball_gpu(self, frames_tensor: torch.Tensor) -> torch.Tensor:
+        """GPU-based preprocessing for black ball detection using Kornia.
+
+        Replicates the CPU preprocessing pipeline:
+        1. Bitwise NOT (invert colors)
+        2. Convert BGR to LAB
+        3. Apply CLAHE to L channel
+        4. Apply dilation to L channel
+        5. Convert LAB back to BGR
+
+        Args:
+            frames_tensor: Input tensor of shape (N, 3, H, W) in BGR format, values [0, 1]
+
+        Returns:
+            Preprocessed tensor of same shape in BGR format, values [0, 1]
+        """
+        # 1. Bitwise NOT (invert): 1.0 - tensor
+        inverted = 1.0 - frames_tensor
+
+        # 2. Convert BGR to RGB first (Kornia expects RGB)
+        rgb = kornia.color.bgr_to_rgb(inverted)
+
+        # 3. Convert RGB to LAB
+        lab = kornia.color.rgb_to_lab(rgb)
+
+        # 4. Extract L channel (index 0), normalize to [0, 1] for CLAHE
+        # LAB L channel is in range [0, 100]
+        l_channel = lab[:, 0:1, :, :] / 100.0
+
+        # 5. Apply CLAHE to L channel
+        # kornia.enhance.equalize_clahe expects input in [0, 1]
+        l_clahe = kornia.enhance.equalize_clahe(
+            l_channel, clip_limit=3.0, grid_size=(8, 8)
+        )
+
+        # 6. Apply dilation to L channel
+        # Use kornia.morphology.dilation with pre-computed kernel
+        l_dilated = kornia.morphology.dilation(l_clahe, self._dilation_kernel)
+
+        # 7. Scale L back to [0, 100] and reconstruct LAB
+        lab_enhanced = lab.clone()
+        lab_enhanced[:, 0:1, :, :] = l_dilated * 100.0
+
+        # 8. Convert LAB back to RGB
+        rgb_enhanced = kornia.color.lab_to_rgb(lab_enhanced)
+
+        # 9. Convert RGB back to BGR
+        bgr_enhanced = kornia.color.rgb_to_bgr(rgb_enhanced)
+
+        # Clamp to valid range
+        return torch.clamp(bgr_enhanced, 0.0, 1.0)
 
     def _get_scaled_coordinates(self, x, y, original_width, original_height):
         """Scale coordinates from model space to original frame resolution.
@@ -207,6 +269,7 @@ class TrackNetTracker:
         self,
         frames: List[np.ndarray],
         batch_size: int = 32,
+        is_black_ball: bool = False,
     ) -> List[Tuple[Optional[int], Optional[int]]]:
         """
         Process a batch of frames and return ball coordinates for each.
@@ -217,12 +280,13 @@ class TrackNetTracker:
         Optimizations applied:
         - GPU-based frame resizing using Kornia
         - GPU-based window building (concatenation on GPU)
-        - GPU-based postprocessing (weighted centroid instead of HoughCircles)
+        - GPU-based black ball preprocessing using Kornia (if is_black_ball=True)
 
         Args:
             frames: List of input frames (BGR format, any resolution).
                     Must be at least 3 frames for any detections.
             batch_size: Number of windows to process in parallel on GPU.
+            is_black_ball: If True, apply GPU-based preprocessing for black ball detection.
 
         Returns:
             List of (x, y) tuples for each input frame.
@@ -301,6 +365,15 @@ class TrackNetTracker:
                 interpolation="bilinear",
                 antialias=True,
             )  # (N, 3, model_height, model_width)
+
+            # Apply black ball preprocessing on GPU if needed
+            if is_black_ball:
+                # Need FP32 for color conversion operations
+                if self.use_fp16:
+                    resized_tensor = resized_tensor.float()
+                resized_tensor = self._preprocess_black_ball_gpu(resized_tensor)
+                if self.use_fp16:
+                    resized_tensor = resized_tensor.half()
 
             # Build sliding windows on GPU
             # Window i needs frames [i, i+1, i+2] concatenated as [curr, prev, preprev]
