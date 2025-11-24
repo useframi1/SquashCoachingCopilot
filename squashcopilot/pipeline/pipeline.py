@@ -11,7 +11,7 @@ the DataFrame with new columns.
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 import json
 
@@ -73,22 +73,56 @@ class Pipeline:
     7. Export (CSV, annotated video, statistics JSON)
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        config: Optional[Dict] = None,
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+    ):
         """
         Initialize the pipeline with configuration.
 
         Args:
             config_path: Path to custom pipeline config YAML. If None, uses default config.
+            config: Optional config dictionary. If provided, overrides values from config file.
+            progress_callback: Optional callback function(stage: str, percent: float) for progress updates.
         """
+        # Load base config
         if config_path:
             self.config = load_config(config_path=config_path)
         else:
             self.config = load_config(config_name="pipeline")
 
+        # Override with provided config dict
+        if config:
+            self._merge_config(config)
+
+        # Store progress callback
+        self.progress_callback = progress_callback
+
         self._setup_logging()
         self.logger.info("Initializing pipeline modules...")
         self._initialize_modules()
         self.logger.info("Pipeline initialized successfully")
+
+    def _merge_config(self, override: Dict) -> None:
+        """Deep merge override config into base config."""
+        def merge(base: Dict, override: Dict) -> Dict:
+            for key, value in override.items():
+                if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                    merge(base[key], value)
+                else:
+                    base[key] = value
+            return base
+        merge(self.config, override)
+
+    def _report_progress(self, stage: str, percent: float) -> None:
+        """Report progress to callback if available."""
+        if self.progress_callback:
+            try:
+                self.progress_callback(stage, percent)
+            except Exception as e:
+                self.logger.warning(f"Progress callback error: {e}")
 
     def _setup_logging(self):
         """Setup logging configuration."""
@@ -204,43 +238,57 @@ class Pipeline:
         )
 
         # Stage 1: Court Calibration
+        self._report_progress("court_calibration", 5)
         session.calibration = self._stage1_calibrate_court(video_path)
+        self._report_progress("court_calibration", 10)
 
         # Stage 2: Frame-by-frame Tracking -> DataFrame
+        self._report_progress("tracking", 10)
         session.current_df, session.complex_data = self._stage2_track_frames(
             video_path, session.calibration, video_metadata
         )
+        self._report_progress("tracking", 50)
 
         # Stage 3: Trajectory Postprocessing
+        self._report_progress("postprocessing", 50)
         session.current_df, session.complex_data = self._stage3_postprocess(
             session.current_df, session.complex_data
         )
+        self._report_progress("postprocessing", 60)
 
         # Stage 4: Rally Segmentation
+        self._report_progress("rally_segmentation", 60)
         session.current_df, session.rally_segments = self._stage4_segment_rallies(
             session.current_df, session.calibration
         )
+        self._report_progress("rally_segmentation", 70)
 
         # Stage 5: Hit Detection
+        self._report_progress("hit_detection", 70)
         session.current_df = self._stage5_detect_hits(
             session.current_df, session.rally_segments, session.calibration
         )
+        self._report_progress("hit_detection", 75)
 
         # Stage 6: Stroke and Shot Classification
+        self._report_progress("classification", 75)
         session.current_df = self._stage6_classify(
             session.current_df,
             session.complex_data,
             session.rally_segments,
             session.calibration,
         )
+        self._report_progress("classification", 80)
 
         # Stage 7: Export Results
+        self._report_progress("export", 80)
         output_paths = self._stage7_export(
             video_path=video_path,
             video_name=video_name,
             output_dir=output_dir,
             session=session,
         )
+        self._report_progress("completed", 100)
 
         total_time = time.time() - start_time
         self.logger.info(f"Pipeline completed in {total_time:.2f}s")
