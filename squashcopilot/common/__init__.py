@@ -68,6 +68,9 @@ from .models import (
     # Stage 6b: Shot Classification
     ShotClassificationInput,
     ShotClassificationOutput,
+    # Stage 7: Point Win Detection
+    PointWinDetectionInput,
+    PointWinDetectionOutput,
     # Pipeline Session
     PipelineSession,
 )
@@ -128,6 +131,9 @@ __all__ = [
     # Stage 6b: Shot Classification
     "ShotClassificationInput",
     "ShotClassificationOutput",
+    # Stage 7: Point Win Detection
+    "PointWinDetectionInput",
+    "PointWinDetectionOutput",
     # Pipeline Session
     "PipelineSession",
 ]

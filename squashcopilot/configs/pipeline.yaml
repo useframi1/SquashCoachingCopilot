@@ -2,10 +2,10 @@
 # Master configuration for the complete squash video analysis pipeline
 
 # Input Video Path
-video_path: "tests/video-3.mp4"
+video_path: "tests/video-1.mp4"
 
 # Processing limits
-max_seconds: 3 # Maximum seconds of video to process (null = process entire video)
+max_seconds: 10 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:
@@ -46,6 +46,8 @@ output:
         - shot_type
         - shot_direction
         - shot_depth
+        - point_winner
+        - point_winner_reason
 
 # Module Configurations
 # Each module references its own config file
@@ -72,6 +74,10 @@ modules:
 
     shot_type_classification:
         config_path: "configs/shot_type_classification.yaml"
+        enabled: true
+
+    point_win_detection:
+        config_path: "configs/point_win_detection.yaml"
         enabled: true
 
 # Processing Options

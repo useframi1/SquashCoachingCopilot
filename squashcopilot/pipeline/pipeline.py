@@ -41,6 +41,7 @@ from squashcopilot.common.models import (
     RacketHitDetectionInput,
     StrokeClassificationInput,
     ShotClassificationInput,
+    PointWinDetectionInput,
     PipelineSession,
 )
 
@@ -55,6 +56,9 @@ from squashcopilot.modules.rally_state_detection.rally_state_detector import (
 from squashcopilot.modules.stroke_detection.stroke_detector import StrokeDetector
 from squashcopilot.modules.shot_type_classification.shot_classifier import (
     ShotClassifier,
+)
+from squashcopilot.modules.point_win_detection.point_win_detector import (
+    PointWinDetector,
 )
 from squashcopilot.pipeline.frame_reader import BatchFrameReader
 
@@ -194,6 +198,12 @@ class Pipeline:
         else:
             self.shot_classifier = None
 
+        # Point Win Detection
+        if module_configs.get("point_win_detection", {}).get("enabled", True):
+            self.point_win_detector = PointWinDetector()
+        else:
+            self.point_win_detector = None
+
     def run(self) -> Dict[str, str]:
         """
         Run the complete pipeline on a video.
@@ -280,9 +290,16 @@ class Pipeline:
         )
         self._report_progress("classification", 80)
 
-        # Stage 7: Export Results
-        self._report_progress("export", 80)
-        output_paths = self._stage7_export(
+        # Stage 7: Point Win Detection
+        self._report_progress("point_win_detection", 80)
+        session.current_df = self._stage7_detect_point_winners(
+            session.current_df, session.rally_segments, session.calibration
+        )
+        self._report_progress("point_win_detection", 85)
+
+        # Stage 8: Export Results
+        self._report_progress("export", 85)
+        output_paths = self._stage8_export(
             video_path=video_path,
             video_name=video_name,
             output_dir=output_dir,
@@ -733,15 +750,46 @@ class Pipeline:
         )
         return df
 
-    def _stage7_export(
+    def _stage7_detect_point_winners(
+        self,
+        df: pd.DataFrame,
+        segments: List[RallySegment],
+        calibration: CourtCalibrationOutput,
+    ) -> pd.DataFrame:
+        """Stage 7: Point Win Detection.
+
+        Detects point winners for each rally using serve sequence analysis and ball physics.
+        """
+        self.logger.info("Stage 7: Point Win Detection")
+        stage_start = time.time()
+
+        if self.point_win_detector:
+            point_win_input = PointWinDetectionInput(
+                df=df, segments=segments, calibration=calibration
+            )
+            point_win_output = self.point_win_detector.detect_point_winners(point_win_input)
+            df = point_win_output.df
+
+            self.logger.info(
+                f"Stage 7 completed in {time.time() - stage_start:.2f}s - "
+                f"Rallies: {point_win_output.num_rallies}, "
+                f"Lets: {point_win_output.num_lets}, "
+                f"Unknown: {point_win_output.num_unknown}"
+            )
+        else:
+            self.logger.info("Point win detection disabled, skipping")
+
+        return df
+
+    def _stage8_export(
         self,
         video_path: str,
         video_name: str,
         output_dir: Path,
         session: PipelineSession,
     ) -> Dict[str, str]:
-        """Stage 7: Export CSV, annotated video, and statistics."""
-        self.logger.info("Stage 7: Export and Visualization")
+        """Stage 8: Export CSV, annotated video, and statistics."""
+        self.logger.info("Stage 8: Export and Visualization")
         stage_start = time.time()
 
         output_paths = {}
@@ -804,7 +852,7 @@ class Pipeline:
             output_paths["video"] = str(video_output_path)
             self.logger.info(f"Annotated video exported: {video_output_path}")
 
-        self.logger.info(f"Stage 7 completed in {time.time() - stage_start:.2f}s")
+        self.logger.info(f"Stage 8 completed in {time.time() - stage_start:.2f}s")
         return output_paths
 
     def _compute_statistics(self, video_name: str, session: PipelineSession) -> Dict:

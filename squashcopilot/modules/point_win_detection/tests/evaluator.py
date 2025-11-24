@@ -14,6 +14,10 @@ from typing import Dict, List
 
 from squashcopilot.modules.point_win_detection import PointWinDetector
 from squashcopilot.common.utils import load_config
+from squashcopilot.common.models import (
+    RallySegment,
+    PointWinDetectionInput,
+)
 
 
 class PointWinEvaluator:
@@ -107,11 +111,88 @@ class PointWinEvaluator:
         """Load full CSV data with player positions for visualization."""
         print(f"\nLoading full CSV for visualization: {self.main_csv_path}")
         df_full = pd.read_csv(self.main_csv_path)
-        
+
         if "frame" in df_full.columns and df_full.index.name != "frame":
             df_full = df_full.set_index("frame")
-        
+
         return df_full
+
+    def extract_rally_segments(self, df: pd.DataFrame) -> List[RallySegment]:
+        """Extract rally segments from DataFrame based on rally_id.
+
+        Args:
+            df: DataFrame with rally_id column
+
+        Returns:
+            List of RallySegment objects
+        """
+        segments = []
+
+        # Check if rally_id column exists
+        if "rally_id" not in df.columns or "is_rally_frame" not in df.columns:
+            print("Warning: No rally segmentation found, treating entire video as one rally")
+            segments.append(
+                RallySegment(
+                    rally_id=0, start_frame=df.index.min(), end_frame=df.index.max()
+                )
+            )
+            return segments
+
+        # Get rally frames
+        rally_df = df[df["is_rally_frame"] == True]
+
+        if len(rally_df) == 0:
+            print("No rally frames found, treating entire video as one rally")
+            segments.append(
+                RallySegment(
+                    rally_id=0, start_frame=df.index.min(), end_frame=df.index.max()
+                )
+            )
+            return segments
+
+        # Group by rally_id
+        for rally_id in sorted(rally_df["rally_id"].unique()):
+            rally_frames = rally_df[rally_df["rally_id"] == rally_id]
+            segments.append(
+                RallySegment(
+                    rally_id=int(rally_id),
+                    start_frame=int(rally_frames.index.min()),
+                    end_frame=int(rally_frames.index.max()),
+                )
+            )
+
+        print(f"Found {len(segments)} rally segments")
+        return segments
+
+    def run_detection(
+        self, df: pd.DataFrame, segments: List[RallySegment]
+    ) -> tuple[pd.DataFrame, Dict[int, Dict]]:
+        """Run point win detection.
+
+        Args:
+            df: DataFrame with hit detection and rally state
+            segments: List of rally segments
+
+        Returns:
+            Tuple of (df with point winner columns, point_winners dict)
+        """
+        print("Running point win detection...")
+
+        # Create a mock calibration (we don't have full calibration in CSV)
+        calibration = None
+
+        # Point win detection
+        point_win_input = PointWinDetectionInput(
+            df=df, segments=segments, calibration=calibration
+        )
+        point_win_output = self.detector.detect_point_winners(point_win_input)
+        df = point_win_output.df
+
+        print(f"\nDetected point winners for {point_win_output.num_rallies} rallies")
+        print(f"  Lets/Replays: {point_win_output.num_lets}")
+        print(f"  Unknown: {point_win_output.num_unknown}")
+
+        return df, point_win_output.point_winners
 
     def play_video_with_overlay(
         self,
@@ -380,11 +461,25 @@ class PointWinEvaluator:
         print(f"POINT WIN DETECTION EVALUATION - {self.video_name}")
         print("=" * 60 + "\n")
 
-        # Run detector
-        df, rallies, point_winners = self.detector.run_detection(
-            self.main_csv_path,
-            self.ground_truth_csv_path
-        )
+        # Load data
+        df = self.load_full_data()
+
+        # Extract rally segments
+        segments = self.extract_rally_segments(df)
+
+        # Run detection using new input/output models
+        df, point_winners = self.run_detection(df, segments)
+
+        # Convert segments to old rally dict format for compatibility with visualization
+        rallies = [
+            {
+                "rally_id": seg.rally_id,
+                "start_frame": seg.start_frame,
+                "end_frame": seg.end_frame,
+                "num_frames": seg.num_frames,
+            }
+            for seg in segments
+        ]
 
         # Save results
         self.save_results(df, rallies, point_winners)
@@ -393,8 +488,7 @@ class PointWinEvaluator:
         if self.video_path is not None:
             play_video = input("\nPlay video with overlays? (y/n): ").lower().strip()
             if play_video == 'y':
-                df_full = self.load_full_data()
-                self.play_video_with_overlay(df_full, rallies, point_winners)
+                self.play_video_with_overlay(df, rallies, point_winners)
 
         print("\n" + "=" * 60)
         print("EVALUATION COMPLETE")

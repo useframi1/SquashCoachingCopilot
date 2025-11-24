@@ -12,7 +12,12 @@ from typing import Dict, List, Optional, Tuple
 
 from squashcopilot.common.utils import load_config
 from squashcopilot.common.types.geometry import Point2D
-from squashcopilot.common.models import CourtCalibrationOutput
+from squashcopilot.common.models import (
+    CourtCalibrationOutput,
+    PointWinDetectionInput,
+    PointWinDetectionOutput,
+    RallySegment,
+)
 
 
 class PointWinDetector:
@@ -436,23 +441,23 @@ class PointWinDetector:
 
     def detect_point_winners(
         self,
-        df: pd.DataFrame,
-        rallies: List[Dict]
-    ) -> Dict[int, Dict]:
+        input_data: PointWinDetectionInput,
+    ) -> PointWinDetectionOutput:
         """Detect point winners for all rallies.
-        
+
         Args:
-            df: DataFrame with hit detection and rally state
-            rallies: List of rally dictionaries
-            
+            input_data: PointWinDetectionInput with df and segments
+
         Returns:
-            Dictionary mapping rally_id to winner info
-            winner: 0 = let/replay, 1 = player 1, 2 = player 2, -1 = unknown
+            PointWinDetectionOutput with df and point winner results
         """
+        df = input_data.df.copy()
+        segments = input_data.segments
+
         print("\n" + "=" * 60)
         print("DETECTING POINT WINNERS")
         print("=" * 60)
-        
+
         if self.use_next_rally_server:
             print("Primary method: Using next rally server")
             if self.detect_lets:
@@ -460,22 +465,24 @@ class PointWinDetector:
             print(f"Fallback method: Checking last {self.num_racket_hits_to_check} racket hits\n")
         else:
             print(f"Method: Checking last {self.num_racket_hits_to_check} racket hits\n")
-        
+
         results = {}
-        
-        for i, rally in enumerate(rallies):
-            rally_id = rally["rally_id"]
-            start_frame = rally["start_frame"]
-            end_frame = rally["end_frame"]
-            
+        num_lets = 0
+        num_unknown = 0
+
+        for i, segment in enumerate(segments):
+            rally_id = segment.rally_id
+            start_frame = segment.start_frame
+            end_frame = segment.end_frame
+
             # Get rally slice
             rally_df = df.loc[start_frame:end_frame]
-            
+
             # Determine winner using appropriate method
-            if self.use_next_rally_server and i < len(rallies) - 1:
+            if self.use_next_rally_server and i < len(segments) - 1:
                 # Use next rally's server
-                next_rally = rallies[i + 1]
-                next_rally_df = df.loc[next_rally["start_frame"]:next_rally["end_frame"]]
+                next_segment = segments[i + 1]
+                next_rally_df = df.loc[next_segment.start_frame:next_segment.end_frame]
                 winner, reason, deciding_frame = self.assign_point_winner_by_next_server(
                     rally_df, next_rally_df, rally_id
                 )
@@ -486,7 +493,7 @@ class PointWinDetector:
                     rally_df, rally_id
                 )
                 method = "ball_physics"
-            
+
             results[rally_id] = {
                 "winner": winner,
                 "reason": reason,
@@ -496,7 +503,13 @@ class PointWinDetector:
                 "deciding_frame": deciding_frame,
                 "method": method
             }
-            
+
+            # Count stats
+            if winner == 0:
+                num_lets += 1
+            elif winner == -1:
+                num_unknown += 1
+
             # Format winner string for display
             if winner == 0:
                 winner_str = "Let/Replay"
@@ -504,11 +517,26 @@ class PointWinDetector:
                 winner_str = "Unknown"
             else:
                 winner_str = f"Player {winner}"
-            
+
             print(f"Rally {rally_id}: {winner_str} [{method}]")
             print(f"  {reason}")
-        
-        return results
+
+        # Add point winner columns to DataFrame (optional, for export)
+        df['point_winner'] = -1
+        df['point_winner_reason'] = ""
+
+        for rally_id, result in results.items():
+            segment = segments[rally_id]
+            df.loc[segment.start_frame:segment.end_frame, 'point_winner'] = result['winner']
+            df.loc[segment.start_frame:segment.end_frame, 'point_winner_reason'] = result['reason']
+
+        return PointWinDetectionOutput(
+            df=df,
+            point_winners=results,
+            num_rallies=len(segments),
+            num_lets=num_lets,
+            num_unknown=num_unknown,
+        )
 
     def run_detection(
         self,

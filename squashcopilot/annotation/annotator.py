@@ -41,6 +41,7 @@ from squashcopilot.common.models import (
     RacketHitDetectionInput,
     StrokeClassificationInput,
     ShotClassificationInput,
+    PointWinDetectionInput,
     PipelineSession,
 )
 
@@ -55,6 +56,9 @@ from squashcopilot.modules.rally_state_detection.rally_state_detector import (
 from squashcopilot.modules.stroke_detection.stroke_detector import StrokeDetector
 from squashcopilot.modules.shot_type_classification.shot_classifier import (
     ShotClassifier,
+)
+from squashcopilot.modules.point_win_detection.point_win_detector import (
+    PointWinDetector,
 )
 from squashcopilot.pipeline.frame_reader import BatchFrameReader
 
@@ -94,6 +98,10 @@ MODULE_COLUMNS = {
         "shot_type",
         "shot_direction",
         "shot_depth",
+    ],
+    "point_win_detection": [
+        "point_winner",
+        "point_winner_reason",
     ],
 }
 
@@ -184,6 +192,7 @@ class Annotator:
         self.rally_detector = RallyStateDetector()
         self.stroke_detector = StrokeDetector()
         self.shot_classifier = ShotClassifier()
+        self.point_win_detector = PointWinDetector()
 
     def _setup_paths(self):
         """Setup directory paths from config."""
@@ -212,6 +221,7 @@ class Annotator:
             "hit_detection": modules_config.get("hit_detection", True),
             "stroke_classification": modules_config.get("stroke_classification", True),
             "shot_classification": modules_config.get("shot_classification", True),
+            "point_win_detection": modules_config.get("point_win_detection", True),
         }
 
     def _is_module_enabled(self, module_name: str) -> bool:
@@ -402,6 +412,14 @@ class Annotator:
                 "Stage 6: Stroke and Shot Classification - SKIPPED (disabled)"
             )
 
+        # Stage 7: Point Win Detection
+        if enabled_modules.get("point_win_detection", True):
+            session.current_df = self._stage7_detect_point_winners(
+                session.current_df, session.rally_segments, session.calibration
+            )
+        else:
+            self.logger.info("Stage 7: Point Win Detection - SKIPPED (disabled)")
+
         # Merge with existing CSV if it exists
         if existing_df is not None:
             self.logger.info("Merging with existing annotations...")
@@ -409,8 +427,8 @@ class Annotator:
                 session.current_df, existing_df, enabled_modules
             )
 
-        # Stage 7: Export Results (with keypoints in CSV)
-        output_paths = self._stage7_export(
+        # Stage 8: Export Results (with keypoints in CSV)
+        output_paths = self._stage8_export(
             video_path=str(video_path),
             video_name=video_base_name,
             output_dir=output_dir,
@@ -853,7 +871,38 @@ class Annotator:
         )
         return df
 
-    def _stage7_export(
+    def _stage7_detect_point_winners(
+        self,
+        df: pd.DataFrame,
+        segments: List[RallySegment],
+        calibration: CourtCalibrationOutput,
+    ) -> pd.DataFrame:
+        """Stage 7: Point Win Detection.
+
+        Detects point winners for each rally using serve sequence analysis and ball physics.
+        """
+        self.logger.info("Stage 7: Point Win Detection")
+        stage_start = time.time()
+
+        if len(segments) > 0:
+            point_win_input = PointWinDetectionInput(
+                df=df, segments=segments, calibration=calibration
+            )
+            point_win_output = self.point_win_detector.detect_point_winners(point_win_input)
+            df = point_win_output.df
+
+            self.logger.info(
+                f"Stage 7 completed in {time.time() - stage_start:.2f}s - "
+                f"Rallies: {point_win_output.num_rallies}, "
+                f"Lets: {point_win_output.num_lets}, "
+                f"Unknown: {point_win_output.num_unknown}"
+            )
+        else:
+            self.logger.info("Stage 7: No rallies detected, skipping point win detection")
+
+        return df
+
+    def _stage8_export(
         self,
         video_path: str,
         video_name: str,
@@ -861,11 +910,11 @@ class Annotator:
         session: PipelineSession,
         enabled_modules: Optional[Dict[str, bool]] = None,
     ) -> Dict[str, str]:
-        """Stage 7: Export CSV with keypoints and annotated video."""
+        """Stage 8: Export CSV with keypoints and annotated video."""
         if enabled_modules is None:
             enabled_modules = self._get_enabled_modules()
 
-        self.logger.info("Stage 7: Export and Visualization")
+        self.logger.info("Stage 8: Export and Visualization")
         stage_start = time.time()
 
         output_paths = {}
@@ -913,7 +962,7 @@ class Annotator:
             output_paths["video"] = str(video_output_path)
             self.logger.info(f"Annotated video exported: {video_output_path}")
 
-        self.logger.info(f"Stage 7 completed in {time.time() - stage_start:.2f}s")
+        self.logger.info(f"Stage 8 completed in {time.time() - stage_start:.2f}s")
         return output_paths
 
     def _add_keypoints_to_dataframe(
