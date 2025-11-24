@@ -1,0 +1,83 @@
+============================================================
+POINT WIN DETECTION SUMMARY - video-1
+============================================================
+
+Total Rallies: 10
+
+OVERALL STATISTICS:
+  Player 1 wins: 4
+  Player 2 wins: 3
+  Lets/Replays: 3
+  Unknown: 0
+
+RALLY-BY-RALLY BREAKDOWN:
+
+  Rally 0:
+    Frames: 0 - 1122 (1123 frames)
+    Method: next_server
+    Deciding frame: 1118
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 1)
+
+  Rally 1:
+    Frames: 1541 - 4096 (1767 frames)
+    Method: next_server
+    Deciding frame: 1648
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 1 serves again from left side
+
+  Rally 2:
+    Frames: 4735 - 7214 (1843 frames)
+    Method: next_server
+    Deciding frame: 4752
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 1 serves again from left side
+
+  Rally 3:
+    Frames: 7215 - 9573 (1681 frames)
+    Method: next_server
+    Deciding frame: 8996
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 4)
+
+  Rally 4:
+    Frames: 9574 - 10293 (578 frames)
+    Method: next_server
+    Deciding frame: 10012
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 5)
+
+  Rally 5:
+    Frames: 10603 - 13043 (1522 frames)
+    Method: next_server
+    Deciding frame: 13043
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 6)
+
+  Rally 6:
+    Frames: 13045 - 13531 (221 frames)
+    Method: next_server
+    Deciding frame: 13157
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 7)
+
+  Rally 7:
+    Frames: 13542 - 16329 (1611 frames)
+    Method: next_server
+    Deciding frame: 15531
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 8)
+
+  Rally 8:
+    Frames: 16330 - 17177 (555 frames)
+    Method: next_server
+    Deciding frame: 16333
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 2 serves again from right side
+
+  Rally 9:
+    Frames: 17188 - 17999 (812 frames)
+    Method: ball_physics
+    Deciding frame: 17893
+    Winner: Player 1
+    Reason: Wall hit in-bounds at (2.43, 1.15) by Player 1 (frame 17893)

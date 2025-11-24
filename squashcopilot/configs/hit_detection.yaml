@@ -21,7 +21,7 @@ tests:
     data:
         annotations_dir: squashcopilot/annotation/annotations # Path to annotations directory (relative to project root)
         video_dir: squashcopilot/videos # Path to video directory (relative to project root)
-        video: video-3 # Video to evaluate
+        video: video-2 # Video to evaluate
 
     # Hit detection visualization
     visualization:

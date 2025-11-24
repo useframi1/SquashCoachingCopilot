@@ -1,0 +1,90 @@
+============================================================
+POINT WIN DETECTION SUMMARY - video-3
+============================================================
+
+Total Rallies: 11
+
+OVERALL STATISTICS:
+  Player 1 wins: 5
+  Player 2 wins: 3
+  Lets/Replays: 3
+  Unknown: 0
+
+RALLY-BY-RALLY BREAKDOWN:
+
+  Rally 0:
+    Frames: 0 - 1142 (1143 frames)
+    Method: next_server
+    Deciding frame: 1058
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 1)
+
+  Rally 1:
+    Frames: 1951 - 3010 (1060 frames)
+    Method: next_server
+    Deciding frame: 2944
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 2)
+
+  Rally 2:
+    Frames: 3493 - 4194 (702 frames)
+    Method: next_server
+    Deciding frame: 4156
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 3)
+
+  Rally 3:
+    Frames: 4626 - 5231 (606 frames)
+    Method: next_server
+    Deciding frame: 5091
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 4)
+
+  Rally 4:
+    Frames: 6123 - 6751 (629 frames)
+    Method: next_server
+    Deciding frame: 6599
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 5)
+
+  Rally 5:
+    Frames: 7431 - 8448 (1018 frames)
+    Method: next_server
+    Deciding frame: 8343
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 6)
+
+  Rally 6:
+    Frames: 9211 - 10083 (873 frames)
+    Method: next_server
+    Deciding frame: 9216
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 1 serves again from right side
+
+  Rally 7:
+    Frames: 11632 - 13399 (1768 frames)
+    Method: next_server
+    Deciding frame: 11639
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 1 serves again from right side
+
+  Rally 8:
+    Frames: 14403 - 14849 (447 frames)
+    Method: next_server
+    Deciding frame: 14408
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 1 serves again from right side
+
+  Rally 9:
+    Frames: 15333 - 16404 (1072 frames)
+    Method: next_server
+    Deciding frame: 16354
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 10)
+
+  Rally 10:
+    Frames: 17176 - 17999 (824 frames)
+    Method: ball_physics
+    Deciding frame: 17925
+    Winner: Player 1
+    Reason: Wall hit in-bounds at (6.25, 1.09) by Player 1 (frame 17925)

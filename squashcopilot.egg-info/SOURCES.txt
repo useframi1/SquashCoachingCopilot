@@ -24,6 +24,7 @@ squashcopilot/configs/court_calibration.yaml
 squashcopilot/configs/hit_detection.yaml
 squashcopilot/configs/pipeline.yaml
 squashcopilot/configs/player_tracking.yaml
+squashcopilot/configs/point_win_detection.yaml
 squashcopilot/configs/rally_state_detection.yaml
 squashcopilot/configs/shot_type_classification.yaml
 squashcopilot/configs/stroke_detection.yaml
@@ -35,11 +36,6 @@ squashcopilot/modules/ball_tracking/model/__init__.py
 squashcopilot/modules/ball_tracking/model/model.py
 squashcopilot/modules/ball_tracking/model/tracknet_tracker.py
 squashcopilot/modules/ball_tracking/model/weights/model_best.pt
-squashcopilot/modules/ball_tracking/tests/data/video-1.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-2.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-3.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-4.mp4
-squashcopilot/modules/ball_tracking/tests/data/video-5.mp4
 squashcopilot/modules/court_calibration/__init__.py
 squashcopilot/modules/court_calibration/court_calibrator.py
 squashcopilot/modules/court_calibration/tests/data/image-1.png
@@ -54,8 +50,6 @@ squashcopilot/modules/player_tracking/__init__.py
 squashcopilot/modules/player_tracking/player_tracker.py
 squashcopilot/modules/player_tracking/model/__init__.py
 squashcopilot/modules/player_tracking/model/weights/yolov8m-pose.pt
-squashcopilot/modules/player_tracking/model/weights/yolov8m.pt
-squashcopilot/modules/player_tracking/tests/data/README.md
 squashcopilot/modules/player_tracking/tests/data/_annotations.coco.json
 squashcopilot/modules/player_tracking/tests/data/test_video.mp4
 squashcopilot/modules/rally_state_detection/__init__.py
@@ -75,12 +69,13 @@ squashcopilot/modules/stroke_detection/stroke_detector.py
 squashcopilot/modules/stroke_detection/train_model.py
 squashcopilot/modules/stroke_detection/model/__init__.py
 squashcopilot/modules/stroke_detection/model/lstm_classifier.py
-squashcopilot/modules/stroke_detection/model/weights/stroke_lstm_best.pt
 squashcopilot/modules/stroke_detection/tests/data/video-1/video-1_annotations.csv
 squashcopilot/modules/stroke_detection/tests/data/video-2/video-2_annotations.csv
 squashcopilot/modules/stroke_detection/tests/data/video-3/video-3_annotations.csv
 squashcopilot/modules/stroke_detection/tests/data/video-4/video-4_annotations.csv
 squashcopilot/modules/stroke_detection/tests/data/video-5/video-5_annotations.csv
 squashcopilot/pipeline/__init__.py
+squashcopilot/pipeline/frame_reader.py
 squashcopilot/pipeline/pipeline.py
+squashcopilot/pipeline/outputs/video-1/video-1_stats.json
 squashcopilot/pipeline/outputs/video-3/video-3_stats.json

@@ -1,0 +1,82 @@
+# Point Win Detection Configuration
+# Configuration for assigning point winners based on rally state and hit detection
+
+point_win_detection:
+    # Court boundaries in meters (standard squash court)
+    court_boundaries:
+        # Front wall boundaries (Y-axis)
+        front_wall_min_y: 0.0  # Minimum Y (front wall)
+        front_wall_max_y: 9.75  # Maximum Y (back wall)
+        
+        # Side wall boundaries (X-axis)
+        left_wall_min_x: 0.0  # Left wall
+        right_wall_max_x: 6.4  # Right wall
+        
+        # Out-of-bounds markers (tin and out lines)
+        tin_height_y: 0.48  # Tin height on front wall (meters)
+        out_line_height_y: 4.57  # Out line height on front wall (meters)
+        
+        # Court center for determining serve side
+        center_x: 3.2  # X coordinate of court center (meters)
+    
+    # Point assignment logic
+    logic:
+        # Primary method: Use server of next rally as winner of current rally
+        # The player who serves the next rally won the previous rally
+        use_next_rally_server: true
+        
+        # Let/Replay detection: If same player serves from same side, previous rally was a let
+        detect_lets: true
+        
+        # Fallback method: For last rally or when next rally server unknown
+        # Number of recent racket hits to check (in case rally end detection is delayed)
+        num_racket_hits_to_check: 3
+        
+        # If no wall hit found after last racket hit, award point to other player
+        no_wall_hit_default: "other_player"
+
+# Test Configuration
+tests:
+    # Input data configuration
+    data:
+        # Main annotations CSV (with full tracking data)
+        main_annotations_dir: squashcopilot/annotation/annotations
+        
+        # Ground truth rally state CSV (fallback if rally_state not in main CSV)
+        ground_truth_dir: squashcopilot/modules/rally_state_detection/tests/data
+        
+        # Video directory for playback visualization
+        video_dir: squashcopilot/videos
+        
+        # Video to evaluate
+        video: video-3
+    
+    # Visualization settings for evaluator
+    visualization:
+        # Text overlay settings
+        font_scale: 1.2
+        font_thickness: 2
+        text_color: [255, 255, 255]  # White (BGR)
+        bg_color: [0, 0, 0]  # Black background for text
+        bg_alpha: 0.7  # Background transparency
+        
+        # Rally info position (top-left corner)
+        rally_info_x: 30
+        rally_info_y: 50
+        line_spacing: 40
+        
+        # Playback controls
+        playback_speed: 3  # Speed multiplier for playback
+        pause_between_rallies: true  # Pause when rally ends
+        pause_duration_ms: 2000  # Pause duration in milliseconds
+    
+    # Processing options
+    processing:
+        max_rallies: null  # Maximum rallies to process (null for all)
+    
+    # Output configuration
+    output:
+        output_dir: outputs  # Relative to tests directory
+        save_csv: true  # Save CSV with point assignments
+        save_metrics: true  # Save evaluation metrics
+        save_summary: true  # Save rally-by-rally summary

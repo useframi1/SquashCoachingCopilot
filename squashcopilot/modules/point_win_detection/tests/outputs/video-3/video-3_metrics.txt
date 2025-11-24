@@ -1,0 +1,21 @@
+============================================================
+POINT WIN DETECTION METRICS - video-3
+============================================================
+
+DETECTION STATISTICS:
+  Total rallies: 11
+  Average rally length: 922.0 frames
+  Shortest rally: 447 frames
+  Longest rally: 1768 frames
+
+WIN STATISTICS:
+  Player 1: 5 (45.5%)
+  Player 2: 3 (27.3%)
+  Lets/Replays: 3 (27.3%)
+  Unknown: 0 (0.0%)
+
+DETECTOR CONFIGURATION:
+  Tin height: 0.48m
+  Out line height: 4.57m
+  Court X range: 0.0m - 6.4m
+  Court Y range: 0.0m - 9.75m

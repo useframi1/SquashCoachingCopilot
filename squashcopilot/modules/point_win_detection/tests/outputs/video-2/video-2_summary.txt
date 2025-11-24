@@ -1,0 +1,76 @@
+============================================================
+POINT WIN DETECTION SUMMARY - video-2
+============================================================
+
+Total Rallies: 9
+
+OVERALL STATISTICS:
+  Player 1 wins: 3
+  Player 2 wins: 3
+  Lets/Replays: 3
+  Unknown: 0
+
+RALLY-BY-RALLY BREAKDOWN:
+
+  Rally 0:
+    Frames: 0 - 2202 (2203 frames)
+    Method: next_server
+    Deciding frame: 31
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 2 serves again from right side
+
+  Rally 1:
+    Frames: 2817 - 3572 (756 frames)
+    Method: next_server
+    Deciding frame: 3469
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 2)
+
+  Rally 2:
+    Frames: 3830 - 6886 (2703 frames)
+    Method: next_server
+    Deciding frame: 3892
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 2 serves again from left side
+
+  Rally 3:
+    Frames: 6896 - 8281 (960 frames)
+    Method: next_server
+    Deciding frame: 7737
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 4)
+
+  Rally 4:
+    Frames: 8284 - 9826 (795 frames)
+    Method: next_server
+    Deciding frame: 8293
+    Winner: Let/Replay
+    Reason: Let/Replay - Player 1 serves again from right side
+
+  Rally 5:
+    Frames: 9827 - 10478 (313 frames)
+    Method: next_server
+    Deciding frame: 10478
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 6)
+
+  Rally 6:
+    Frames: 10482 - 10987 (231 frames)
+    Method: next_server
+    Deciding frame: 10610
+    Winner: Player 2
+    Reason: Player 2 serves next rally (rally 7)
+
+  Rally 7:
+    Frames: 10995 - 12170 (1176 frames)
+    Method: next_server
+    Deciding frame: 12147
+    Winner: Player 1
+    Reason: Player 1 serves next rally (rally 8)
+
+  Rally 8:
+    Frames: 12566 - 17999 (3962 frames)
+    Method: ball_physics
+    Deciding frame: 17793
+    Winner: Player 2
+    Reason: Wall hit out-of-bounds at (6.40, -3.26) after hit by Player 1 (frame 17793)
