@@ -96,6 +96,25 @@ class TrackNetTracker:
         self.frame_buffer.clear()
         self.frame_count = 0
 
+    def cleanup(self):
+        """Clean up resources (thread pool, CUDA streams, buffers)."""
+        if hasattr(self, '_thread_pool') and self._thread_pool is not None:
+            self._thread_pool.shutdown(wait=True)
+            self._thread_pool = None
+
+    def __del__(self):
+        """Destructor to ensure proper cleanup of resources."""
+        self.cleanup()
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - cleanup resources."""
+        self.cleanup()
+        return False
+
     def _preprocess_black_ball_gpu(self, frames_tensor: torch.Tensor) -> torch.Tensor:
         """GPU-based preprocessing for black ball detection using Kornia.
 

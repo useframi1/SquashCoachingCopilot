@@ -164,9 +164,9 @@ class PipelineService:
                 },
             }
 
-            # Run pipeline
-            pipeline = Pipeline(config=config, progress_callback=pipeline_progress)
-            result = pipeline.run()
+            # Run pipeline with context manager for proper cleanup
+            with Pipeline(config=config, progress_callback=pipeline_progress) as pipeline:
+                result = pipeline.run()
 
             # Store results in database
             self._store_pipeline_results(video.id, result, output_dir)

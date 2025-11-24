@@ -111,13 +111,19 @@ class Pipeline:
 
     def _merge_config(self, override: Dict) -> None:
         """Deep merge override config into base config."""
+
         def merge(base: Dict, override: Dict) -> Dict:
             for key, value in override.items():
-                if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                if (
+                    key in base
+                    and isinstance(base[key], dict)
+                    and isinstance(value, dict)
+                ):
                     merge(base[key], value)
                 else:
                     base[key] = value
             return base
+
         merge(self.config, override)
 
     def _report_progress(self, stage: str, percent: float) -> None:
@@ -203,6 +209,25 @@ class Pipeline:
             self.point_win_detector = PointWinDetector()
         else:
             self.point_win_detector = None
+
+    def cleanup(self):
+        """Clean up resources from all modules."""
+        if hasattr(self, "ball_tracker") and self.ball_tracker is not None:
+            self.ball_tracker.cleanup()
+        # Add cleanup for other modules if needed in the future
+
+    def __del__(self):
+        """Destructor to ensure proper cleanup of resources."""
+        self.cleanup()
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - cleanup resources."""
+        self.cleanup()
+        return False
 
     def run(self) -> Dict[str, str]:
         """
@@ -767,7 +792,9 @@ class Pipeline:
             point_win_input = PointWinDetectionInput(
                 df=df, segments=segments, calibration=calibration
             )
-            point_win_output = self.point_win_detector.detect_point_winners(point_win_input)
+            point_win_output = self.point_win_detector.detect_point_winners(
+                point_win_input
+            )
             df = point_win_output.df
 
             self.logger.info(

@@ -53,6 +53,24 @@ class BallTracker:
         """Reset the tracker state."""
         self.tracker.reset()
 
+    def cleanup(self):
+        """Clean up resources (delegates to underlying tracker)."""
+        if hasattr(self, 'tracker') and self.tracker is not None:
+            self.tracker.cleanup()
+
+    def __del__(self):
+        """Destructor to ensure proper cleanup of resources."""
+        self.cleanup()
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - cleanup resources."""
+        self.cleanup()
+        return False
+
     def process_frame(self, input_data: BallTrackingInput) -> BallTrackingOutput:
         """Process a single frame and return ball tracking output.
 
