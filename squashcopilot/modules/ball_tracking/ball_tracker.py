@@ -1,8 +1,7 @@
 """
 Ball tracking module for the squash coaching copilot.
 
-Uses TrackNet model for ball detection.
-Updates TrackingOutput with ball detection data.
+Uses TrackNet model for ball detection with GPU-based batch processing.
 """
 
 import cv2
@@ -11,8 +10,6 @@ import pandas as pd
 from typing import Optional, List, Tuple
 
 from squashcopilot.common.utils import load_config
-from squashcopilot.common.types.geometry import Point2D
-from squashcopilot.common.types.base import Frame
 from squashcopilot.common.models import (
     BallTrackingInput,
     BallTrackingOutput,
@@ -25,28 +22,23 @@ from .model.tracknet_tracker import TrackNetTracker
 class BallTracker:
     """Ball tracking using TrackNet model.
 
-    This class provides ball detection using the TrackNet deep learning model,
-    along with preprocessing capabilities for black ball detection.
+    Provides ball detection using the TrackNet deep learning model.
+    Supports both single-frame and batch processing modes.
     """
 
     def __init__(self, config: dict = None):
         """Initialize the ball tracker.
 
         Args:
-            config: Configuration dictionary. If None, loads from config.json
+            config: Configuration dictionary. If None, loads from ball_tracking.yaml
         """
         self.is_black_ball = False
 
-        # Load configuration
         if config is None:
             config = load_config(config_name="ball_tracking")
 
         self.config = config
-
-        # Initialize TrackNet tracker
         self.tracker = TrackNetTracker(config=config)
-
-        # Expose the device attribute for compatibility
         self.device = getattr(self.tracker, "device", "N/A")
 
     def set_is_black_ball(self, is_black: bool):
@@ -57,44 +49,14 @@ class BallTracker:
         """
         self.is_black_ball = is_black
 
-    def preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
-        """Preprocess the input frame for black ball detection.
-
-        Args:
-            frame: Input frame (BGR format)
-
-        Returns:
-            Preprocessed frame (BGR format).
-        """
-        frame = cv2.bitwise_not(frame)
-
-        # Convert to LAB color space
-        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-        l_channel, a_channel, b_channel = cv2.split(lab)
-
-        # Apply CLAHE
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        l_channel = clahe.apply(l_channel)
-
-        # Apply dilation
-        l_dilated = cv2.dilate(
-            l_channel,
-            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
-            iterations=1,
-        )
-
-        # Merge and convert back to BGR
-        enhanced_lab = cv2.merge([l_dilated, a_channel, b_channel])
-        enhanced_color = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
-
-        return enhanced_color
-
     def reset(self):
         """Reset the tracker state."""
         self.tracker.reset()
 
     def process_frame(self, input_data: BallTrackingInput) -> BallTrackingOutput:
         """Process a single frame and return ball tracking output.
+
+        Note: For batch processing, use process_batch() instead for better GPU utilization.
 
         Args:
             input_data: BallTrackingInput with frame
@@ -109,14 +71,12 @@ class BallTracker:
             frame.timestamp if hasattr(frame, "timestamp") else frame_number / 30.0
         )
 
-        # Preprocess if black ball
+        # Preprocess if black ball (CPU-based for single frame)
         if self.is_black_ball:
-            image = self.preprocess_frame(image)
+            image = self._preprocess_frame_cpu(image)
 
-        # Get detection from tracker
         x, y = self.tracker.process_frame(image)
 
-        # Create output
         if x is not None and y is not None:
             return BallTrackingOutput(
                 frame_number=frame_number,
@@ -124,7 +84,7 @@ class BallTracker:
                 ball_detected=True,
                 ball_x=float(x),
                 ball_y=float(y),
-                ball_confidence=1.0,  # TrackNet doesn't provide confidence
+                ball_confidence=1.0,
             )
         else:
             return BallTrackingOutput(
@@ -136,23 +96,30 @@ class BallTracker:
                 ball_confidence=0.0,
             )
 
-    def detect(self, frame: np.ndarray) -> Optional[Point2D]:
-        """Simple detection method returning ball position.
+    def _preprocess_frame_cpu(self, frame: np.ndarray) -> np.ndarray:
+        """CPU-based preprocessing for black ball detection (single frame).
 
         Args:
             frame: Input frame (BGR format)
 
         Returns:
-            Point2D with ball position or None if not detected
+            Preprocessed frame (BGR format)
         """
-        if self.is_black_ball:
-            frame = self.preprocess_frame(frame)
+        frame = cv2.bitwise_not(frame)
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab)
 
-        x, y = self.tracker.process_frame(frame)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        l_channel = clahe.apply(l_channel)
 
-        if x is not None and y is not None:
-            return Point2D(x=float(x), y=float(y))
-        return None
+        l_dilated = cv2.dilate(
+            l_channel,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
+            iterations=1,
+        )
+
+        enhanced_lab = cv2.merge([l_dilated, a_channel, b_channel])
+        return cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
 
     def process_batch(
         self,
@@ -162,19 +129,15 @@ class BallTracker:
         batch_size: int = 32,
         carryover_frames: Optional[List[np.ndarray]] = None,
     ) -> Tuple[List[BallTrackingOutput], List[np.ndarray]]:
-        """
-        Process a batch of frames and return ball tracking outputs.
-
-        This method processes multiple frames efficiently by batching them
-        through the TrackNet model on GPU.
+        """Process a batch of frames with GPU-optimized inference.
 
         Args:
             frames: List of input frames (BGR format).
             frame_numbers: List of frame numbers corresponding to each frame.
             timestamps: List of timestamps corresponding to each frame.
             batch_size: Number of sliding windows to process in parallel on GPU.
-            carryover_frames: Optional frames from previous batch for continuity.
-                             Should be the last 2 frames from the previous batch.
+            carryover_frames: Optional frames from previous batch for continuity
+                             (last 2 frames from the previous batch).
 
         Returns:
             Tuple of:
@@ -187,13 +150,11 @@ class BallTracker:
         # Prepend carryover frames for cross-batch continuity
         if carryover_frames and len(carryover_frames) > 0:
             full_frames = carryover_frames + frames
-            # Offset for results: skip carryover frame results
             carryover_offset = len(carryover_frames)
         else:
             full_frames = frames
             carryover_offset = 0
 
-        # Get ball coordinates from tracker
         # GPU-based preprocessing is done inside tracker if is_black_ball=True
         all_coords = self.tracker.process_batch(
             full_frames, batch_size=batch_size, is_black_ball=self.is_black_ball
@@ -232,7 +193,6 @@ class BallTracker:
         if len(frames) >= 2:
             next_carryover = frames[-2:]
         elif len(frames) == 1:
-            # If only 1 frame, carry it plus last from previous carryover if available
             if carryover_frames and len(carryover_frames) >= 1:
                 next_carryover = [carryover_frames[-1], frames[0]]
             else:
@@ -260,7 +220,6 @@ class BallTracker:
         """
         df = input_data.df.copy()
 
-        # Get postprocessing config
         postprocess_config = self.config.get("postprocessing", {})
         window = postprocess_config.get("window", 10)
         threshold = postprocess_config.get("threshold", 100)
@@ -275,7 +234,7 @@ class BallTracker:
             else:
                 positions.append((None, None))
 
-        # Step 1: Remove outliers (track how many)
+        # Step 1: Remove outliers
         cleaned = self._remove_outliers(positions, window=window, threshold=threshold)
         outliers_removed = sum(
             1
@@ -283,11 +242,11 @@ class BallTracker:
             if orig[0] is not None and clean[0] is None
         )
 
-        # Step 2: Fill missing values with interpolation (track how many)
+        # Step 2: Fill missing values with interpolation
         gaps_filled = sum(1 for p in cleaned if p[0] is None)
         imputed = self._impute_missing(cleaned)
 
-        # Update DataFrame with processed positions
+        # Update DataFrame
         df["ball_x"] = [float(x) for x, y in imputed]
         df["ball_y"] = [float(y) for x, y in imputed]
 
@@ -303,18 +262,7 @@ class BallTracker:
         window: int = 10,
         threshold: float = 100,
     ) -> List[Tuple[Optional[float], Optional[float]]]:
-        """Remove outlier positions using rolling window distance check.
-
-        Detects positions that are too far from the average position of neighbors.
-
-        Args:
-            positions: List of (x, y) tuples
-            window: Size of rolling window (default: 10 frames)
-            threshold: Maximum distance in pixels from average of neighbors (default: 100 pixels)
-
-        Returns:
-            Positions with outliers marked as (None, None)
-        """
+        """Remove outlier positions using rolling window distance check."""
         n = len(positions)
         result = list(positions)
 
@@ -323,32 +271,22 @@ class BallTracker:
                 continue
 
             current_x, current_y = positions[i]
-
-            # Get neighboring positions in the window
             start = max(0, i - window // 2)
             end = min(n, i + window // 2 + 1)
 
-            neighbors = []
-            for j in range(start, end):
-                if (
-                    j != i
-                    and positions[j][0] is not None
-                    and positions[j][1] is not None
-                ):
-                    neighbors.append(positions[j])
+            neighbors = [
+                positions[j]
+                for j in range(start, end)
+                if j != i and positions[j][0] is not None and positions[j][1] is not None
+            ]
 
             if len(neighbors) < 2:
-                # Need at least 2 neighbors to calculate average
                 continue
 
-            # Calculate average position of neighbors
             avg_x = np.mean([nx for nx, ny in neighbors])
             avg_y = np.mean([ny for nx, ny in neighbors])
-
-            # Calculate distance from current position to average of neighbors
             distance = np.sqrt((current_x - avg_x) ** 2 + (current_y - avg_y) ** 2)
 
-            # If distance from average is >= threshold, mark as outlier
             if distance >= threshold:
                 result[i] = (None, None)
 
@@ -358,30 +296,20 @@ class BallTracker:
         self,
         positions: List[Tuple[Optional[float], Optional[float]]],
     ) -> List[Tuple[float, float]]:
-        """Fill missing values using linear interpolation.
-
-        Args:
-            positions: List of (x, y) tuples with possible None values
-
-        Returns:
-            List of (x, y) tuples with all values filled
-        """
+        """Fill missing values using linear interpolation."""
         n = len(positions)
         x_coords = np.array([p[0] if p[0] is not None else np.nan for p in positions])
         y_coords = np.array([p[1] if p[1] is not None else np.nan for p in positions])
 
-        # Interpolate each axis
         for coords in [x_coords, y_coords]:
             valid_mask = ~np.isnan(coords)
             if np.sum(valid_mask) < 2:
-                # Not enough valid points
                 coords[:] = np.nanmean(coords) if np.sum(valid_mask) > 0 else 0
                 continue
 
             valid_indices = np.where(valid_mask)[0]
             valid_values = coords[valid_mask]
 
-            # Linear interpolation
             coords[:] = np.interp(
                 np.arange(n),
                 valid_indices,
