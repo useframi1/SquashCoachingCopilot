@@ -18,10 +18,10 @@ tracker:
 # Test Configuration
 tests:
     paths:
-        test_video: data/test_video.mp4
+        test_video: C:\Users\nadin\OneDrive\Desktop\SquashCoachingCopilot\squashcopilot\videos\video-1.mp4
         coco_annotations: data/_annotations.coco.json
-        output_video: outputs/tracking_output.mp4
-        output_results: outputs/tracking_results.txt
+        output_video: outputs/video-1_output.mp4
+        output_results: outputs/video-1_results.txt
     evaluation:
         iou_threshold: 0.5
         player_1_class_id: 1

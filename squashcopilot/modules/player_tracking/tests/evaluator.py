@@ -1,8 +1,8 @@
 """
 Player Tracker Evaluator
 
-Evaluates player tracking performance against COCO-format ground truth annotations.
-Uses the new DataFrame-based pipeline architecture.
+Evaluates player tracking performance with score diagnostics.
+Optionally evaluates against COCO-format ground truth annotations.
 """
 
 import json
@@ -31,20 +31,29 @@ from squashcopilot.common.models import player_tracking_outputs_to_dataframe
 
 
 class PlayerTrackerEvaluator:
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict = None, evaluate_ground_truth: bool = False, max_frames: int = None):
+        """Initialize evaluator.
+        
+        Args:
+            config: Configuration dictionary
+            evaluate_ground_truth: If True, load ground truth and run accuracy evaluation
+            max_frames: Maximum number of frames to process (overrides config). None = process all frames
+        """
         if config is None:
             # Load the tests section from the player_tracking config
             full_config = load_config(config_name="player_tracking")
             config = full_config["tests"]
         self.config = config
+        self.evaluate_ground_truth = evaluate_ground_truth
+        
+        # Override max_frames if provided
+        if max_frames is not None:
+            self.config["processing"]["max_frames"] = max_frames
 
         # Get test directory path
         self.test_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Resolve paths relative to test directory
-        self.coco_json_path = os.path.join(
-            self.test_dir, self.config["paths"]["coco_annotations"]
-        )
         self.test_video_path = os.path.join(
             self.test_dir, self.config["paths"]["test_video"]
         )
@@ -59,146 +68,97 @@ class PlayerTrackerEvaluator:
             else None
         )
 
-        self.iou_threshold = self.config["evaluation"]["iou_threshold"]
-        self.ground_truth = self.load_coco_annotations()
-
-        # Initialize court calibrator to get homography
-        print("Initializing court calibrator...")
-        self.court_calibrator = CourtCalibrator()
-
-        # Compute homography from first frame
-        cap = cv2.VideoCapture(self.test_video_path)
-        ret, first_frame_img = cap.read()
-        cap.release()
-
-        if not ret:
-            raise ValueError("Could not read first frame from test video")
-
-        # Create Frame and CourtCalibrationInput
-        first_frame = Frame(image=first_frame_img, frame_number=0, timestamp=0.0)
-        calibration_input = CourtCalibrationInput(frame=first_frame)
-        self.calibration: CourtCalibrationOutput = self.court_calibrator.process_frame(
-            calibration_input
-        )
-
-        if not self.calibration.calibration_success:
-            raise ValueError("Failed to compute homography from first frame")
-
-        print("Homography computed successfully")
-
-        # Initialize tracker with calibration
+        # Initialize tracker and calibrator
         self.tracker = PlayerTracker()
-        self.tracker.set_calibration(self.calibration)
+        self.calibrator = CourtCalibrator()
+        self.calibration = None
 
-        mask = self.tracker._create_court_mask(first_frame_img.shape)
-        if mask is not None:
-            # Create visualization
-            mask_viz = cv2.cvtColor(first_frame_img.copy(), cv2.COLOR_BGR2BGRA)
-            # Overlay mask in semi-transparent green
-            mask_overlay = np.zeros_like(mask_viz)
-            mask_overlay[mask > 0] = [0, 255, 0, 128]  # Green with 50% transparency
-
-            # Blend
-            mask_viz = cv2.addWeighted(mask_viz, 1.0, mask_overlay, 0.3, 0)
-
-            # Display and wait for key press
-            cv2.imshow("Court Mask Preview - Press any key to continue", mask_viz)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-        else:
-            print("Warning: Could not create court mask")
-
-    def reset_metrics(self):
-        """Reset all tracking evaluation metrics"""
-        self.frame_results = []
-        self.id_mapping = None
-        self.mapping_confidence = 0.0
-
-        self.total_gt_boxes = 0
-        self.total_pred_boxes = 0
-        self.true_positives = 0
-        self.false_positives = 0
-        self.false_negatives = 0
-        self.id_switches = 0
-        self.track_breaks = 0
-
-        player_1_id = self.config["evaluation"]["player_1_class_id"]
-        player_2_id = self.config["evaluation"]["player_2_class_id"]
-        self.player_metrics = {
-            player_1_id: {"tp": 0, "fp": 0, "fn": 0},
-            player_2_id: {"tp": 0, "fp": 0, "fn": 0},
-        }
-
-    def load_coco_annotations(self):
-        """Load and organize COCO annotations by frame"""
+        # Ground truth data (only loaded if evaluate_ground_truth is True)
+        self.ground_truth = {}
+        self.frame_name_formatter = None
+        
+        if self.evaluate_ground_truth:
+            self.coco_json_path = os.path.join(
+                self.test_dir, self.config["paths"]["coco_annotations"]
+            )
+            self._load_ground_truth()
+            self._initialize_metrics()
+    
+    def _load_ground_truth(self):
+        """Load COCO-format ground truth annotations."""
+        print(f"Loading ground truth from: {self.coco_json_path}")
         with open(self.coco_json_path, "r") as f:
             coco_data = json.load(f)
 
-        print(f"Loading COCO annotations...")
-        print(f"Categories: {coco_data['categories']}")
-
-        images = {img["id"]: img for img in coco_data["images"]}
-        annotations_by_frame = defaultdict(list)
+        # Parse annotations
+        for img_data in coco_data["images"]:
+            frame_name = img_data["file_name"]
+            self.ground_truth[frame_name] = []
 
         for ann in coco_data["annotations"]:
-            annotations_by_frame[ann["image_id"]].append(ann)
-
-        ground_truth = {}
-        for img_id, anns in annotations_by_frame.items():
-            frame_name = images[img_id]["extra"]["name"]
-            ground_truth[frame_name] = []
-
-            for ann in anns:
+            img_id = ann["image_id"]
+            img_data = next(
+                (img for img in coco_data["images"] if img["id"] == img_id), None
+            )
+            if img_data:
+                frame_name = img_data["file_name"]
                 x, y, w, h = ann["bbox"]
-                bbox = [x, y, x + w, y + h]
-                ground_truth[frame_name].append(
+                self.ground_truth[frame_name].append(
                     {
-                        "bbox": bbox,
+                        "bbox": [x, y, x + w, y + h],
                         "class_id": ann["category_id"],
-                        "annotation_id": ann["id"],
                     }
                 )
 
-        print(f"Loaded {len(ground_truth)} frames with annotations")
-        return ground_truth
+        # Set up frame name formatter
+        frame_pattern = self.config.get("frame_name_pattern", "frame_{:06d}.jpg")
+        self.frame_name_formatter = lambda idx: frame_pattern.format(idx)
 
-    def frame_name_formatter(self, frame_number):
-        """Format frame name according to config"""
-        pattern = self.config["frame_formatting"]["pattern"]
-        video_name = self.config["frame_formatting"]["video_name"]
-        return pattern.format(video_name=video_name, frame_number=frame_number)
+        print(f"Loaded ground truth for {len(self.ground_truth)} frames")
+
+    def _initialize_metrics(self):
+        """Initialize evaluation metrics."""
+        self.iou_threshold = self.config["evaluation"]["iou_threshold"]
+        self.true_positives = 0
+        self.false_positives = 0
+        self.false_negatives = 0
+        self.total_gt_boxes = 0
+        self.total_pred_boxes = 0
+        self.id_switches = 0
+        self.id_mapping = None
+        self.mapping_confidence = 0
+        self.frame_results = []
+        self.player_metrics = defaultdict(
+            lambda: {"tp": 0, "fp": 0, "fn": 0, "detections": 0}
+        )
+
+    def reset_metrics(self):
+        """Reset all metrics to zero."""
+        if self.evaluate_ground_truth:
+            self._initialize_metrics()
 
     def calculate_iou(self, box1, box2):
-        """Calculate Intersection over Union between two boxes"""
-        x1_1, y1_1, x2_1, y2_1 = box1
-        x1_2, y1_2, x2_2, y2_2 = box2
+        """Calculate IoU between two bounding boxes."""
+        x1_min, y1_min, x1_max, y1_max = box1
+        x2_min, y2_min, x2_max, y2_max = box2
 
-        x1_inter = max(x1_1, x1_2)
-        y1_inter = max(y1_1, y1_2)
-        x2_inter = min(x2_1, x2_2)
-        y2_inter = min(y2_1, y2_2)
+        inter_x_min = max(x1_min, x2_min)
+        inter_y_min = max(y1_min, y2_min)
+        inter_x_max = min(x1_max, x2_max)
+        inter_y_max = min(y1_max, y2_max)
 
-        inter_area = max(0, x2_inter - x1_inter) * max(0, y2_inter - y1_inter)
+        if inter_x_max < inter_x_min or inter_y_max < inter_y_min:
+            return 0.0
 
-        area1 = (x2_1 - x1_1) * (y2_1 - y1_1)
-        area2 = (x2_2 - x1_2) * (y2_2 - y1_2)
-        union_area = area1 + area2 - inter_area
+        inter_area = (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
+        box1_area = (x1_max - x1_min) * (y1_max - y1_min)
+        box2_area = (x2_max - x2_min) * (y2_max - y2_min)
+        union_area = box1_area + box2_area - inter_area
 
-        return inter_area / union_area if union_area > 0 else 0
+        return inter_area / union_area if union_area > 0 else 0.0
 
-    def _establish_id_mapping(
-        self,
-        player_bboxes: Dict[int, List[float]],
-        ground_truth_frame,
-        frame_name: str,
-    ):
-        """Establish or verify the mapping between tracker IDs and ground truth classes.
-
-        Args:
-            player_bboxes: Dict mapping player_id to bbox [x1, y1, x2, y2]
-            ground_truth_frame: Ground truth annotations for this frame
-            frame_name: Frame name for logging
-        """
+    def update_id_mapping(self, player_bboxes, ground_truth_frame, frame_name):
+        """Update ID mapping between tracker IDs and ground truth classes."""
         if len(player_bboxes) == 0 or len(ground_truth_frame) == 0:
             return
 
@@ -234,75 +194,58 @@ class PlayerTrackerEvaluator:
                 )
 
     def evaluate_frame(self, player_bboxes: Dict[int, List[float]], frame_name: str):
-        """Evaluate a single frame against ground truth.
-
-        Args:
-            player_bboxes: Dict mapping player_id to bbox [x1, y1, x2, y2]
-            frame_name: Frame name for ground truth lookup
-        """
+        """Evaluate a single frame against ground truth."""
         if frame_name not in self.ground_truth:
             return
 
-        gt_frame = self.ground_truth[frame_name]
-
-        self.total_gt_boxes += len(gt_frame)
+        ground_truth_frame = self.ground_truth[frame_name]
+        self.total_gt_boxes += len(ground_truth_frame)
         self.total_pred_boxes += len(player_bboxes)
 
-        self._establish_id_mapping(player_bboxes, gt_frame, frame_name)
+        # Update ID mapping
+        self.update_id_mapping(player_bboxes, ground_truth_frame, frame_name)
 
-        if self.id_mapping is None:
+        if not self.id_mapping:
             return
 
-        # Filter players that are in the ID mapping
-        mapped_player_ids = [
-            pid for pid in player_bboxes.keys() if pid in self.id_mapping
-        ]
-
-        if len(mapped_player_ids) == 0:
-            return
-
-        iou_matrix = np.zeros((len(mapped_player_ids), len(gt_frame)))
-        for i, player_id in enumerate(mapped_player_ids):
-            player_bbox = player_bboxes[player_id]
-            for j, gt in enumerate(gt_frame):
-                iou_matrix[i, j] = self.calculate_iou(player_bbox, gt["bbox"])
-
+        # Match predictions with ground truth using ID mapping
         matched_pred = set()
         matched_gt = set()
 
-        if iou_matrix.size > 0:
-            row_indices, col_indices = linear_sum_assignment(-iou_matrix)
+        for player_id, bbox in player_bboxes.items():
+            if player_id not in self.id_mapping:
+                continue
 
-            for row, col in zip(row_indices, col_indices):
-                if iou_matrix[row, col] > self.iou_threshold:
-                    player_id = mapped_player_ids[row]
-                    pred_class = self.id_mapping[player_id]
-                    gt = gt_frame[col]
+            gt_class = self.id_mapping[player_id]
+            best_iou = 0
+            best_gt_idx = None
 
-                    if pred_class == gt["class_id"]:
-                        self.true_positives += 1
-                        self.player_metrics[gt["class_id"]]["tp"] += 1
-                    else:
-                        self.false_positives += 1
-                        self.false_negatives += 1
-                        self.id_switches += 1
-                        self.player_metrics[pred_class]["fp"] += 1
-                        self.player_metrics[gt["class_id"]]["fn"] += 1
+            for j, gt in enumerate(ground_truth_frame):
+                if gt["class_id"] == gt_class and j not in matched_gt:
+                    iou = self.calculate_iou(bbox, gt["bbox"])
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_gt_idx = j
 
-                    matched_pred.add(row)
-                    matched_gt.add(col)
+            if best_gt_idx is not None and best_iou > self.iou_threshold:
+                matched_pred.add(player_id)
+                matched_gt.add(best_gt_idx)
+                self.true_positives += 1
+                self.player_metrics[gt_class]["tp"] += 1
 
-        for i in range(len(mapped_player_ids)):
-            if i not in matched_pred:
+        # Count false positives and false negatives
+        for player_id in player_bboxes.keys():
+            if player_id not in matched_pred:
                 self.false_positives += 1
-                pred_class = self.id_mapping[mapped_player_ids[i]]
-                if pred_class in self.player_metrics:
-                    self.player_metrics[pred_class]["fp"] += 1
+                if player_id in self.id_mapping:
+                    gt_class = self.id_mapping[player_id]
+                    if gt_class in self.player_metrics:
+                        self.player_metrics[gt_class]["fp"] += 1
 
-        for j in range(len(gt_frame)):
+        for j, gt in enumerate(ground_truth_frame):
             if j not in matched_gt:
                 self.false_negatives += 1
-                gt_class = gt_frame[j]["class_id"]
+                gt_class = gt["class_id"]
                 if gt_class in self.player_metrics:
                     self.player_metrics[gt_class]["fn"] += 1
 
@@ -310,7 +253,7 @@ class PlayerTrackerEvaluator:
             {
                 "frame_name": frame_name,
                 "predictions": len(player_bboxes),
-                "ground_truth": len(gt_frame),
+                "ground_truth": len(ground_truth_frame),
                 "true_positives": len(matched_pred) if matched_pred else 0,
                 "id_mapping_used": self.id_mapping.copy() if self.id_mapping else None,
             }
@@ -356,11 +299,21 @@ class PlayerTrackerEvaluator:
         if max_frames:
             total_frames = min(total_frames, max_frames)
 
+        # Enable score diagnostics
+        self.tracker.enable_score_diagnostics()
+
         for frame_idx, frame_img in tqdm.tqdm(
             enumerate(self.frame_generator()),
             total=total_frames,
             desc="Processing frames",
         ):
+            # Calibrate on first frame
+            if frame_idx == 0:
+                calibration_input = CourtCalibrationInput(
+                    frame=Frame(image=frame_img, frame_number=0, timestamp=0.0)
+                )
+                self.calibration = self.calibrator.process_frame(calibration_input)
+
             # Create Frame object
             frame = Frame(
                 image=frame_img, frame_number=frame_idx, timestamp=frame_idx / 30.0
@@ -378,6 +331,10 @@ class PlayerTrackerEvaluator:
 
         print(f"Processing complete: {len(results_list)} frames")
 
+        # Get score statistics
+        score_stats = self.tracker.get_score_statistics()
+        self.print_score_statistics(score_stats)
+
         # Convert to DataFrame + complex data using the model function
         df, complex_data = player_tracking_outputs_to_dataframe(results_list)
 
@@ -388,6 +345,76 @@ class PlayerTrackerEvaluator:
         }
 
         return df, player_bboxes
+
+    def print_score_statistics(self, stats):
+        """Print reid vs position score statistics."""
+        if stats is None:
+            print("\nNo score statistics available (no tracking occurred)")
+            return
+
+        print("\n" + "=" * 70)
+        print("REID vs POSITION SCORE DIAGNOSTICS")
+        print("=" * 70)
+
+        reid_weight = self.config.get("tracker", {}).get("reid_weight", 0.1)
+        pos_weight = self.config.get("tracker", {}).get("position_weight", 0.9)
+
+        print(f"\nCONFIGURED WEIGHTS:")
+        print(f"   Reid weight:     {reid_weight:.2f}")
+        print(f"   Position weight: {pos_weight:.2f}")
+
+        print(f"\nREID SCORES (Cosine Distance, range 0-2):")
+        reid = stats['reid']
+        if reid['count'] > 0:
+            print(f"   Count:  {reid['count']}")
+            print(f"   Min:    {reid['min']:.6f}")
+            print(f"   Max:    {reid['max']:.6f}")
+            print(f"   Mean:   {reid['mean']:.6f}")
+            print(f"   Median: {reid['median']:.6f}")
+            print(f"   Std:    {reid['std']:.6f}")
+        else:
+            print("   No valid reid scores recorded")
+
+        print(f"\nPOSITION SCORES (Normalized pixel distance / frame_width, range 0-1+):")
+        pos = stats['position']
+        if pos['count'] > 0:
+            print(f"   Count:  {pos['count']}")
+            print(f"   Min:    {pos['min']:.6f}")
+            print(f"   Max:    {pos['max']:.6f}")
+            print(f"   Mean:   {pos['mean']:.6f}")
+            print(f"   Median: {pos['median']:.6f}")
+            print(f"   Std:    {pos['std']:.6f}")
+        else:
+            print("   No valid position scores recorded")
+
+        # Calculate weighted contributions
+        if reid['count'] > 0 and pos['count'] > 0:
+            print(f"\nWEIGHTED CONTRIBUTIONS TO FINAL SCORE:")
+            reid_contribution = reid['mean'] * reid_weight
+            pos_contribution = pos['mean'] * pos_weight
+            total = reid_contribution + pos_contribution
+            
+            print(f"   Reid contribution:     {reid_contribution:.6f} ({reid_contribution/total*100:.1f}%)")
+            print(f"   Position contribution: {pos_contribution:.6f} ({pos_contribution/total*100:.1f}%)")
+            print(f"   Total mean score:      {total:.6f}")
+            
+            print(f"\nANALYSIS:")
+            if reid_contribution > pos_contribution * 2:
+                print("   ⚠️  Reid DOMINATES matching (>2x position contribution)")
+                print("   → Position-based tracking is being ignored")
+            elif pos_contribution > reid_contribution * 2:
+                print("   ✓ Position DOMINATES matching (>2x reid contribution)")
+                print("   → Reid features may not be helping")
+            else:
+                print("   ✓ Reid and position are balanced")
+
+            # Check if position scores are suspiciously low
+            if pos['mean'] < 0.01:
+                print(f"\n   ⚠️  Position scores are VERY LOW (mean={pos['mean']:.6f})")
+                print("   → Players barely move between frames")
+                print("   → Position-based tracking cannot distinguish between players")
+
+        print("=" * 70 + "\n")
 
     def apply_postprocessing(
         self,
@@ -434,7 +461,10 @@ class PlayerTrackerEvaluator:
         Args:
             player_bboxes: Dict mapping player_id to list of BoundingBox (one per frame)
         """
-        print("Evaluating results...")
+        if not self.evaluate_ground_truth:
+            return None
+
+        print("Evaluating results against ground truth...")
 
         num_frames = len(player_bboxes.get(1, []))
 
@@ -454,194 +484,32 @@ class PlayerTrackerEvaluator:
         print("Evaluation complete")
         return self.calculate_final_metrics()
 
-    def visualize_results(
-        self,
-        df: pd.DataFrame,
-        player_bboxes: Dict[int, List[Optional[BoundingBox]]],
-        output_path: Optional[str] = None,
-    ):
-        """Create visualization video from results.
-
-        Args:
-            df: DataFrame with tracking data (positions)
-            player_bboxes: Dict mapping player_id to list of bboxes
-            output_path: Path to save the output video
-        """
-        if not output_path:
-            return
-
-        print(f"Creating visualization video: {output_path}")
-
-        # Get video properties from first frame
-        cap = cv2.VideoCapture(self.test_video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        ret, first_frame = cap.read()
-        cap.release()
-
-        if not ret:
-            print("Error: Could not read video for visualization")
-            return
-
-        # Setup video writer
-        height, width = first_frame.shape[:2]
-        codec = self.config["output"]["video_codec"]
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-
-        for frame_idx, frame in enumerate(self.frame_generator()):
-            frame_vis = frame.copy()
-
-            # Draw tracking visualization
-            for player_id in [1, 2]:
-                # Get position from DataFrame
-                if frame_idx in df.index:
-                    pos_x = df.loc[frame_idx, f"player_{player_id}_x_pixel"]
-                    pos_y = df.loc[frame_idx, f"player_{player_id}_y_pixel"]
-                else:
-                    pos_x = None
-                    pos_y = None
-
-                if pos_x is not None and pos_y is not None and not np.isnan(pos_x):
-                    color_key = f"player_{player_id}_color"
-                    color = tuple(self.config["visualization"][color_key])
-                    radius = self.config["visualization"]["circle_radius"]
-                    cv2.circle(frame_vis, (int(pos_x), int(pos_y)), radius, color, -1)
-
-                    # Get bbox
-                    bbox = None
-                    bbox_list = player_bboxes.get(player_id, [])
-                    if frame_idx < len(bbox_list):
-                        bbox = bbox_list[frame_idx]
-
-                    if bbox is not None:
-                        thickness = self.config["visualization"]["bbox_thickness"]
-                        cv2.rectangle(
-                            frame_vis,
-                            (int(bbox.x1), int(bbox.y1)),
-                            (int(bbox.x2), int(bbox.y2)),
-                            color,
-                            thickness,
-                        )
-                        cv2.putText(
-                            frame_vis,
-                            f"P{player_id}",
-                            (int(bbox.x1), int(bbox.y1) - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5,
-                            color,
-                            2,
-                        )
-
-            video_writer.write(frame_vis)
-
-        video_writer.release()
-        print(f"Visualization video saved: {output_path}")
-
-    def run_video(self):
-        """Run complete evaluation pipeline with and without postprocessing"""
-        # Process frames once
-        print("\n" + "=" * 60)
-        print("PROCESSING FRAMES")
-        print("=" * 60)
-
-        self.tracker.reset()
-        df_raw, player_bboxes_raw = self.process_frames()
-
-        # === EVALUATION WITHOUT POSTPROCESSING ===
-        print("\n" + "=" * 60)
-        print("EVALUATION WITHOUT POSTPROCESSING")
-        print("=" * 60)
-
-        self.reset_metrics()
-        metrics_raw = self.evaluate_results(player_bboxes_raw)
-
-        # Save raw results
-        if self.output_results_path:
-            raw_results_path = self.output_results_path.replace(".txt", "_raw.txt")
-            self.save_results_to_txt(metrics_raw, raw_results_path)
-
-        # Save raw visualization
-        if self.output_video_path:
-            raw_video_path = self.output_video_path.replace(".mp4", "_raw.mp4")
-            self.visualize_results(
-                df_raw, player_bboxes_raw, output_path=raw_video_path
-            )
-
-        # === APPLY POSTPROCESSING ===
-        print("\n" + "=" * 60)
-        print("APPLYING POSTPROCESSING")
-        print("=" * 60)
-
-        postprocess_output = self.apply_postprocessing(df_raw, player_bboxes_raw)
-
-        # === EVALUATION WITH POSTPROCESSING ===
-        # Evaluates using interpolated bounding boxes from postprocessing
-        print("\n" + "=" * 60)
-        print("EVALUATION WITH POSTPROCESSING")
-        print("=" * 60)
-
-        self.reset_metrics()
-        metrics_postprocessed = self.evaluate_results(postprocess_output.player_bboxes)
-
-        # Save postprocessed results
-        if self.output_results_path:
-            postprocessed_results_path = self.output_results_path.replace(
-                ".txt", "_postprocessed.txt"
-            )
-            self.save_results_to_txt(metrics_postprocessed, postprocessed_results_path)
-
-        # Save postprocessed visualization
-        if self.output_video_path:
-            postprocessed_video_path = self.output_video_path.replace(
-                ".mp4", "_postprocessed.mp4"
-            )
-            self.visualize_results(
-                postprocess_output.df,
-                postprocess_output.player_bboxes,
-                output_path=postprocessed_video_path,
-            )
-
-        return {"raw": metrics_raw, "postprocessed": metrics_postprocessed}
-
     def calculate_final_metrics(self):
-        """Calculate final tracking metrics"""
-        if self.total_gt_boxes == 0:
-            return {}
+        """Calculate final evaluation metrics."""
+        if not self.evaluate_ground_truth:
+            return None
 
-        precision = (
-            self.true_positives / (self.true_positives + self.false_positives)
-            if (self.true_positives + self.false_positives) > 0
-            else 0
-        )
-        recall = (
-            self.true_positives / (self.true_positives + self.false_negatives)
-            if (self.true_positives + self.false_negatives) > 0
-            else 0
-        )
+        tp = self.true_positives
+        fp = self.false_positives
+        fn = self.false_negatives
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         f1_score = (
             2 * (precision * recall) / (precision + recall)
             if (precision + recall) > 0
             else 0
         )
 
-        mota = (
-            1
-            - (self.false_negatives + self.false_positives + self.id_switches)
-            / self.total_gt_boxes
-            if self.total_gt_boxes > 0
-            else 0
-        )
+        mota = 1 - (fp + fn + self.id_switches) / self.total_gt_boxes
 
         player_stats = {}
-        player_1_id = self.config["evaluation"]["player_1_class_id"]
-        player_2_id = self.config["evaluation"]["player_2_class_id"]
-
-        for player_id in [player_1_id, player_2_id]:
+        for player_id in [1, 2]:
             if player_id in self.player_metrics:
                 metrics = self.player_metrics[player_id]
-                tp, fp, fn = metrics["tp"], metrics["fp"], metrics["fn"]
+                tp = metrics["tp"]
+                fp = metrics["fp"]
+                fn = metrics["fn"]
 
                 p_precision = tp / (tp + fp) if (tp + fp) > 0 else 0
                 p_recall = tp / (tp + fn) if (tp + fn) > 0 else 0
@@ -682,8 +550,238 @@ class PlayerTrackerEvaluator:
             },
         }
 
+    def visualize_results(
+        self,
+        df: pd.DataFrame,
+        player_bboxes: Dict[int, List[Optional[BoundingBox]]],
+        output_path: Optional[str] = None,
+    ):
+        """Create visualization video from results with reid/position scores overlay.
+
+        Args:
+            df: DataFrame with tracking data
+            player_bboxes: Dict mapping player_id to list of bboxes
+            output_path: Output video path
+        """
+        if output_path is None:
+            output_path = self.output_video_path
+
+        if not output_path:
+            return
+
+        print(f"Creating visualization video: {output_path}")
+
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        cap = cv2.VideoCapture(self.test_video_path)
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+        max_frames = self.config["processing"]["max_frames"]
+        frame_count = 0
+
+        # Get score logs from tracker
+        reid_scores = self.tracker.score_logs.get('reid_scores', [])
+        pos_scores = self.tracker.score_logs.get('pos_scores', [])
+        
+        # Get weights from config
+        reid_weight = self.tracker.config["tracker"]["reid_weight"]
+        pos_weight = self.tracker.config["tracker"]["position_weight"]
+        
+        # Track score index (4 scores per frame: 2 detections x 2 players)
+        score_idx = 0
+
+        while cap.isOpened():
+            if max_frames and frame_count >= max_frames:
+                break
+
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_vis = frame.copy()
+
+            # Draw bounding boxes
+            colors = {1: (0, 255, 0), 2: (255, 0, 0)}  # Player 1: Green, Player 2: Red
+            
+            # Collect scores for this frame
+            frame_reid_scores = []
+            frame_pos_scores = []
+            frame_combined_scores = []
+            
+            if score_idx < len(reid_scores) - 3:  # Make sure we have scores available
+                # Get the 4 scores for this frame (2 detections x 2 players)
+                frame_reid_scores = reid_scores[score_idx:score_idx+4]
+                frame_pos_scores = pos_scores[score_idx:score_idx+4]
+                frame_combined_scores = [
+                    r * reid_weight + p * pos_weight 
+                    for r, p in zip(frame_reid_scores, frame_pos_scores)
+                ]
+                score_idx += 4
+
+            for player_id in [1, 2]:
+                bbox_list = player_bboxes.get(player_id, [])
+                if frame_count < len(bbox_list) and bbox_list[frame_count] is not None:
+                    bbox = bbox_list[frame_count]
+                    color = colors[player_id]
+                    thickness = 2
+
+                    # Draw rectangle
+                    cv2.rectangle(
+                        frame_vis,
+                        (int(bbox.x1), int(bbox.y1)),
+                        (int(bbox.x2), int(bbox.y2)),
+                        color,
+                        thickness,
+                    )
+                    
+                    # Draw player ID
+                    cv2.putText(
+                        frame_vis,
+                        f"P{player_id}",
+                        (int(bbox.x1), int(bbox.y1) - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        color,
+                        2,
+                    )
+
+            # Draw score overlay panel
+            if frame_reid_scores and frame_pos_scores:
+                # Create semi-transparent overlay panel
+                overlay = frame_vis.copy()
+                panel_height = 180
+                panel_width = 400
+                panel_x = 10
+                panel_y = 10
+                
+                cv2.rectangle(
+                    overlay,
+                    (panel_x, panel_y),
+                    (panel_x + panel_width, panel_y + panel_height),
+                    (0, 0, 0),
+                    -1
+                )
+                cv2.addWeighted(overlay, 0.7, frame_vis, 0.3, 0, frame_vis)
+                
+                # Draw panel border
+                cv2.rectangle(
+                    frame_vis,
+                    (panel_x, panel_y),
+                    (panel_x + panel_width, panel_y + panel_height),
+                    (255, 255, 255),
+                    2
+                )
+                
+                # Title
+                cv2.putText(
+                    frame_vis,
+                    "Matching Scores",
+                    (panel_x + 10, panel_y + 25),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 255, 255),
+                    2,
+                )
+                
+                # Weights info
+                cv2.putText(
+                    frame_vis,
+                    f"Weights: Reid={reid_weight:.2f} | Pos={pos_weight:.2f}",
+                    (panel_x + 10, panel_y + 50),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.4,
+                    (200, 200, 200),
+                    1,
+                )
+                
+                # Show scores (assuming 2 detections matched to 2 players)
+                y_offset = panel_y + 75
+                line_height = 25
+                
+                # Average scores for simplicity (since we have 4 scores per frame)
+                if len(frame_reid_scores) >= 4:
+                    avg_reid = np.mean(frame_reid_scores)
+                    avg_pos = np.mean(frame_pos_scores)
+                    avg_combined = np.mean(frame_combined_scores)
+                    
+                    cv2.putText(
+                        frame_vis,
+                        f"Reid Score:     {avg_reid:.4f}",
+                        (panel_x + 15, y_offset),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (100, 200, 255),
+                        1,
+                    )
+                    
+                    cv2.putText(
+                        frame_vis,
+                        f"Position Score: {avg_pos:.4f}",
+                        (panel_x + 15, y_offset + line_height),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (100, 255, 100),
+                        1,
+                    )
+                    
+                    cv2.putText(
+                        frame_vis,
+                        f"Combined Score: {avg_combined:.4f}",
+                        (panel_x + 15, y_offset + line_height * 2),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (255, 255, 255),
+                        1,
+                    )
+                    
+                    # Show weighted contributions
+                    reid_contrib = avg_reid * reid_weight
+                    pos_contrib = avg_pos * pos_weight
+                    total = reid_contrib + pos_contrib
+                    
+                    if total > 0:
+                        reid_pct = (reid_contrib / total) * 100
+                        pos_pct = (pos_contrib / total) * 100
+                        
+                        cv2.putText(
+                            frame_vis,
+                            f"Reid: {reid_pct:.1f}% | Pos: {pos_pct:.1f}%",
+                            (panel_x + 15, y_offset + line_height * 3),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.4,
+                            (200, 200, 200),
+                            1,
+                        )
+
+            # Add frame counter
+            cv2.putText(
+                frame_vis,
+                f"Frame: {frame_count}",
+                (width - 150, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                2,
+            )
+
+            video_writer.write(frame_vis)
+            frame_count += 1
+
+        cap.release()
+        video_writer.release()
+        print(f"Visualization video saved: {output_path}")
+
     def save_results_to_txt(self, results, output_path=None):
         """Save evaluation results to a TXT file"""
+        if not self.evaluate_ground_truth or results is None:
+            return
+
         if output_path is None:
             output_path = self.output_results_path
 
@@ -729,8 +827,8 @@ class PlayerTrackerEvaluator:
 
     def print_results(self, results=None):
         """Print formatted evaluation results"""
-        if results is None:
-            results = self.calculate_final_metrics()
+        if not self.evaluate_ground_truth or results is None:
+            return
 
         overall = results["overall"]
 
@@ -759,24 +857,105 @@ class PlayerTrackerEvaluator:
             print(f"      - F1: {stats['f1_score']:.3f}")
             print(f"      - GT Instances: {stats['detections']}")
 
+    def run_video(self):
+        """Run complete evaluation pipeline with and without postprocessing"""
+        # Process frames once
+        print("\n" + "=" * 60)
+        print("PROCESSING FRAMES")
+        print("=" * 60)
+
+        self.tracker.reset()
+        df_raw, player_bboxes_raw = self.process_frames()
+
+        results = {}
+
+        # === EVALUATION WITHOUT POSTPROCESSING ===
+        if self.evaluate_ground_truth:
+            print("\n" + "=" * 60)
+            print("EVALUATION WITHOUT POSTPROCESSING")
+            print("=" * 60)
+
+            self.reset_metrics()
+            metrics_raw = self.evaluate_results(player_bboxes_raw)
+            results["raw"] = metrics_raw
+
+            # Save raw results
+            if self.output_results_path:
+                raw_results_path = self.output_results_path.replace(".txt", "_raw.txt")
+                self.save_results_to_txt(metrics_raw, raw_results_path)
+
+        # Save raw visualization
+        if self.output_video_path:
+            raw_video_path = self.output_video_path.replace(".mp4", "_raw.mp4")
+            self.visualize_results(
+                df_raw, player_bboxes_raw, output_path=raw_video_path
+            )
+
+        # === APPLY POSTPROCESSING ===
+        print("\n" + "=" * 60)
+        print("APPLYING POSTPROCESSING")
+        print("=" * 60)
+
+        postprocess_output = self.apply_postprocessing(df_raw, player_bboxes_raw)
+
+        # === EVALUATION WITH POSTPROCESSING ===
+        if self.evaluate_ground_truth:
+            print("\n" + "=" * 60)
+            print("EVALUATION WITH POSTPROCESSING")
+            print("=" * 60)
+
+            self.reset_metrics()
+            metrics_postprocessed = self.evaluate_results(
+                postprocess_output.player_bboxes
+            )
+            results["postprocessed"] = metrics_postprocessed
+
+            # Save postprocessed results
+            if self.output_results_path:
+                postprocessed_results_path = self.output_results_path.replace(
+                    ".txt", "_postprocessed.txt"
+                )
+                self.save_results_to_txt(
+                    metrics_postprocessed, postprocessed_results_path
+                )
+
+        # Save postprocessed visualization
+        if self.output_video_path:
+            postprocessed_video_path = self.output_video_path.replace(
+                ".mp4", "_postprocessed.mp4"
+            )
+            self.visualize_results(
+                postprocess_output.df,
+                postprocess_output.player_bboxes,
+                output_path=postprocessed_video_path,
+            )
+
+        return results
+
     def run_evaluation(self):
         """Run complete evaluation pipeline"""
         results = self.run_video()
 
-        # Print both raw and postprocessed results
-        print("\n" + "=" * 60)
-        print("SUMMARY - WITHOUT POSTPROCESSING")
-        print("=" * 60)
-        self.print_results(results["raw"])
+        if self.evaluate_ground_truth:
+            # Print both raw and postprocessed results
+            print("\n" + "=" * 60)
+            print("SUMMARY - WITHOUT POSTPROCESSING")
+            print("=" * 60)
+            self.print_results(results.get("raw"))
 
-        print("\n" + "=" * 60)
-        print("SUMMARY - WITH POSTPROCESSING")
-        print("=" * 60)
-        self.print_results(results["postprocessed"])
+            print("\n" + "=" * 60)
+            print("SUMMARY - WITH POSTPROCESSING")
+            print("=" * 60)
+            self.print_results(results.get("postprocessed"))
 
         return results
 
 
 if __name__ == "__main__":
-    evaluator = PlayerTrackerEvaluator()
+    # Run with score diagnostics only (no ground truth evaluation)
+    evaluator = PlayerTrackerEvaluator(evaluate_ground_truth=False, max_frames=1000)
     evaluator.run_evaluation()
+    
+    # To run with ground truth evaluation, use:
+    # evaluator = PlayerTrackerEvaluator(evaluate_ground_truth=True)
+    # evaluator.run_evaluation()

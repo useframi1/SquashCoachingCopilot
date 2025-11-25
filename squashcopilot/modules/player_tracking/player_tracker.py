@@ -65,6 +65,15 @@ class PlayerTracker:
         self.player_features = {1: None, 2: None}
         self.players_initialized = False
 
+        # Score logging for diagnostics
+        self.enable_score_logging = False
+        self.score_logs = {
+            'reid_scores': [],
+            'pos_scores': [],
+            'combined_scores': [],
+            'assignments': []
+        }
+
         # CUDA stream for parallel execution (can be assigned by pipeline)
         self._cuda_stream = None
 
@@ -361,6 +370,10 @@ class PlayerTracker:
     def _calculate_matching_scores(self, detections, det_features, frame_width):
         """Calculate matching scores between detections and tracked players."""
         matching_scores = {}
+        
+        # Temporary storage for logging
+        frame_reid_scores = []
+        frame_pos_scores = []
 
         for i, det in enumerate(detections[:2]):
             bbox = det[0:4]
@@ -389,6 +402,16 @@ class PlayerTracker:
                 pos_weight = self.config["tracker"]["position_weight"]
                 score = reid_score * reid_weight + pos_score * pos_weight
                 matching_scores[(i, player_id)] = score
+                
+                # Log scores if enabled
+                if self.enable_score_logging:
+                    frame_reid_scores.append(reid_score)
+                    frame_pos_scores.append(pos_score)
+
+        # Store logged scores
+        if self.enable_score_logging and frame_reid_scores:
+            self.score_logs['reid_scores'].extend(frame_reid_scores)
+            self.score_logs['pos_scores'].extend(frame_pos_scores)
 
         return matching_scores
 
@@ -1192,3 +1215,44 @@ class PlayerTracker:
                 ))
 
         return result
+    
+    def enable_score_diagnostics(self):
+        """Enable score logging for diagnostics."""
+        self.enable_score_logging = True
+        self.score_logs = {
+            'reid_scores': [],
+            'pos_scores': [],
+            'combined_scores': [],
+            'assignments': []
+        }
+
+    def get_score_statistics(self):
+        """Get statistics about reid and position scores."""
+        if not self.score_logs['reid_scores']:
+            return None
+        
+        reid_scores = np.array(self.score_logs['reid_scores'])
+        pos_scores = np.array(self.score_logs['pos_scores'])
+        
+        # Filter out infinite values
+        reid_valid = reid_scores[np.isfinite(reid_scores)]
+        pos_valid = pos_scores[np.isfinite(pos_scores)]
+        
+        return {
+            'reid': {
+                'min': float(np.min(reid_valid)) if len(reid_valid) > 0 else None,
+                'max': float(np.max(reid_valid)) if len(reid_valid) > 0 else None,
+                'mean': float(np.mean(reid_valid)) if len(reid_valid) > 0 else None,
+                'median': float(np.median(reid_valid)) if len(reid_valid) > 0 else None,
+                'std': float(np.std(reid_valid)) if len(reid_valid) > 0 else None,
+                'count': len(reid_valid)
+            },
+            'position': {
+                'min': float(np.min(pos_valid)) if len(pos_valid) > 0 else None,
+                'max': float(np.max(pos_valid)) if len(pos_valid) > 0 else None,
+                'mean': float(np.mean(pos_valid)) if len(pos_valid) > 0 else None,
+                'median': float(np.median(pos_valid)) if len(pos_valid) > 0 else None,
+                'std': float(np.std(pos_valid)) if len(pos_valid) > 0 else None,
+                'count': len(pos_valid)
+            }
+        }
