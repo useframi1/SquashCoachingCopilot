@@ -53,16 +53,20 @@ class Job(Base):
         self.started_at = datetime.utcnow()
 
     def complete(self) -> None:
-        """Mark job as completed."""
-        self.status = JobStatus.COMPLETED
-        self.progress = 100.0
-        self.completed_at = datetime.utcnow()
+        """Mark job as completed (only if not already cancelled)."""
+        # Don't overwrite CANCELLED status
+        if self.status != JobStatus.CANCELLED:
+            self.status = JobStatus.COMPLETED
+            self.progress = 100.0
+            self.completed_at = datetime.utcnow()
 
     def fail(self, error_message: str) -> None:
-        """Mark job as failed with error message."""
-        self.status = JobStatus.FAILED
-        self.error_message = error_message
-        self.completed_at = datetime.utcnow()
+        """Mark job as failed with error message (only if not already cancelled)."""
+        # Don't overwrite CANCELLED status
+        if self.status != JobStatus.CANCELLED:
+            self.status = JobStatus.FAILED
+            self.error_message = error_message
+            self.completed_at = datetime.utcnow()
 
     def cancel(self) -> None:
         """Mark job as cancelled."""

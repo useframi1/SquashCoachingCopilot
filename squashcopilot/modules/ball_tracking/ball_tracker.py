@@ -56,11 +56,19 @@ class BallTracker:
     def cleanup(self):
         """Clean up resources (delegates to underlying tracker)."""
         if hasattr(self, 'tracker') and self.tracker is not None:
-            self.tracker.cleanup()
+            try:
+                self.tracker.cleanup()
+            except Exception:
+                pass  # Ignore errors during cleanup
 
     def __del__(self):
         """Destructor to ensure proper cleanup of resources."""
-        self.cleanup()
+        try:
+            self.cleanup()
+        except Exception:
+            # Silently ignore errors during cleanup in destructor
+            # This prevents error messages during interpreter shutdown
+            pass
 
     def __enter__(self):
         """Context manager entry."""

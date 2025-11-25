@@ -26,7 +26,7 @@ annotation:
 tests:
     video:
         video_dir: squashcopilot/videos # Video directory (relative to project root)
-        video_name: video-3 # Video name (without extension)
+        video_name: video-1 # Video name (without extension)
     predictions_dir: squashcopilot/annotation/annotations # Directory containing prediction CSVs from annotation module
     ground_truth_dir: squashcopilot/modules/ball_tracking/tests/ground_truth # Directory containing ground truth CSVs
     pixel_tolerance: 10 # Pixels tolerance for correct detection

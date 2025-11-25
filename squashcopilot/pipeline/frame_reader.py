@@ -47,6 +47,7 @@ class BatchFrameReader:
         fps: Optional[float] = None,
         prefetch: bool = True,
         prefetch_batches: int = 2,
+        frame_skip: int = 1,
     ):
         """
         Initialize the batch frame reader.
@@ -58,11 +59,13 @@ class BatchFrameReader:
             fps: Video FPS for timestamp calculation (None = read from video).
             prefetch: Whether to prefetch batches in background thread.
             prefetch_batches: Number of batches to prefetch (if prefetch=True).
+            frame_skip: Process every Nth frame (1 = all frames, 2 = every other frame, etc.).
         """
         self.video_path = str(video_path)
         self.batch_size = batch_size
         self.prefetch = prefetch
         self.prefetch_batches = prefetch_batches
+        self.frame_skip = max(1, frame_skip)  # Ensure frame_skip is at least 1
 
         # Open video to get metadata
         cap = cv2.VideoCapture(self.video_path)
@@ -81,8 +84,11 @@ class BatchFrameReader:
         else:
             self.total_frames = total_frames
 
-        # Calculate number of batches
-        self._num_batches = (self.total_frames + batch_size - 1) // batch_size
+        # Calculate effective number of frames after skipping
+        self.effective_frames = (self.total_frames + self.frame_skip - 1) // self.frame_skip
+
+        # Calculate number of batches based on effective frames
+        self._num_batches = (self.effective_frames + batch_size - 1) // batch_size
 
     def __len__(self) -> int:
         """Return the total number of batches."""
@@ -111,6 +117,10 @@ class BatchFrameReader:
                     if frame_number >= self.total_frames:
                         break
 
+                    # Only seek if we're skipping frames, otherwise sequential read is faster
+                    if self.frame_skip > 1:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+
                     ret, frame = cap.read()
                     if not ret:
                         break
@@ -118,7 +128,7 @@ class BatchFrameReader:
                     batch_frame_numbers.append(frame_number)
                     batch_timestamps.append(frame_number / self.fps)
                     batch_images.append(frame)
-                    frame_number += 1
+                    frame_number += self.frame_skip
 
                 if batch_images:
                     yield FrameBatch(
@@ -150,6 +160,10 @@ class BatchFrameReader:
                         if frame_number >= self.total_frames:
                             break
 
+                        # Only seek if we're skipping frames, otherwise sequential read is faster
+                        if self.frame_skip > 1:
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+
                         ret, frame = cap.read()
                         if not ret:
                             break
@@ -157,7 +171,7 @@ class BatchFrameReader:
                         batch_frame_numbers.append(frame_number)
                         batch_timestamps.append(frame_number / self.fps)
                         batch_images.append(frame)
-                        frame_number += 1
+                        frame_number += self.frame_skip
 
                     if batch_images and not stop_event.is_set():
                         batch = FrameBatch(

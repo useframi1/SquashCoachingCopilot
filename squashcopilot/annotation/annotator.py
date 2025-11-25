@@ -370,12 +370,16 @@ class Annotator:
             session.complex_data = {}
 
         # Stage 3: Trajectory Postprocessing
-        if tracking_enabled:
+        postprocessing_enabled = self.config.get("processing", {}).get("enable_postprocessing", True)
+        if tracking_enabled and postprocessing_enabled:
             session.current_df, session.complex_data = self._stage3_postprocess(
                 session.current_df, session.complex_data, enabled_modules
             )
         else:
-            self.logger.info("Stage 3: Trajectory Postprocessing - SKIPPED (disabled)")
+            if not postprocessing_enabled:
+                self.logger.info("Stage 3: Trajectory Postprocessing - SKIPPED (disabled in config)")
+            else:
+                self.logger.info("Stage 3: Trajectory Postprocessing - SKIPPED (tracking disabled)")
 
         # Stage 4: Rally Segmentation
         if enabled_modules["rally_segmentation"]:
@@ -565,6 +569,11 @@ class Annotator:
         # Get batch processing config
         batch_size = self.config.get("processing", {}).get("batch_size", 32)
         prefetch_batches = self.config.get("processing", {}).get("prefetch_batches", 16)
+        frame_skip = self.config.get("video", {}).get("frame_skip", 1)
+
+        if frame_skip > 1:
+            effective_fps = fps / frame_skip
+            self.logger.info(f"Frame skip enabled: processing every {frame_skip} frames (effective FPS: {effective_fps:.1f})")
 
         player_outputs = []
         ball_outputs = []
@@ -585,11 +594,13 @@ class Annotator:
             fps=fps,
             prefetch=True,
             prefetch_batches=prefetch_batches,
+            frame_skip=frame_skip,
         )
 
-        # Progress bar for total frames
+        # Progress bar for effective frames (after skipping)
+        effective_frames = frame_reader.effective_frames
         pbar = tqdm(
-            total=total_frames,
+            total=effective_frames,
             desc="Tracking frames",
             disable=not self.config.get("logging", {}).get("show_progress", True),
         )
@@ -934,9 +945,13 @@ class Annotator:
 
             # Filter to rally frames only if rally segmentation is enabled and column exists
             if "is_rally_frame" in df.columns:
-                export_df = df[df["is_rally_frame"]].copy()
+                # Handle NaN values when frame_skip > 1 by using == True instead of boolean indexing
+                export_df = df[df["is_rally_frame"] == True].copy()
             else:
                 export_df = df.copy()
+
+            # Drop rows with all NaN values (happens when frame_skip > 1)
+            export_df = export_df.dropna(how='all')
 
             # Ensure frame and timestamp are first columns
             export_df = export_df.reset_index(names="frame")
@@ -1039,7 +1054,8 @@ class Annotator:
 
         # Filter to rally frames
         if "is_rally_frame" in df.columns:
-            rally_frame_set = set(df[df["is_rally_frame"]].index.tolist())
+            # Handle NaN values when frame_skip > 1
+            rally_frame_set = set(df[df["is_rally_frame"] == True].index.tolist())
         else:
             rally_frame_set = set(df.index.tolist())
 

@@ -5,7 +5,7 @@
 video_path: "tests/video-3.mp4"
 
 # Processing limits
-max_seconds: 300 # Maximum seconds of video to process (null = process entire video)
+max_seconds: 10 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:
@@ -48,6 +48,13 @@ output:
         - shot_depth
         - point_winner
         - point_winner_reason
+        # Stage 8 precomputed analytics fields
+        - wall_hit_player_id
+        - ball_speed
+        - opponent_distance_moved
+        - wall_hit_height
+        - next_opponent_x
+        - next_opponent_y
 
 # Module Configurations
 # Each module references its own config file
