@@ -11,13 +11,14 @@ from backend.schemas.analysis import (
     AnalyticsFilters,
     StrokeDistributionResponse,
     ShotTypeDistributionResponse,
-    BallSpeedAnalyticsResponse,
+    BallSpeedResponse,
     RhythmDisruptionResponse,
     PlayerPositionHeatmapResponse,
     ShotPlacementResponse,
     CourtQuadrantResponse,
     RallyStatsResponse,
-    WallHitDistributionResponse,
+    WallHitHeatmapResponse,
+    WallQuadrantResponse,
     WinningStatsResponse,
 )
 from backend.services.analysis_service import AnalysisService
@@ -34,7 +35,10 @@ def get_analysis_service(db: Session = Depends(get_db)) -> AnalysisService:
 # ============================================================================
 
 
-@router.get("/{video_id}/analytics/stroke-distribution", response_model=StrokeDistributionResponse)
+@router.get(
+    "/{video_id}/analytics/stroke-distribution",
+    response_model=StrokeDistributionResponse,
+)
 async def get_stroke_distribution(
     video_id: str,
     rally_id: Optional[int] = None,
@@ -61,7 +65,10 @@ async def get_stroke_distribution(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/shot-types", response_model=ShotTypeDistributionResponse)
+@router.get(
+    "/{video_id}/analytics/shot-types-distribution",
+    response_model=ShotTypeDistributionResponse,
+)
 async def get_shot_type_distribution(
     video_id: str,
     rally_id: Optional[int] = None,
@@ -88,7 +95,7 @@ async def get_shot_type_distribution(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/ball-speed", response_model=BallSpeedAnalyticsResponse)
+@router.get("/{video_id}/analytics/ball-speed", response_model=BallSpeedResponse)
 async def get_ball_speed_analytics(
     video_id: str,
     rally_id: Optional[int] = None,
@@ -98,10 +105,10 @@ async def get_ball_speed_analytics(
     service: AnalysisService = Depends(get_analysis_service),
 ):
     """
-    Get ball speed analytics with time series data.
+    Get ball speed aggregate statistics (no time series).
 
     Calculates ball speed from racket hit to wall hit for each shot.
-    Returns time series data for line charts and aggregate stats (avg, max, min).
+    Returns aggregate stats (mean, min, max, std_dev, count) for both players.
     """
     try:
         filters = AnalyticsFilters(
@@ -115,7 +122,9 @@ async def get_ball_speed_analytics(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/rhythm-disruption", response_model=RhythmDisruptionResponse)
+@router.get(
+    "/{video_id}/analytics/rhythm-disruption", response_model=RhythmDisruptionResponse
+)
 async def get_rhythm_disruption(
     video_id: str,
     rally_id: Optional[int] = None,
@@ -142,7 +151,10 @@ async def get_rhythm_disruption(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/player-heatmap/{player_id}", response_model=PlayerPositionHeatmapResponse)
+@router.get(
+    "/{video_id}/analytics/player-heatmap/{player_id}",
+    response_model=PlayerPositionHeatmapResponse,
+)
 async def get_player_position_heatmap(
     video_id: str,
     player_id: int,
@@ -170,7 +182,10 @@ async def get_player_position_heatmap(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/shot-placement/{player_id}", response_model=ShotPlacementResponse)
+@router.get(
+    "/{video_id}/analytics/shot-placement/{player_id}",
+    response_model=ShotPlacementResponse,
+)
 async def get_shot_placement_effectiveness(
     video_id: str,
     player_id: int,
@@ -198,7 +213,9 @@ async def get_shot_placement_effectiveness(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/court-quadrants", response_model=CourtQuadrantResponse)
+@router.get(
+    "/{video_id}/analytics/court-quadrants", response_model=CourtQuadrantResponse
+)
 async def get_court_quadrant_distribution(
     video_id: str,
     rally_id: Optional[int] = None,
@@ -250,22 +267,23 @@ async def get_rally_stats(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/wall-hits", response_model=WallHitDistributionResponse)
-async def get_wall_hit_distribution(
+@router.get(
+    "/{video_id}/analytics/wall-hits-heatmap",
+    response_model=WallHitHeatmapResponse,
+)
+async def get_wall_hit_heatmap(
     video_id: str,
     rally_id: Optional[int] = None,
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
-    quadrant: Optional[str] = Query(None, description="Filter by court quadrant (Front-Left, Front-Right, Back-Left, Back-Right)"),
     service: AnalysisService = Depends(get_analysis_service),
 ):
     """
-    Get wall hit distribution for shot placement heatmaps.
+    Get wall hit position data for heatmap visualization.
 
     Returns positions where the ball hit the wall. Use this to visualize
     shot placement patterns and targeting strategies on a wall heatmap.
-    Optionally filter by court quadrant.
     """
     try:
         filters = AnalyticsFilters(
@@ -274,7 +292,35 @@ async def get_wall_hit_distribution(
             start_time=start_time,
             end_time=end_time,
         )
-        return service.get_wall_hit_distribution(video_id, filters, quadrant=quadrant)
+        return service.get_wall_hit_heatmap(video_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{video_id}/analytics/wall-quadrants", response_model=WallQuadrantResponse)
+async def get_wall_quadrant_distribution(
+    video_id: str,
+    rally_id: Optional[int] = None,
+    player_id: Optional[int] = Query(None, ge=1, le=2),
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get wall quadrant distribution analytics.
+
+    Analyzes where the ball hits the front wall across four quadrants
+    (Top-Left, Top-Right, Bottom-Left, Bottom-Right). Shows shot placement
+    patterns and targeting strategies on the front wall.
+    """
+    try:
+        filters = AnalyticsFilters(
+            rally_id=rally_id,
+            player_id=player_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_wall_quadrant_distribution(video_id, filters)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

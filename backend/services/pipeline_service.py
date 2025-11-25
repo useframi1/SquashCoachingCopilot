@@ -149,6 +149,9 @@ class PipelineService:
             # Create cancellation check callback
             def check_if_cancelled() -> bool:
                 """Check if job has been cancelled in the database."""
+                # Expire the cached job object to force a fresh query
+                # This ensures we see updates from other sessions (e.g., cancel API calls)
+                self.db.expire_all()
                 job = self.get_job(job_id)
                 return job.status == JobStatus.CANCELLED
 
@@ -161,7 +164,7 @@ class PipelineService:
             # Build pipeline config
             config = {
                 "video_path": str(video_path),
-                "max_seconds": 300,  # Process entire video when called from API
+                "max_seconds": 10,  # Process entire video when called from API
                 "output": {
                     "base_directory": str(output_dir),
                     "create_video_subdirectory": False,

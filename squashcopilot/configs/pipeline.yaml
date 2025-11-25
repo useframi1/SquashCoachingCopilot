@@ -93,7 +93,7 @@ processing:
     video_writer_codec: "mp4v"
 
     # Batch processing settings for GPU inference optimization
-    batch_size: 32 # Number of frames per batch for neural network inference
+    batch_size: 1 # Number of frames per batch for neural network inference
     prefetch_batches: 16 # Number of batches to prefetch in background (memory vs speed tradeoff)
 
 # Visualization Settings
