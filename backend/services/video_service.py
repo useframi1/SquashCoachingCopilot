@@ -1,5 +1,7 @@
 """Video handling service."""
 
+import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from typing import BinaryIO
@@ -40,6 +42,23 @@ class VideoService:
 
         # Extract video metadata
         metadata = self._extract_video_metadata(file_path)
+
+        # Convert to max_fps if needed and enabled in settings
+        original_fps = metadata.get("fps", 0)
+        if settings.enable_fps_conversion and original_fps > settings.max_fps:
+            print(f"Video has {original_fps} fps (max allowed: {settings.max_fps} fps)")
+            print(f"Attempting to convert video to {settings.max_fps} fps...")
+            converted_path = self._convert_to_target_fps(file_path, video_id, settings.max_fps)
+
+            # Check if conversion actually happened (or was skipped due to missing ffmpeg)
+            if converted_path != file_path:
+                file_path = converted_path
+                # Re-extract metadata after conversion
+                metadata = self._extract_video_metadata(file_path)
+                print(f"Video converted successfully. New fps: {metadata.get('fps')}")
+            else:
+                print(f"WARNING: Video uploaded at {original_fps} fps (exceeds {settings.max_fps} fps limit)")
+                print("FPS conversion was skipped - ffmpeg not available")
 
         # Create database record
         video = Video(
@@ -156,3 +175,75 @@ class VideoService:
             }
         finally:
             cap.release()
+
+    def _convert_to_target_fps(self, input_path: Path, video_id: str, target_fps: int) -> Path:
+        """Convert video to target fps using ffmpeg.
+
+        Args:
+            input_path: Path to the original video file
+            video_id: Unique video ID
+            target_fps: Target frame rate
+
+        Returns:
+            Path to the converted video file
+        """
+        # Create output path (same directory, with _XXfps suffix before extension)
+        output_path = input_path.parent / f"{input_path.stem}_{target_fps}fps{input_path.suffix}"
+
+        try:
+            # Check if ffmpeg is available using shutil.which
+            ffmpeg_path = shutil.which('ffmpeg')
+
+            if not ffmpeg_path:
+                # Log warning and skip conversion instead of failing
+                print("WARNING: ffmpeg not found. Skipping FPS conversion.")
+                print("To enable FPS conversion, install ffmpeg or disable with enable_fps_conversion=False in config")
+                return input_path
+
+            # Use ffmpeg to convert fps
+            # -filter:v fps=X: Set output frame rate (drops/duplicates frames as needed)
+            # -c:v libx264: Re-encode with H.264 codec
+            # -crf 18: High quality (lower = better quality, 18 is visually lossless)
+            # -preset fast: Encoding speed preset
+            # -c:a copy: Copy audio stream without re-encoding
+            cmd = [
+                ffmpeg_path,
+                '-i', str(input_path),
+                '-filter:v', f'fps={target_fps}',  # Filter to set fps
+                '-c:v', 'libx264',                  # Video codec
+                '-crf', '18',                       # Quality
+                '-preset', 'fast',                  # Encoding speed
+                '-c:a', 'copy',                     # Copy audio
+                '-y',                               # Overwrite output file
+                str(output_path)
+            ]
+
+            # Run ffmpeg
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Delete original file
+            input_path.unlink()
+
+            return output_path
+
+        except subprocess.CalledProcessError as e:
+            # If conversion fails, clean up and raise error
+            if output_path.exists():
+                output_path.unlink()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Video conversion failed: {e.stderr}"
+            )
+        except Exception as e:
+            # Clean up on any error
+            if output_path.exists():
+                output_path.unlink()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Video conversion failed: {str(e)}"
+            )

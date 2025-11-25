@@ -129,7 +129,7 @@ class PipelineService:
 
         This method is designed to be called from a background worker.
         """
-        from squashcopilot.pipeline import Pipeline
+        from squashcopilot.pipeline import Pipeline, PipelineCancelledException
 
         job = self.get_job(job_id)
         video = job.video
@@ -146,6 +146,12 @@ class PipelineService:
             # Get output directory
             output_dir = self.storage.get_output_directory(video.id)
 
+            # Create cancellation check callback
+            def check_if_cancelled() -> bool:
+                """Check if job has been cancelled in the database."""
+                job = self.get_job(job_id)
+                return job.status == JobStatus.CANCELLED
+
             # Create progress callback wrapper
             def pipeline_progress(stage: str, percent: float):
                 self.update_job_progress(job_id, stage, percent)
@@ -155,6 +161,7 @@ class PipelineService:
             # Build pipeline config
             config = {
                 "video_path": str(video_path),
+                "max_seconds": 300,  # Process entire video when called from API
                 "output": {
                     "base_directory": str(output_dir),
                     "create_video_subdirectory": False,
@@ -164,15 +171,21 @@ class PipelineService:
                 },
             }
 
-            # Run pipeline
-            pipeline = Pipeline(config=config, progress_callback=pipeline_progress)
-            result = pipeline.run()
+            # Run pipeline with context manager for proper cleanup
+            with Pipeline(
+                config=config,
+                progress_callback=pipeline_progress,
+                cancellation_check=check_if_cancelled,
+            ) as pipeline:
+                result = pipeline.run()
 
             # Store results in database
             self._store_pipeline_results(video.id, result, output_dir)
 
             # Update video with output paths
-            video.annotated_video_path = str(output_dir / f"{video_path.stem}_annotated.mp4")
+            video.annotated_video_path = str(
+                output_dir / f"{video_path.stem}_annotated.mp4"
+            )
             video.csv_path = str(output_dir / f"{video_path.stem}_analysis.csv")
             video.stats_path = str(output_dir / f"{video_path.stem}_stats.json")
             video.processed_at = datetime.utcnow()
@@ -181,12 +194,20 @@ class PipelineService:
             # Mark job as completed
             self.complete_job(job_id)
 
+        except PipelineCancelledException:
+            # Job was cancelled - status already set to CANCELLED
+            logger.info(f"Pipeline cancelled for job {job_id}")
+            # Note: Don't call fail_job or complete_job - job is already CANCELLED
+            # Context manager cleanup already executed, resources are freed
+
         except Exception as e:
             logger.exception(f"Pipeline failed for job {job_id}")
             self.fail_job(job_id, str(e))
             raise
 
-    def _store_pipeline_results(self, video_id: str, result: dict, output_dir: Path) -> None:
+    def _store_pipeline_results(
+        self, video_id: str, result: dict, output_dir: Path
+    ) -> None:
         """Store pipeline results (frame data) in the database."""
         # Try to load the CSV output
         csv_files = list(output_dir.glob("*_analysis.csv"))
@@ -211,21 +232,97 @@ class PipelineService:
                 timestamp=float(row.get("timestamp", 0)),
                 ball_x=row.get("ball_x") if pd.notna(row.get("ball_x")) else None,
                 ball_y=row.get("ball_y") if pd.notna(row.get("ball_y")) else None,
-                player_1_x_meter=row.get("player_1_x_meter") if pd.notna(row.get("player_1_x_meter")) else None,
-                player_1_y_meter=row.get("player_1_y_meter") if pd.notna(row.get("player_1_y_meter")) else None,
-                player_2_x_meter=row.get("player_2_x_meter") if pd.notna(row.get("player_2_x_meter")) else None,
-                player_2_y_meter=row.get("player_2_y_meter") if pd.notna(row.get("player_2_y_meter")) else None,
+                player_1_x_meter=(
+                    row.get("player_1_x_meter")
+                    if pd.notna(row.get("player_1_x_meter"))
+                    else None
+                ),
+                player_1_y_meter=(
+                    row.get("player_1_y_meter")
+                    if pd.notna(row.get("player_1_y_meter"))
+                    else None
+                ),
+                player_2_x_meter=(
+                    row.get("player_2_x_meter")
+                    if pd.notna(row.get("player_2_x_meter"))
+                    else None
+                ),
+                player_2_y_meter=(
+                    row.get("player_2_y_meter")
+                    if pd.notna(row.get("player_2_y_meter"))
+                    else None
+                ),
                 is_rally_frame=bool(row.get("is_rally_frame", False)),
-                rally_id=int(row.get("rally_id")) if pd.notna(row.get("rally_id")) else None,
+                rally_id=(
+                    int(row.get("rally_id")) if pd.notna(row.get("rally_id")) else None
+                ),
                 is_wall_hit=bool(row.get("is_wall_hit", False)),
-                wall_hit_x_meter=row.get("wall_hit_x_meter") if pd.notna(row.get("wall_hit_x_meter")) else None,
-                wall_hit_y_meter=row.get("wall_hit_y_meter") if pd.notna(row.get("wall_hit_y_meter")) else None,
+                wall_hit_x_meter=(
+                    row.get("wall_hit_x_meter")
+                    if pd.notna(row.get("wall_hit_x_meter"))
+                    else None
+                ),
+                wall_hit_y_meter=(
+                    row.get("wall_hit_y_meter")
+                    if pd.notna(row.get("wall_hit_y_meter"))
+                    else None
+                ),
                 is_racket_hit=bool(row.get("is_racket_hit", False)),
-                racket_hit_player_id=int(row.get("racket_hit_player_id")) if pd.notna(row.get("racket_hit_player_id")) else None,
-                stroke_type=row.get("stroke_type") if pd.notna(row.get("stroke_type")) else None,
-                shot_type=row.get("shot_type") if pd.notna(row.get("shot_type")) else None,
-                shot_direction=row.get("shot_direction") if pd.notna(row.get("shot_direction")) else None,
-                shot_depth=row.get("shot_depth") if pd.notna(row.get("shot_depth")) else None,
+                racket_hit_player_id=(
+                    int(row.get("racket_hit_player_id"))
+                    if pd.notna(row.get("racket_hit_player_id"))
+                    else None
+                ),
+                stroke_type=(
+                    row.get("stroke_type") if pd.notna(row.get("stroke_type")) else None
+                ),
+                shot_type=(
+                    row.get("shot_type") if pd.notna(row.get("shot_type")) else None
+                ),
+                shot_direction=(
+                    row.get("shot_direction")
+                    if pd.notna(row.get("shot_direction"))
+                    else None
+                ),
+                shot_depth=(
+                    row.get("shot_depth") if pd.notna(row.get("shot_depth")) else None
+                ),
+                point_winner=(
+                    int(row.get("point_winner"))
+                    if pd.notna(row.get("point_winner"))
+                    else None
+                ),
+                # Stage 8 precomputed analytics fields
+                wall_hit_player_id=(
+                    int(row.get("wall_hit_player_id"))
+                    if pd.notna(row.get("wall_hit_player_id"))
+                    else None
+                ),
+                ball_speed=(
+                    float(row.get("ball_speed"))
+                    if pd.notna(row.get("ball_speed"))
+                    else None
+                ),
+                opponent_distance_moved=(
+                    float(row.get("opponent_distance_moved"))
+                    if pd.notna(row.get("opponent_distance_moved"))
+                    else None
+                ),
+                wall_hit_height=(
+                    float(row.get("wall_hit_height"))
+                    if pd.notna(row.get("wall_hit_height"))
+                    else None
+                ),
+                next_opponent_x=(
+                    float(row.get("next_opponent_x"))
+                    if pd.notna(row.get("next_opponent_x"))
+                    else None
+                ),
+                next_opponent_y=(
+                    float(row.get("next_opponent_y"))
+                    if pd.notna(row.get("next_opponent_y"))
+                    else None
+                ),
             )
             frame_records.append(frame_data)
 

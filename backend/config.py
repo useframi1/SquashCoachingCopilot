@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # Video processing
     max_video_size_mb: int = 500
     allowed_video_extensions: set = {".mp4", ".mov", ".avi", ".mkv"}
+    max_fps: int = 30  # Maximum FPS - videos will be converted if they exceed this
+    enable_fps_conversion: bool = True  # Set to False to disable automatic FPS conversion
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]

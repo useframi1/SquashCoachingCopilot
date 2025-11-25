@@ -475,6 +475,56 @@ class ShotClassificationOutput:
 
 
 # =============================================================================
+# STAGE 7: POINT WIN DETECTION
+# =============================================================================
+
+
+@dataclass
+class PointWinDetectionInput:
+    """Input for point win detection module (Stage 7)."""
+
+    df: pd.DataFrame
+    segments: List[RallySegment]
+    calibration: Optional[CourtCalibrationOutput] = None
+
+    def __post_init__(self):
+        """Validate required columns."""
+        required_cols = [
+            "is_rally_frame",
+            "rally_id",
+            "is_racket_hit",
+            "racket_hit_player_id",
+            "is_wall_hit",
+            "wall_hit_x_meter",
+            "wall_hit_y_meter",
+            "player_1_x_meter",
+            "player_1_y_meter",
+            "player_2_x_meter",
+            "player_2_y_meter",
+        ]
+        missing = set(required_cols) - set(self.df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+
+
+@dataclass
+class PointWinDetectionOutput:
+    """Output from point win detection module (Stage 7)."""
+
+    df: pd.DataFrame
+
+    # Point winner results per rally
+    # Dictionary mapping rally_id -> winner info
+    # winner: 0 = let/replay, 1 = player 1, 2 = player 2, -1 = unknown
+    point_winners: Dict[int, Dict[str, Any]]
+
+    # Metadata
+    num_rallies: int
+    num_lets: int
+    num_unknown: int
+
+
+# =============================================================================
 # PIPELINE SESSION
 # =============================================================================
 

@@ -5,7 +5,7 @@
 video_path: "tests/video-3.mp4"
 
 # Processing limits
-max_seconds: 3 # Maximum seconds of video to process (null = process entire video)
+max_seconds: 10 # Maximum seconds of video to process (null = process entire video)
 
 # Output Settings
 output:
@@ -46,6 +46,15 @@ output:
         - shot_type
         - shot_direction
         - shot_depth
+        - point_winner
+        - point_winner_reason
+        # Stage 8 precomputed analytics fields
+        - wall_hit_player_id
+        - ball_speed
+        - opponent_distance_moved
+        - wall_hit_height
+        - next_opponent_x
+        - next_opponent_y
 
 # Module Configurations
 # Each module references its own config file
@@ -74,13 +83,17 @@ modules:
         config_path: "configs/shot_type_classification.yaml"
         enabled: true
 
+    point_win_detection:
+        config_path: "configs/point_win_detection.yaml"
+        enabled: true
+
 # Processing Options
 processing:
     # Video codec for output video (mp4v, avc1, etc.)
     video_writer_codec: "mp4v"
 
     # Batch processing settings for GPU inference optimization
-    batch_size: 1 # Number of frames per batch for neural network inference
+    batch_size: 32 # Number of frames per batch for neural network inference
     prefetch_batches: 16 # Number of batches to prefetch in background (memory vs speed tradeoff)
 
 # Visualization Settings

@@ -965,6 +965,45 @@ class PlayerTracker:
 
         return output
 
+    def cleanup(self):
+        """Clean up resources (models and cached data)."""
+        # Clear CUDA cache if using GPU
+        # Check if torch is still available (not None during interpreter shutdown)
+        if hasattr(self, 'device') and self.device.type == 'cuda':
+            try:
+                import torch
+                if torch is not None:
+                    torch.cuda.empty_cache()
+            except (ImportError, AttributeError):
+                pass  # torch module may be None during interpreter shutdown
+
+        # Clear cached data
+        self.court_mask = None
+        if hasattr(self, 'max_history'):
+            self.player_positions = {
+                1: deque(maxlen=self.max_history),
+                2: deque(maxlen=self.max_history),
+            }
+        self.player_features = {1: None, 2: None}
+
+    def __del__(self):
+        """Destructor to ensure proper cleanup of resources."""
+        try:
+            self.cleanup()
+        except Exception:
+            # Silently ignore errors during cleanup in destructor
+            # This prevents error messages during interpreter shutdown
+            pass
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - cleanup resources."""
+        self.cleanup()
+        return False
+
     def reset(self):
         """Reset tracker state (useful for processing new videos)."""
         self.player_positions = {

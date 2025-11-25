@@ -11,6 +11,6 @@ This module provides the main Pipeline class that coordinates all 7 stages of vi
 7. Export and visualization
 """
 
-from .pipeline import Pipeline
+from .pipeline import Pipeline, PipelineCancelledException
 
-__all__ = ["Pipeline"]
+__all__ = ["Pipeline", "PipelineCancelledException"]

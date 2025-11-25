@@ -41,6 +41,7 @@ from squashcopilot.common.models import (
     RacketHitDetectionInput,
     StrokeClassificationInput,
     ShotClassificationInput,
+    PointWinDetectionInput,
     PipelineSession,
 )
 
@@ -56,7 +57,16 @@ from squashcopilot.modules.stroke_detection.stroke_detector import StrokeDetecto
 from squashcopilot.modules.shot_type_classification.shot_classifier import (
     ShotClassifier,
 )
+from squashcopilot.modules.point_win_detection.point_win_detector import (
+    PointWinDetector,
+)
 from squashcopilot.pipeline.frame_reader import BatchFrameReader
+
+
+class PipelineCancelledException(Exception):
+    """Exception raised when pipeline execution is cancelled."""
+
+    pass
 
 
 class Pipeline:
@@ -78,6 +88,7 @@ class Pipeline:
         config_path: Optional[str] = None,
         config: Optional[Dict] = None,
         progress_callback: Optional[Callable[[str, float], None]] = None,
+        cancellation_check: Optional[Callable[[], bool]] = None,
     ):
         """
         Initialize the pipeline with configuration.
@@ -86,6 +97,7 @@ class Pipeline:
             config_path: Path to custom pipeline config YAML. If None, uses default config.
             config: Optional config dictionary. If provided, overrides values from config file.
             progress_callback: Optional callback function(stage: str, percent: float) for progress updates.
+            cancellation_check: Optional callback function() -> bool that returns True if job should be cancelled.
         """
         # Load base config
         if config_path:
@@ -97,8 +109,10 @@ class Pipeline:
         if config:
             self._merge_config(config)
 
-        # Store progress callback
+        # Store callbacks
         self.progress_callback = progress_callback
+        self.cancellation_check = cancellation_check
+        self._cancelled = False
 
         self._setup_logging()
         self.logger.info("Initializing pipeline modules...")
@@ -107,17 +121,41 @@ class Pipeline:
 
     def _merge_config(self, override: Dict) -> None:
         """Deep merge override config into base config."""
+
         def merge(base: Dict, override: Dict) -> Dict:
             for key, value in override.items():
-                if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                if (
+                    key in base
+                    and isinstance(base[key], dict)
+                    and isinstance(value, dict)
+                ):
                     merge(base[key], value)
                 else:
                     base[key] = value
             return base
+
         merge(self.config, override)
 
+    def _check_cancellation(self) -> None:
+        """Check if pipeline should be cancelled and raise exception if so."""
+        if self._cancelled:
+            raise PipelineCancelledException("Pipeline was cancelled")
+
+        if self.cancellation_check:
+            try:
+                if self.cancellation_check():
+                    self._cancelled = True
+                    raise PipelineCancelledException("Pipeline cancellation requested")
+            except PipelineCancelledException:
+                raise
+            except Exception as e:
+                self.logger.warning(f"Cancellation check error: {e}")
+
     def _report_progress(self, stage: str, percent: float) -> None:
-        """Report progress to callback if available."""
+        """Report progress to callback if available and check for cancellation."""
+        # Check for cancellation whenever progress is reported
+        self._check_cancellation()
+
         if self.progress_callback:
             try:
                 self.progress_callback(stage, percent)
@@ -193,6 +231,44 @@ class Pipeline:
             self.shot_classifier = ShotClassifier()
         else:
             self.shot_classifier = None
+
+        # Point Win Detection
+        if module_configs.get("point_win_detection", {}).get("enabled", True):
+            self.point_win_detector = PointWinDetector()
+        else:
+            self.point_win_detector = None
+
+    def cleanup(self):
+        """Clean up resources from all modules."""
+        if hasattr(self, "ball_tracker") and self.ball_tracker is not None:
+            try:
+                self.ball_tracker.cleanup()
+            except Exception:
+                pass  # Ignore errors during cleanup
+
+        if hasattr(self, "player_tracker") and self.player_tracker is not None:
+            try:
+                self.player_tracker.cleanup()
+            except Exception:
+                pass  # Ignore errors during cleanup
+
+    def __del__(self):
+        """Destructor to ensure proper cleanup of resources."""
+        try:
+            self.cleanup()
+        except Exception:
+            # Silently ignore errors during cleanup in destructor
+            # This prevents error messages during interpreter shutdown
+            pass
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - cleanup resources."""
+        self.cleanup()
+        return False
 
     def run(self) -> Dict[str, str]:
         """
@@ -280,9 +356,21 @@ class Pipeline:
         )
         self._report_progress("classification", 80)
 
-        # Stage 7: Export Results
-        self._report_progress("export", 80)
-        output_paths = self._stage7_export(
+        # Stage 7: Point Win Detection
+        self._report_progress("point_win_detection", 80)
+        session.current_df = self._stage7_detect_point_winners(
+            session.current_df, session.rally_segments, session.calibration
+        )
+        self._report_progress("point_win_detection", 82)
+
+        # Stage 8: Precompute Analytics Fields
+        self._report_progress("analytics_preprocessing", 82)
+        session.current_df = self._stage8_precompute_analytics(session.current_df)
+        self._report_progress("analytics_preprocessing", 85)
+
+        # Stage 9: Export Results
+        self._report_progress("export", 85)
+        output_paths = self._stage9_export(
             video_path=video_path,
             video_name=video_name,
             output_dir=output_dir,
@@ -512,6 +600,9 @@ class Pipeline:
         # 3. GPU operations from both trackers can overlap via different streams
         with ThreadPoolExecutor(max_workers=2) as executor:
             for batch in frame_reader:
+                # Check for cancellation at the start of each batch
+                self._check_cancellation()
+
                 # Submit both tasks in parallel to ThreadPoolExecutor
                 # Each tracker will use its assigned CUDA stream internally
                 ball_future = executor.submit(
@@ -733,15 +824,184 @@ class Pipeline:
         )
         return df
 
-    def _stage7_export(
+    def _stage7_detect_point_winners(
+        self,
+        df: pd.DataFrame,
+        segments: List[RallySegment],
+        calibration: CourtCalibrationOutput,
+    ) -> pd.DataFrame:
+        """Stage 7: Point Win Detection.
+
+        Detects point winners for each rally using serve sequence analysis and ball physics.
+        """
+        self.logger.info("Stage 7: Point Win Detection")
+        stage_start = time.time()
+
+        if self.point_win_detector:
+            point_win_input = PointWinDetectionInput(
+                df=df, segments=segments, calibration=calibration
+            )
+            point_win_output = self.point_win_detector.detect_point_winners(
+                point_win_input
+            )
+            df = point_win_output.df
+
+            self.logger.info(
+                f"Stage 7 completed in {time.time() - stage_start:.2f}s - "
+                f"Rallies: {point_win_output.num_rallies}, "
+                f"Lets: {point_win_output.num_lets}, "
+                f"Unknown: {point_win_output.num_unknown}"
+            )
+        else:
+            self.logger.info("Point win detection disabled, skipping")
+
+        return df
+
+    def _stage8_precompute_analytics(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Stage 8: Precompute analytics-optimized fields for faster querying."""
+        self.logger.info("Stage 8: Analytics Preprocessing")
+        stage_start = time.time()
+
+        df = df.copy()
+
+        # Initialize new columns
+        df["wall_hit_player_id"] = None
+        df["ball_speed"] = None
+        df["opponent_distance_moved"] = None
+        df["wall_hit_height"] = None
+        df["next_opponent_x"] = None
+        df["next_opponent_y"] = None
+
+        # 1. Compute wall_hit_player_id: match each wall hit to the player who hit the ball
+        if "is_wall_hit" in df.columns and "is_racket_hit" in df.columns:
+            wall_hit_indices = df[df["is_wall_hit"] == True].index
+
+            for wall_idx in wall_hit_indices:
+                racket_hits_before = df[
+                    (df.index < wall_idx) & (df["is_racket_hit"] == True)
+                ]
+
+                if len(racket_hits_before) > 0:
+                    last_racket_hit = racket_hits_before.iloc[-1]
+                    player_id = last_racket_hit.get("racket_hit_player_id")
+
+                    if player_id is not None:
+                        df.at[wall_idx, "wall_hit_player_id"] = int(player_id)
+
+        num_matched = df["wall_hit_player_id"].notna().sum()
+        num_wall_hits = df["is_wall_hit"].sum() if "is_wall_hit" in df.columns else 0
+
+        # 2. Compute ball_speed: distance from racket hit to wall hit divided by time
+        if "is_racket_hit" in df.columns and "is_wall_hit" in df.columns:
+            racket_hit_indices = df[df["is_racket_hit"] == True].index
+
+            for racket_idx in racket_hit_indices:
+                racket_row = df.loc[racket_idx]
+                player_id = racket_row.get("racket_hit_player_id")
+
+                if player_id is None:
+                    continue
+
+                # Get player position at racket hit
+                px = racket_row.get(f"player_{player_id}_x_meter")
+                py = racket_row.get(f"player_{player_id}_y_meter")
+
+                if px is None or py is None:
+                    continue
+
+                # Find next wall hit
+                wall_hits_after = df[
+                    (df.index > racket_idx) & (df["is_wall_hit"] == True)
+                ]
+
+                if len(wall_hits_after) > 0:
+                    next_wall_hit = wall_hits_after.iloc[0]
+                    wall_x = next_wall_hit.get("wall_hit_x_meter")
+                    wall_y = next_wall_hit.get("wall_hit_y_meter")
+
+                    if wall_x is not None and wall_y is not None:
+                        # Calculate distance
+                        import math
+                        distance = math.sqrt((wall_x - px) ** 2 + (wall_y - py) ** 2)
+
+                        # Calculate time difference
+                        time_diff = next_wall_hit.get("timestamp") - racket_row.get("timestamp")
+
+                        if time_diff > 0:
+                            speed = distance / time_diff
+                            df.at[racket_idx, "ball_speed"] = speed
+                            # Also store wall hit height for rhythm disruption analysis
+                            df.at[racket_idx, "wall_hit_height"] = wall_y
+
+        num_speeds = df["ball_speed"].notna().sum()
+        num_heights = df["wall_hit_height"].notna().sum()
+
+        # 3. Compute opponent_distance_moved: how far opponent moved after this shot
+        if "is_racket_hit" in df.columns:
+            racket_hit_indices = df[df["is_racket_hit"] == True].index
+
+            for racket_idx in racket_hit_indices:
+                racket_row = df.loc[racket_idx]
+                player_id = racket_row.get("racket_hit_player_id")
+
+                if player_id is None:
+                    continue
+
+                opponent_id = 2 if player_id == 1 else 1
+
+                # Get opponent position at this hit
+                opp_x_before = racket_row.get(f"player_{opponent_id}_x_meter")
+                opp_y_before = racket_row.get(f"player_{opponent_id}_y_meter")
+
+                if opp_x_before is None or opp_y_before is None:
+                    continue
+
+                # Find next opponent hit
+                next_opp_hits = df[
+                    (df.index > racket_idx) &
+                    (df["is_racket_hit"] == True) &
+                    (df["racket_hit_player_id"] == opponent_id)
+                ]
+
+                if len(next_opp_hits) > 0:
+                    next_opp_hit = next_opp_hits.iloc[0]
+                    opp_x_after = next_opp_hit.get(f"player_{opponent_id}_x_meter")
+                    opp_y_after = next_opp_hit.get(f"player_{opponent_id}_y_meter")
+
+                    if opp_x_after is not None and opp_y_after is not None:
+                        import math
+                        distance_moved = math.sqrt(
+                            (opp_x_after - opp_x_before) ** 2 +
+                            (opp_y_after - opp_y_before) ** 2
+                        )
+                        df.at[racket_idx, "opponent_distance_moved"] = distance_moved
+                        # Also store opponent's next position for shot placement analysis
+                        df.at[racket_idx, "next_opponent_x"] = opp_x_after
+                        df.at[racket_idx, "next_opponent_y"] = opp_y_after
+
+        num_distances = df["opponent_distance_moved"].notna().sum()
+        num_opp_positions = df["next_opponent_x"].notna().sum()
+
+        self.logger.info(
+            f"Stage 8 completed in {time.time() - stage_start:.2f}s - "
+            f"Matched {num_matched}/{num_wall_hits} wall hits to players, "
+            f"computed {num_speeds} ball speeds, "
+            f"computed {num_heights} wall hit heights, "
+            f"computed {num_distances} opponent distances, "
+            f"computed {num_opp_positions} opponent next positions"
+        )
+
+        return df
+
+    def _stage9_export(
         self,
         video_path: str,
         video_name: str,
         output_dir: Path,
         session: PipelineSession,
     ) -> Dict[str, str]:
-        """Stage 7: Export CSV, annotated video, and statistics."""
-        self.logger.info("Stage 7: Export and Visualization")
+        """Stage 9: Export CSV, annotated video, and statistics."""
+        self.logger.info("Stage 9: Export and Visualization")
         stage_start = time.time()
 
         output_paths = {}
@@ -804,7 +1064,7 @@ class Pipeline:
             output_paths["video"] = str(video_output_path)
             self.logger.info(f"Annotated video exported: {video_output_path}")
 
-        self.logger.info(f"Stage 7 completed in {time.time() - stage_start:.2f}s")
+        self.logger.info(f"Stage 9 completed in {time.time() - stage_start:.2f}s")
         return output_paths
 
     def _compute_statistics(self, video_name: str, session: PipelineSession) -> Dict:
