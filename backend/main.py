@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.models.database import init_db
-from backend.routers import videos_router, pipeline_router, analysis_router
+from backend.routers import videos_router, pipeline_router, analysis_router, llm_router
 
 # Configure logging
 logging.basicConfig(
@@ -55,6 +55,7 @@ app.add_middleware(
 app.include_router(videos_router)
 app.include_router(pipeline_router)
 app.include_router(analysis_router)
+app.include_router(llm_router)
 
 
 @app.get("/")

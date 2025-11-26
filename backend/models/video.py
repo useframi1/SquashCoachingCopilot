@@ -45,6 +45,7 @@ class Video(Base):
     frames = relationship("FrameData", back_populates="video", cascade="all, delete-orphan")
     games = relationship("Game", back_populates="video", cascade="all, delete-orphan")
     match = relationship("Match", back_populates="video", uselist=False, cascade="all, delete-orphan")
+    llm_conversations = relationship("LLMConversation", back_populates="video", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Video(id={self.id}, filename={self.filename})>"

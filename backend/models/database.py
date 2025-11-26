@@ -39,5 +39,6 @@ def init_db() -> None:
     from backend.models.frame_data import FrameData  # noqa: F401
     from backend.models.game import Game  # noqa: F401
     from backend.models.match import Match  # noqa: F401
+    from backend.models.llm_conversation import LLMConversation  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

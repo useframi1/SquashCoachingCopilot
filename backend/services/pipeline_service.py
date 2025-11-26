@@ -166,7 +166,7 @@ class PipelineService:
             # Build pipeline config
             config = {
                 "video_path": str(video_path),
-                "max_seconds": 10,  # Process entire video when called from API
+                "max_seconds": 300,  # Process entire video when called from API
                 "output": {
                     "base_directory": str(output_dir),
                     "create_video_subdirectory": False,
@@ -186,9 +186,7 @@ class PipelineService:
 
             # Store results in database (includes frame data, games, and match)
             self._store_pipeline_results(
-                video.id,
-                result.get("processing_stats", {}),
-                output_dir
+                video.id, result.get("processing_stats", {}), output_dir
             )
 
             # Update video with output paths
