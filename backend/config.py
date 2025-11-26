@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     app_name: str = "SquashCoachingCopilot API"
     debug: bool = False
 
-    # Database
-    database_url: str = "sqlite:///./backend/data/squash.db"
+    # Database (PostgreSQL)
+    database_url: str = "postgresql://squash_user:squash_password@localhost:5432/squash_copilot"
 
     # Storage paths
     upload_dir: Path = Path("backend/storage/uploads")
@@ -42,9 +42,7 @@ class Settings(BaseSettings):
         """Create required directories if they don't exist."""
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        # Ensure database directory exists
-        db_path = Path(self.database_url.replace("sqlite:///", ""))
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        # No need to create database directory for PostgreSQL (managed by Docker)
 
 
 # Global settings instance

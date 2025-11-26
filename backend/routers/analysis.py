@@ -16,10 +16,14 @@ from backend.schemas.analysis import (
     PlayerPositionHeatmapResponse,
     ShotPlacementResponse,
     CourtQuadrantResponse,
-    RallyStatsResponse,
     WallHitHeatmapResponse,
     WallQuadrantResponse,
     WinningStatsResponse,
+    # Extended analytics schemas
+    MovementMetricsResponse,
+    TZoneOccupancyResponse,
+    ShotEffectivenessResponse,
+    RallyIntensityResponse,
 )
 from backend.services.analysis_service import AnalysisService
 
@@ -152,13 +156,13 @@ async def get_rhythm_disruption(
 
 
 @router.get(
-    "/{video_id}/analytics/player-heatmap/{player_id}",
+    "/{video_id}/analytics/player-heatmap",
     response_model=PlayerPositionHeatmapResponse,
 )
 async def get_player_position_heatmap(
     video_id: str,
-    player_id: int,
     rally_id: Optional[int] = None,
+    player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
     service: AnalysisService = Depends(get_analysis_service),
@@ -166,18 +170,18 @@ async def get_player_position_heatmap(
     """
     Get player position data for heatmap visualization.
 
-    Returns all position points for the specified player with timestamps.
+    Returns aggregated position points if player_id is not specified,
+    otherwise returns data for the specified player only.
     Use this data to generate heatmaps showing court coverage and positioning patterns.
     """
-    if player_id not in [1, 2]:
-        raise HTTPException(status_code=400, detail="player_id must be 1 or 2")
     try:
         filters = AnalyticsFilters(
             rally_id=rally_id,
+            player_id=player_id,
             start_time=start_time,
             end_time=end_time,
         )
-        return service.get_player_position_heatmap(video_id, player_id, filters)
+        return service.get_player_position_heatmap(video_id, filters)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -242,31 +246,6 @@ async def get_court_quadrant_distribution(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/rally-stats", response_model=RallyStatsResponse)
-async def get_rally_stats(
-    video_id: str,
-    rally_id: Optional[int] = None,
-    start_time: Optional[float] = Query(None, ge=0),
-    end_time: Optional[float] = Query(None, ge=0),
-    service: AnalysisService = Depends(get_analysis_service),
-):
-    """
-    Get rally statistics analytics.
-
-    Returns duration and stroke count for each rally, plus aggregate statistics.
-    Useful for analyzing match pace and rally intensity.
-    """
-    try:
-        filters = AnalyticsFilters(
-            rally_id=rally_id,
-            start_time=start_time,
-            end_time=end_time,
-        )
-        return service.get_rally_stats(video_id, filters)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
 @router.get(
     "/{video_id}/analytics/wall-hits-heatmap",
     response_model=WallHitHeatmapResponse,
@@ -325,8 +304,46 @@ async def get_wall_quadrant_distribution(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/{video_id}/analytics/winning-stats", response_model=WinningStatsResponse)
+@router.get(
+    "/{video_id}/analytics/winning-stats/{player_id}",
+    response_model=WinningStatsResponse,
+)
 async def get_winning_stats(
+    video_id: str,
+    player_id: int,
+    rally_id: Optional[int] = None,
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get winning statistics and efficiency metrics for a specific player.
+
+    Calculates aggregate points won per shot ratio (efficiency).
+    Shows shot efficiency and point-winning effectiveness.
+    """
+    if player_id not in [1, 2]:
+        raise HTTPException(status_code=400, detail="player_id must be 1 or 2")
+    try:
+        filters = AnalyticsFilters(
+            rally_id=rally_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_winning_stats(video_id, player_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# EXTENDED ANALYTICS ENDPOINTS
+# ============================================================================
+
+
+@router.get(
+    "/{video_id}/analytics/movement-metrics", response_model=MovementMetricsResponse
+)
+async def get_movement_metrics(
     video_id: str,
     rally_id: Optional[int] = None,
     player_id: Optional[int] = Query(None, ge=1, le=2),
@@ -335,10 +352,10 @@ async def get_winning_stats(
     service: AnalysisService = Depends(get_analysis_service),
 ):
     """
-    Get winning statistics and efficiency metrics.
+    Get movement and distance metrics.
 
-    Calculates points won per shot ratio for each player and rally.
-    Shows shot efficiency and point-winning effectiveness.
+    Analyzes total distance covered, distance per rally, and distance moved to reach
+    the ball for each shot. Provides comprehensive movement analytics for both players.
     """
     try:
         filters = AnalyticsFilters(
@@ -347,6 +364,97 @@ async def get_winning_stats(
             start_time=start_time,
             end_time=end_time,
         )
-        return service.get_winning_stats(video_id, filters)
+        return service.get_movement_metrics(video_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/{video_id}/analytics/t-zone-occupancy", response_model=TZoneOccupancyResponse
+)
+async def get_t_zone_occupancy(
+    video_id: str,
+    rally_id: Optional[int] = None,
+    player_id: Optional[int] = Query(None, ge=1, le=2),
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get T-zone occupancy and positioning analytics.
+
+    Analyzes percentage of time spent in T-zone, time taken to reach T-zone after
+    opponent shots, and success rate of reaching T-zone. Key metrics for court
+    positioning and recovery analysis.
+    """
+    try:
+        filters = AnalyticsFilters(
+            rally_id=rally_id,
+            player_id=player_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_t_zone_occupancy(video_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/{video_id}/analytics/shot-effectiveness/{player_id}",
+    response_model=ShotEffectivenessResponse,
+)
+async def get_shot_effectiveness(
+    video_id: str,
+    player_id: int,
+    rally_id: Optional[int] = None,
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get shot effectiveness and placement quality metrics for a specific player.
+
+    Combines displacement from T-zone (how far opponent moves after shot),
+    depth dominance (percentage of shots where opponent is deeper), and
+    straight shot quality (percentage of straight shots hit close to wall).
+    Comprehensive offensive performance analytics.
+    """
+    if player_id not in [1, 2]:
+        raise HTTPException(status_code=400, detail="player_id must be 1 or 2")
+    try:
+        filters = AnalyticsFilters(
+            rally_id=rally_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_shot_effectiveness(video_id, player_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/{video_id}/analytics/rally-intensity", response_model=RallyIntensityResponse
+)
+async def get_rally_intensity(
+    video_id: str,
+    rally_id: Optional[int] = None,
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get rally intensity and pace metrics.
+
+    Analyzes seconds per shot for each rally (lower = faster/more intense).
+    Returns per-rally breakdowns plus aggregate statistics (average, min, max).
+    Useful for understanding match tempo and rally patterns.
+    """
+    try:
+        filters = AnalyticsFilters(
+            rally_id=rally_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_rally_intensity(video_id, filters)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

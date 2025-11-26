@@ -1,6 +1,6 @@
 """Pydantic schemas for analysis-related API operations - Redesigned for consistency."""
 
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -57,45 +57,6 @@ class DistributionItem(BaseModel):
     percentage: float = Field(description="Pre-computed percentage")
 
 
-class PlayerDistribution(BaseModel):
-    """Distribution data for a single player."""
-
-    player_id: int
-    distribution: List[DistributionItem] = Field(
-        description="Array of items (chart-ready)"
-    )
-    total: int = Field(description="Total count across all items")
-
-
-class DistributionData(BaseModel):
-    """Distribution data for both players (always both present)."""
-
-    player_1: PlayerDistribution
-    player_2: PlayerDistribution
-
-
-# ============================================================================
-# PATTERN 2: AGGREGATE PATTERN
-# For: Ball speed, other summary statistics
-# ============================================================================
-
-
-class PlayerAggregates(BaseModel):
-    """Aggregate statistics for a single player."""
-
-    player_id: int
-    mean: float = Field(description="Mean value")
-    min: float = Field(description="Minimum value")
-    max: float = Field(description="Maximum value")
-    std_dev: float = Field(description="Standard deviation")
-    count: int = Field(description="Number of data points")
-
-
-class AggregateData(BaseModel):
-    """Aggregate data for both players (always both present)."""
-
-    player_1: PlayerAggregates
-    player_2: PlayerAggregates
 
 
 # ============================================================================
@@ -118,114 +79,9 @@ class HeatmapGrid(BaseModel):
 
 
 class SpatialData(BaseModel):
-    """Spatial heatmap data for a single player."""
+    """Spatial heatmap data for a single player or aggregated totals."""
 
-    player_id: int
     heatmap_grid: HeatmapGrid
-
-
-# ============================================================================
-# PATTERN 4: COMPARATIVE PATTERN
-# For: Rally stats, Winning stats, Rhythm disruption
-# ============================================================================
-
-
-class RallyItem(BaseModel):
-    """Single rally with metrics."""
-
-    rally_id: int
-    duration_seconds: float
-    stroke_count: int
-    player_1_shots: int
-    player_2_shots: int
-    start_timestamp: float
-    end_timestamp: float
-
-
-class RallyStatsData(BaseModel):
-    """Rally statistics data with items and summaries."""
-
-    items: List[RallyItem] = Field(description="List of individual rally metrics")
-    summary: Dict[str, Any] = Field(
-        description="Overall summary (total_rallies, avg_duration, avg_stroke_count)"
-    )
-    player_1_summary: Dict[str, Any] = Field(
-        description="Player 1 summary (total_shots, avg_shots_per_rally)"
-    )
-    player_2_summary: Dict[str, Any] = Field(
-        description="Player 2 summary (total_shots, avg_shots_per_rally)"
-    )
-
-
-class RhythmRallyItem(BaseModel):
-    """Single rally with rhythm disruption metrics."""
-
-    rally_id: int
-    player_id: int
-    ball_speed_variance: Optional[float] = None
-    ball_speed_cv: Optional[float] = None
-    wall_hit_height_variance: Optional[float] = None
-    wall_hit_height_cv: Optional[float] = None
-    shot_count: int
-
-
-class RhythmDisruptionData(BaseModel):
-    """Rhythm disruption data with rally-level metrics."""
-
-    items: List[RhythmRallyItem] = Field(description="Per-rally rhythm metrics")
-    player_1_summary: Dict[str, Optional[float]] = Field(
-        description="Player 1 averages (avg_ball_speed_cv, avg_height_cv)"
-    )
-    player_2_summary: Dict[str, Optional[float]] = Field(
-        description="Player 2 averages (avg_ball_speed_cv, avg_height_cv)"
-    )
-
-
-class WinningRallyItem(BaseModel):
-    """Single rally with winning statistics."""
-
-    rally_id: int
-    player_id: int
-    total_shots: int
-    points_won: int
-    points_per_shot: float
-
-
-class WinningStatsData(BaseModel):
-    """Winning statistics data."""
-
-    items: List[WinningRallyItem] = Field(description="Per-rally winning metrics")
-    player_1_summary: Dict[str, Any] = Field(
-        description="Player 1 totals (total_points, total_shots, efficiency)"
-    )
-    player_2_summary: Dict[str, Any] = Field(
-        description="Player 2 totals (total_points, total_shots, efficiency)"
-    )
-
-
-class ShotPlacementItem(BaseModel):
-    """Single shot placement detail."""
-
-    frame_number: int
-    timestamp: float
-    player_id: int
-    player_x: float
-    player_y: float
-    opponent_x_before: float
-    opponent_y_before: float
-    opponent_x_after: Optional[float] = None
-    opponent_y_after: Optional[float] = None
-    distance_moved: Optional[float] = None
-
-
-class ShotPlacementData(BaseModel):
-    """Shot placement effectiveness data."""
-
-    player_id: int
-    items: List[ShotPlacementItem] = Field(description="Individual shot placements")
-    summary: Dict[str, Optional[float]] = Field(
-        description="Summary statistics (avg_distance_moved, max_distance_moved)"
-    )
 
 
 # ============================================================================
@@ -233,29 +89,72 @@ class ShotPlacementData(BaseModel):
 # ============================================================================
 
 
+class SingleDistribution(BaseModel):
+    """Distribution data for a single player or aggregated totals."""
+
+    distribution: List[DistributionItem] = Field(
+        description="Array of items (chart-ready)"
+    )
+    total: int = Field(description="Total count across all items")
+
+
 class StrokeDistributionResponse(AnalyticsResponseBase):
     """Stroke distribution analytics (forehand vs backhand)."""
 
-    data: DistributionData
+    data: SingleDistribution
 
 
 class ShotTypeDistributionResponse(AnalyticsResponseBase):
     """Shot type distribution analytics."""
 
-    data: DistributionData
+    data: SingleDistribution
     all_shot_types: List[str] = Field(
         description="List of all shot types found (for consistent chart colors)"
     )
 
 
+class SingleAggregate(BaseModel):
+    """Aggregate statistics for a single player or aggregated totals."""
+
+    mean: float = Field(description="Mean value")
+    min: float = Field(description="Minimum value")
+    max: float = Field(description="Maximum value")
+    std_dev: float = Field(description="Standard deviation")
+    count: int = Field(description="Number of data points")
+
+
+class BallSpeedData(BaseModel):
+    """Ball speed aggregate statistics."""
+
+    mean_speed: float = Field(description="Mean ball speed (m/s)")
+    min_speed: float = Field(description="Minimum ball speed (m/s)")
+    max_speed: float = Field(description="Maximum ball speed (m/s)")
+    std_dev: float = Field(description="Standard deviation of ball speed")
+    shot_count: int = Field(description="Number of shots analyzed")
+
+
 class BallSpeedResponse(AnalyticsResponseBase):
     """Ball speed aggregate statistics (no time series)."""
 
-    data: AggregateData
+    data: BallSpeedData
+
+
+class RhythmDisruptionData(BaseModel):
+    """Rhythm disruption aggregate statistics."""
+
+    ball_speed_cv: float = Field(
+        description="Coefficient of variation for ball speed (higher = more unpredictable)"
+    )
+    ball_speed_variance: float = Field(description="Variance of ball speed")
+    wall_hit_height_cv: float = Field(
+        description="Coefficient of variation for wall hit height (higher = more unpredictable)"
+    )
+    wall_hit_height_variance: float = Field(description="Variance of wall hit height")
+    shot_count: int = Field(description="Number of shots analyzed")
 
 
 class RhythmDisruptionResponse(AnalyticsResponseBase):
-    """Rhythm disruption analytics."""
+    """Rhythm disruption analytics (aggregate only)."""
 
     data: RhythmDisruptionData
 
@@ -266,8 +165,24 @@ class PlayerPositionHeatmapResponse(AnalyticsResponseBase):
     data: SpatialData
 
 
+class ShotPlacementData(BaseModel):
+    """Shot placement effectiveness aggregate statistics."""
+
+    avg_opponent_distance_moved: float = Field(
+        description="Average distance opponent moved after each shot (meters)"
+    )
+    min_opponent_distance_moved: float = Field(
+        description="Minimum distance opponent moved (meters)"
+    )
+    max_opponent_distance_moved: float = Field(
+        description="Maximum distance opponent moved (meters)"
+    )
+    std_dev: float = Field(description="Standard deviation of distance moved")
+    shot_count: int = Field(description="Number of shots analyzed")
+
+
 class ShotPlacementResponse(AnalyticsResponseBase):
-    """Shot placement effectiveness analytics."""
+    """Shot placement effectiveness analytics (aggregate only)."""
 
     data: ShotPlacementData
 
@@ -275,16 +190,10 @@ class ShotPlacementResponse(AnalyticsResponseBase):
 class CourtQuadrantResponse(AnalyticsResponseBase):
     """Court quadrant distribution analytics."""
 
-    data: DistributionData
+    data: SingleDistribution
     quadrant_boundaries: Dict[str, float] = Field(
         description="Quadrant boundaries (x_cut, y_cut) in meters"
     )
-
-
-class RallyStatsResponse(AnalyticsResponseBase):
-    """Rally statistics analytics."""
-
-    data: RallyStatsData
 
 
 class WallHitHeatmapResponse(AnalyticsResponseBase):
@@ -293,8 +202,20 @@ class WallHitHeatmapResponse(AnalyticsResponseBase):
     data: SpatialData
 
 
+class WinningStatsData(BaseModel):
+    """Winning statistics aggregate data."""
+
+    efficiency: float = Field(
+        description="Points won per shot ratio (main efficiency metric)"
+    )
+    points_won: int = Field(description="Total points won")
+    total_shots: int = Field(description="Total shots taken")
+    points_per_rally: float = Field(description="Average points won per rally")
+    rallies_played: int = Field(description="Total rallies played")
+
+
 class WinningStatsResponse(AnalyticsResponseBase):
-    """Winning statistics analytics."""
+    """Winning statistics analytics (aggregate only)."""
 
     data: WinningStatsData
 
@@ -302,7 +223,134 @@ class WinningStatsResponse(AnalyticsResponseBase):
 class WallQuadrantResponse(AnalyticsResponseBase):
     """Wall quadrant distribution analytics."""
 
-    data: DistributionData
+    data: SingleDistribution
     quadrant_boundaries: Dict[str, float] = Field(
         description="Quadrant boundaries (x_cut, y_cut) in meters"
     )
+
+
+# ============================================================================
+# PATTERN 5: EXTENDED ANALYTICS (Movement, T-Zone, Shot Effectiveness, Intensity)
+# ============================================================================
+
+
+class SingleMovementMetrics(BaseModel):
+    """Movement metrics for a single player or aggregated totals."""
+
+    total_distance: float = Field(description="Total distance covered in meters")
+    avg_distance_per_rally: float = Field(
+        description="Average distance per rally in meters"
+    )
+    avg_distance_to_ball: float = Field(
+        description="Average distance moved to reach ball per shot in meters"
+    )
+    min_distance_to_ball: Optional[float] = Field(
+        description="Minimum distance to ball in meters"
+    )
+    max_distance_to_ball: Optional[float] = Field(
+        description="Maximum distance to ball in meters"
+    )
+    shot_count: int = Field(description="Number of shots taken")
+
+
+class SingleTZoneMetrics(BaseModel):
+    """T-zone occupancy metrics for a single player or aggregated totals."""
+
+    pct_time_in_t: float = Field(description="% of frames in T-zone")
+    avg_time_to_t: Optional[float] = Field(
+        description="Average time to reach T-zone after opponent shot (seconds)"
+    )
+    min_time_to_t: Optional[float] = Field(
+        description="Minimum time to reach T-zone (seconds)"
+    )
+    max_time_to_t: Optional[float] = Field(
+        description="Maximum time to reach T-zone (seconds)"
+    )
+    time_to_t_variance: Optional[float] = Field(
+        description="Variance in time-to-T measurements"
+    )
+    t_zone_success_rate: Optional[float] = Field(
+        description="% of opponent shots where player reached T-zone"
+    )
+    total_shots_taken: int = Field(description="Total shots taken by player")
+    successful_returns: int = Field(
+        description="Number of opponent shots where player reached T"
+    )
+
+
+class SingleShotEffectivenessMetrics(BaseModel):
+    """Shot effectiveness metrics for a single player (without player_id)."""
+
+    avg_displacement_from_t: Optional[float] = Field(
+        description="Average distance opponent moved away from T after shots (meters)"
+    )
+    max_displacement_from_t: Optional[float] = Field(
+        description="Maximum opponent displacement from T (meters)"
+    )
+    displacement_variance: Optional[float] = Field(
+        description="Variance in opponent displacement from T"
+    )
+    depth_dominance_pct: Optional[float] = Field(
+        description="% of shots where opponent was deeper (closer to back wall)"
+    )
+    avg_depth_difference: Optional[float] = Field(
+        description="Average Y-coordinate difference (opponent_y - player_y) in meters"
+    )
+    min_depth_difference: Optional[float] = Field(
+        description="Minimum depth difference in meters"
+    )
+    max_depth_difference: Optional[float] = Field(
+        description="Maximum depth difference in meters"
+    )
+    straight_shot_quality_pct: Optional[float] = Field(
+        description="% of straight shots hit close to wall (<1.2m)"
+    )
+    straight_shots_count: int = Field(description="Total straight shots taken")
+    shots_close_to_wall: int = Field(
+        description="Straight shots within 1.2m of wall"
+    )
+
+
+# ============================================================================
+# EXTENDED ANALYTICS RESPONSE SCHEMAS
+# ============================================================================
+
+
+class MovementMetricsResponse(AnalyticsResponseBase):
+    """Movement and distance analytics."""
+
+    data: SingleMovementMetrics
+
+
+class TZoneOccupancyResponse(AnalyticsResponseBase):
+    """T-zone occupancy and positioning analytics."""
+
+    data: SingleTZoneMetrics
+
+
+class ShotEffectivenessResponse(AnalyticsResponseBase):
+    """Shot effectiveness and placement quality analytics."""
+
+    data: SingleShotEffectivenessMetrics
+
+
+class RallyIntensityData(BaseModel):
+    """Rally intensity aggregate statistics."""
+
+    avg_seconds_per_shot: float = Field(
+        description="Average seconds per shot (lower = faster/more intense)"
+    )
+    min_seconds_per_shot: float = Field(
+        description="Minimum seconds per shot (fastest rally)"
+    )
+    max_seconds_per_shot: float = Field(
+        description="Maximum seconds per shot (slowest rally)"
+    )
+    std_dev: float = Field(description="Standard deviation of seconds per shot")
+    rally_count: int = Field(description="Number of rallies analyzed")
+
+
+class RallyIntensityResponse(AnalyticsResponseBase):
+    """Rally intensity and pace analytics (aggregate only)."""
+
+    data: RallyIntensityData
