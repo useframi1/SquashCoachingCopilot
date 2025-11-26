@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from backend.models.frame_data import FrameData
 from backend.models.video import Video
+from backend.models.game import Game
+from backend.models.match import Match
 from backend.schemas.analysis import (
     # Base schemas
     AnalyticsFilters,
@@ -29,6 +31,10 @@ from backend.schemas.analysis import (
     SingleMovementMetrics,
     SingleTZoneMetrics,
     SingleShotEffectivenessMetrics,
+    # Pattern 6: Time-Series
+    RallyTimelineItem,
+    MomentumTimelineItem,
+    TimeToTTimelineItem,
     # Response schemas
     StrokeDistributionResponse,
     ShotTypeDistributionResponse,
@@ -45,7 +51,12 @@ from backend.schemas.analysis import (
     TZoneOccupancyResponse,
     ShotEffectivenessResponse,
     RallyIntensityResponse,
+    # Time-series analytics schemas
+    RallyTimelineResponse,
+    MomentumTimelineResponse,
+    TimeToTTimelineResponse,
 )
+from backend.schemas.match import MatchSummaryResponse
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +95,20 @@ class AnalysisService:
         where_clauses = ["video_id = :video_id"]
         params = {"video_id": video_id}
 
-        if filters.rally_id is not None:
-            where_clauses.append("rally_id = :rally_id")
-            params["rally_id"] = filters.rally_id
+        # If filtering by game number, get the rally range for that game
+        if filters.game_number is not None:
+            game = (
+                self.db.query(Game)
+                .filter(Game.video_id == video_id, Game.game_number == filters.game_number)
+                .first()
+            )
+            if not game:
+                raise ValueError(
+                    f"Game {filters.game_number} not found for video {video_id}"
+                )
+            where_clauses.append("rally_id BETWEEN :start_rally_id AND :end_rally_id")
+            params["start_rally_id"] = game.start_rally_id
+            params["end_rally_id"] = game.end_rally_id
 
         if filters.player_id is not None and include_player_id:
             where_clauses.append("racket_hit_player_id = :player_id")
@@ -423,38 +445,66 @@ class AnalysisService:
         logger.info(f"Computing shot placement effectiveness for player {player_id}")
         self._check_processed(video_id)
 
-        where_sql, params = self._build_where_clause(video_id, filters)
+        # Build WHERE clause without player_id (we'll add it manually for the specific player)
+        where_sql, params = self._build_where_clause(video_id, filters, include_player_id=False)
+
+        # Determine opponent
+        opponent_id = 2 if player_id == 1 else 1
+
+        # Add player IDs to params
         params["player_id"] = player_id
+        params["opponent_id"] = opponent_id
 
         # Use PostgreSQL window functions to calculate opponent distance moved
-        opponent_id = 2 if player_id == 1 else 1
         opp_x = f"player_{opponent_id}_x_meter"
         opp_y = f"player_{opponent_id}_y_meter"
 
         query = text(
             f"""
-            WITH shot_positions AS (
+            WITH all_shots AS (
                 SELECT
-                    {opp_x} as opp_x_before,
-                    {opp_y} as opp_y_before,
-                    LEAD({opp_x}) OVER (ORDER BY frame_number) as opp_x_after,
-                    LEAD({opp_y}) OVER (ORDER BY frame_number) as opp_y_after
+                    rally_id,
+                    frame_number,
+                    racket_hit_player_id,
+                    {opp_x} as opponent_x,
+                    {opp_y} as opponent_y
                 FROM frame_data
                 WHERE {where_sql}
                   AND is_racket_hit = TRUE
-                  AND racket_hit_player_id = :player_id
+                  AND {opp_x} IS NOT NULL
+                  AND {opp_y} IS NOT NULL
+            ),
+            player_shots_with_next_opponent_position AS (
+                SELECT
+                    curr.rally_id,
+                    curr.frame_number,
+                    curr.opponent_x as opp_x_at_player_shot,
+                    curr.opponent_y as opp_y_at_player_shot,
+                    next_opp.opponent_x as opp_x_at_next_shot,
+                    next_opp.opponent_y as opp_y_at_next_shot
+                FROM all_shots curr
+                LEFT JOIN LATERAL (
+                    SELECT opponent_x, opponent_y
+                    FROM all_shots next
+                    WHERE next.rally_id = curr.rally_id
+                      AND next.frame_number > curr.frame_number
+                      AND next.racket_hit_player_id = :opponent_id
+                    ORDER BY next.frame_number ASC
+                    LIMIT 1
+                ) next_opp ON TRUE
+                WHERE curr.racket_hit_player_id = :player_id
             ),
             distances AS (
                 SELECT
                     SQRT(
-                        POW(opp_x_after - opp_x_before, 2) +
-                        POW(opp_y_after - opp_y_before, 2)
+                        POW(opp_x_at_next_shot - opp_x_at_player_shot, 2) +
+                        POW(opp_y_at_next_shot - opp_y_at_player_shot, 2)
                     ) as distance_moved
-                FROM shot_positions
-                WHERE opp_x_before IS NOT NULL
-                  AND opp_y_before IS NOT NULL
-                  AND opp_x_after IS NOT NULL
-                  AND opp_y_after IS NOT NULL
+                FROM player_shots_with_next_opponent_position
+                WHERE opp_x_at_player_shot IS NOT NULL
+                  AND opp_y_at_player_shot IS NOT NULL
+                  AND opp_x_at_next_shot IS NOT NULL
+                  AND opp_y_at_next_shot IS NOT NULL
             )
             SELECT
                 AVG(distance_moved) as avg_distance,
@@ -986,13 +1036,12 @@ class AnalysisService:
     def get_t_zone_occupancy(
         self, video_id: str, filters: AnalyticsFilters
     ) -> TZoneOccupancyResponse:
-        """Calculate T-zone occupancy metrics - PostgreSQL optimized.
+        """Calculate T-zone occupancy metrics using precomputed data.
 
         Returns aggregated totals if player_id filter is not specified,
         otherwise returns data for the specified player only.
 
-        Note: This method requires complex state tracking (T-zone entry/exit logic)
-        that's difficult to express in pure SQL, so minimal Python processing is used.
+        Note: Uses precomputed T-zone data from pipeline Stage 8 for performance.
         """
         logger.info(f"Computing T-zone occupancy for video {video_id}")
         self._check_processed(video_id)
@@ -1002,28 +1051,19 @@ class AnalysisService:
             video_id, filters, include_player_id=False
         )
 
-        # Define T-zone parameters (standard squash court)
-        T_X = 3.05  # meters (half of 6.1m court width)
-        T_Y = 5.44  # meters
-        T_RADIUS = 1.2  # meters
-
-        # Compute T-zone occupancy in SQL
+        # Query precomputed T-zone data
         query = text(
             f"""
             SELECT
-                (SQRT(POW(player_1_x_meter - {T_X}, 2) + POW(player_1_y_meter - {T_Y}, 2)) <= {T_RADIUS}) as p1_in_t_zone,
-                (SQRT(POW(player_2_x_meter - {T_X}, 2) + POW(player_2_y_meter - {T_Y}, 2)) <= {T_RADIUS}) as p2_in_t_zone,
+                player_1_in_t_zone,
+                player_2_in_t_zone,
+                player_1_time_to_t,
+                player_2_time_to_t,
                 is_racket_hit,
-                racket_hit_player_id,
-                timestamp,
-                rally_id
+                racket_hit_player_id
             FROM frame_data
             WHERE {where_sql}
               AND is_rally_frame = TRUE
-              AND player_1_x_meter IS NOT NULL
-              AND player_1_y_meter IS NOT NULL
-              AND player_2_x_meter IS NOT NULL
-              AND player_2_y_meter IS NOT NULL
             ORDER BY frame_number
         """
         )
@@ -1032,8 +1072,8 @@ class AnalysisService:
 
         # Calculate % time in T
         total_frames = len(results)
-        p1_frames_in_t = sum(1 for r in results if r.p1_in_t_zone)
-        p2_frames_in_t = sum(1 for r in results if r.p2_in_t_zone)
+        p1_frames_in_t = sum(1 for r in results if r.player_1_in_t_zone)
+        p2_frames_in_t = sum(1 for r in results if r.player_2_in_t_zone)
 
         p1_pct_time_in_t = (
             (p1_frames_in_t / total_frames * 100) if total_frames > 0 else 0.0
@@ -1042,56 +1082,24 @@ class AnalysisService:
             (p2_frames_in_t / total_frames * 100) if total_frames > 0 else 0.0
         )
 
-        # Calculate time-to-T metrics (requires state tracking)
-        # Time-to-T measures from player's own shot to when they return to T
-        p1_time_to_t = []
-        p2_time_to_t = []
-        p1_total_shots = 0
-        p2_total_shots = 0
-        p1_successful_returns = 0
-        p2_successful_returns = 0
+        # Collect time-to-T measurements (already precomputed in pipeline)
+        p1_time_to_t = [
+            r.player_1_time_to_t for r in results if r.player_1_time_to_t is not None
+        ]
+        p2_time_to_t = [
+            r.player_2_time_to_t for r in results if r.player_2_time_to_t is not None
+        ]
 
-        last_p1_shot_time = None
-        last_p2_shot_time = None
-        p1_entered_t_after_shot = False
-        p2_entered_t_after_shot = False
+        # Count total shots per player
+        p1_total_shots = sum(
+            1 for r in results if r.is_racket_hit and r.racket_hit_player_id == 1
+        )
+        p2_total_shots = sum(
+            1 for r in results if r.is_racket_hit and r.racket_hit_player_id == 2
+        )
 
-        for frame in results:
-            if frame.is_racket_hit:
-                if frame.racket_hit_player_id == 1:
-                    last_p1_shot_time = frame.timestamp
-                    p1_total_shots += 1
-                    p1_entered_t_after_shot = (
-                        False  # Reset P1's own tracking after P1 hits
-                    )
-                elif frame.racket_hit_player_id == 2:
-                    last_p2_shot_time = frame.timestamp
-                    p2_total_shots += 1
-                    p2_entered_t_after_shot = (
-                        False  # Reset P2's own tracking after P2 hits
-                    )
-
-            # P1 returns to T after P1's own shot
-            if (
-                last_p1_shot_time is not None
-                and not p1_entered_t_after_shot
-                and frame.p1_in_t_zone
-            ):
-                time_to_t = frame.timestamp - last_p1_shot_time
-                p1_time_to_t.append(time_to_t)
-                p1_entered_t_after_shot = True
-                p1_successful_returns += 1
-
-            # P2 returns to T after P2's own shot
-            if (
-                last_p2_shot_time is not None
-                and not p2_entered_t_after_shot
-                and frame.p2_in_t_zone
-            ):
-                time_to_t = frame.timestamp - last_p2_shot_time
-                p2_time_to_t.append(time_to_t)
-                p2_entered_t_after_shot = True
-                p2_successful_returns += 1
+        p1_successful_returns = len(p1_time_to_t)
+        p2_successful_returns = len(p2_time_to_t)
 
         # Branch based on player_id filter
         if filters.player_id:
@@ -1354,4 +1362,279 @@ class AnalysisService:
 
         return RallyIntensityResponse(
             video_id=video_id, filters=filters, data=data
+        )
+
+    def get_match_summary(self, video_id: str) -> MatchSummaryResponse:
+        """Get match summary including game results and overall match winner.
+
+        Args:
+            video_id: Video identifier
+
+        Returns:
+            MatchSummaryResponse with match and game details
+
+        Raises:
+            ValueError: If match data not found
+        """
+        logger.info(f"Getting match summary for video {video_id}")
+
+        # Get match result
+        match = self.db.query(Match).filter(Match.video_id == video_id).first()
+        if not match:
+            raise ValueError(
+                f"Match data not found for video {video_id}. Video may not be processed yet."
+            )
+
+        # Get all games for this match
+        games = (
+            self.db.query(Game)
+            .filter(Game.video_id == video_id)
+            .order_by(Game.game_number)
+            .all()
+        )
+
+        return MatchSummaryResponse(
+            video_id=video_id,
+            match=match,
+            games=games
+        )
+
+    def get_rally_timeline(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> RallyTimelineResponse:
+        """Get rally-by-rally timeline with key metrics.
+
+        Returns chronological sequence of rallies with duration, shots, speed, etc.
+        Supports filtering by game_number, timestamp range.
+
+        Args:
+            video_id: Video identifier
+            filters: Analytics filters
+
+        Returns:
+            RallyTimelineResponse with rally metrics
+
+        Raises:
+            ValueError: If video not processed or invalid filters
+        """
+        logger.info(f"Computing rally timeline for video {video_id}")
+        self._check_processed(video_id)
+
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        query = text(f"""
+            WITH rally_aggregates AS (
+                SELECT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner,
+                    AVG(ball_speed) as avg_ball_speed,
+                    STDDEV_POP(ball_speed) as ball_speed_variance,
+                    COUNT(CASE WHEN is_wall_hit = TRUE THEN 1 END) as wall_hit_count
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+                HAVING COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) > 0
+            )
+            SELECT * FROM rally_aggregates ORDER BY rally_id
+        """)
+
+        results = self.db.execute(query, params).fetchall()
+
+        timeline_items = [
+            RallyTimelineItem(
+                rally_id=row.rally_id,
+                rally_start_time=float(row.rally_start_time),
+                rally_duration=float(row.rally_duration),
+                shot_count=int(row.shot_count),
+                point_winner=int(row.point_winner) if row.point_winner else None,
+                avg_ball_speed=float(row.avg_ball_speed) if row.avg_ball_speed else None,
+                ball_speed_variance=(
+                    float(row.ball_speed_variance) if row.ball_speed_variance else None
+                ),
+                wall_hit_count=int(row.wall_hit_count),
+            )
+            for row in results
+        ]
+
+        return RallyTimelineResponse(
+            video_id=video_id,
+            filters=filters,
+            data=timeline_items,
+            total_rallies=len(timeline_items),
+        )
+
+    def get_momentum_timeline(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> MomentumTimelineResponse:
+        """Get cumulative score progression and momentum shifts.
+
+        Returns running scoreboard showing cumulative scores after each rally.
+        When player_id filter is set, only that player's wins increment their score.
+
+        Args:
+            video_id: Video identifier
+            filters: Analytics filters
+
+        Returns:
+            MomentumTimelineResponse with cumulative scores
+
+        Raises:
+            ValueError: If video not processed or invalid filters
+        """
+        logger.info(f"Computing momentum timeline for video {video_id}")
+        self._check_processed(video_id)
+
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        # Build query with window functions for cumulative scores
+        query = text(f"""
+            WITH rally_outcomes AS (
+                SELECT
+                    rally_id,
+                    MIN(timestamp) as timestamp,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND is_rally_frame = TRUE
+                GROUP BY rally_id
+                ORDER BY rally_id
+            ),
+            cumulative_score AS (
+                SELECT
+                    rally_id,
+                    timestamp,
+                    point_winner,
+                    SUM(CASE WHEN point_winner = 1 THEN 1 ELSE 0 END)
+                        OVER (ORDER BY rally_id ROWS UNBOUNDED PRECEDING) as player_1_score,
+                    SUM(CASE WHEN point_winner = 2 THEN 1 ELSE 0 END)
+                        OVER (ORDER BY rally_id ROWS UNBOUNDED PRECEDING) as player_2_score
+                FROM rally_outcomes
+            )
+            SELECT
+                rally_id,
+                timestamp,
+                point_winner,
+                player_1_score,
+                player_2_score,
+                (player_1_score - player_2_score) as score_differential
+            FROM cumulative_score
+            ORDER BY rally_id
+        """)
+
+        results = self.db.execute(query, params).fetchall()
+
+        timeline_items = [
+            MomentumTimelineItem(
+                rally_id=row.rally_id,
+                timestamp=float(row.timestamp),
+                point_winner=int(row.point_winner) if row.point_winner else None,
+                player_1_score=int(row.player_1_score),
+                player_2_score=int(row.player_2_score),
+                score_differential=int(row.score_differential),
+            )
+            for row in results
+        ]
+
+        return MomentumTimelineResponse(
+            video_id=video_id, filters=filters, data=timeline_items
+        )
+
+    def get_time_to_t_timeline(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> TimeToTTimelineResponse:
+        """Get per-rally time-to-T metrics timeline.
+
+        Returns chronological sequence of rallies with time-to-T statistics
+        for both players (average, min, max time to return to T-zone after shots).
+
+        Args:
+            video_id: Video identifier
+            filters: Analytics filters
+
+        Returns:
+            TimeToTTimelineResponse with per-rally time-to-T metrics
+
+        Raises:
+            ValueError: If video not processed or invalid filters
+        """
+        logger.info(f"Computing time-to-T timeline for video {video_id}")
+        self._check_processed(video_id)
+
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        query = text(f"""
+            WITH rally_time_to_t AS (
+                SELECT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    AVG(player_1_time_to_t) as player_1_avg_time_to_t,
+                    MIN(player_1_time_to_t) as player_1_min_time_to_t,
+                    MAX(player_1_time_to_t) as player_1_max_time_to_t,
+                    COUNT(player_1_time_to_t) as player_1_measurements,
+                    AVG(player_2_time_to_t) as player_2_avg_time_to_t,
+                    MIN(player_2_time_to_t) as player_2_min_time_to_t,
+                    MAX(player_2_time_to_t) as player_2_max_time_to_t,
+                    COUNT(player_2_time_to_t) as player_2_measurements
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            )
+            SELECT * FROM rally_time_to_t ORDER BY rally_id
+        """)
+
+        results = self.db.execute(query, params).fetchall()
+
+        timeline_items = [
+            TimeToTTimelineItem(
+                rally_id=row.rally_id,
+                rally_start_time=float(row.rally_start_time),
+                player_1_avg_time_to_t=(
+                    float(row.player_1_avg_time_to_t)
+                    if row.player_1_avg_time_to_t
+                    else None
+                ),
+                player_1_min_time_to_t=(
+                    float(row.player_1_min_time_to_t)
+                    if row.player_1_min_time_to_t
+                    else None
+                ),
+                player_1_max_time_to_t=(
+                    float(row.player_1_max_time_to_t)
+                    if row.player_1_max_time_to_t
+                    else None
+                ),
+                player_1_measurements=int(row.player_1_measurements),
+                player_2_avg_time_to_t=(
+                    float(row.player_2_avg_time_to_t)
+                    if row.player_2_avg_time_to_t
+                    else None
+                ),
+                player_2_min_time_to_t=(
+                    float(row.player_2_min_time_to_t)
+                    if row.player_2_min_time_to_t
+                    else None
+                ),
+                player_2_max_time_to_t=(
+                    float(row.player_2_max_time_to_t)
+                    if row.player_2_max_time_to_t
+                    else None
+                ),
+                player_2_measurements=int(row.player_2_measurements),
+            )
+            for row in results
+        ]
+
+        return TimeToTTimelineResponse(
+            video_id=video_id,
+            filters=filters,
+            data=timeline_items,
+            total_rallies=len(timeline_items),
         )

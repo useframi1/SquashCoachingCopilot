@@ -33,4 +33,11 @@ def get_db():
 
 def init_db() -> None:
     """Initialize database tables."""
+    # Import all models to ensure they're registered with Base.metadata
+    from backend.models.video import Video  # noqa: F401
+    from backend.models.job import Job  # noqa: F401
+    from backend.models.frame_data import FrameData  # noqa: F401
+    from backend.models.game import Game  # noqa: F401
+    from backend.models.match import Match  # noqa: F401
+
     Base.metadata.create_all(bind=engine)

@@ -24,7 +24,12 @@ from backend.schemas.analysis import (
     TZoneOccupancyResponse,
     ShotEffectivenessResponse,
     RallyIntensityResponse,
+    # Time-series analytics schemas
+    RallyTimelineResponse,
+    MomentumTimelineResponse,
+    TimeToTTimelineResponse,
 )
+from backend.schemas.match import MatchSummaryResponse
 from backend.services.analysis_service import AnalysisService
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -45,7 +50,7 @@ def get_analysis_service(db: Session = Depends(get_db)) -> AnalysisService:
 )
 async def get_stroke_distribution(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -55,11 +60,11 @@ async def get_stroke_distribution(
     Get stroke distribution analytics (forehand vs backhand).
 
     Returns counts and percentages of forehand and backhand shots for each player,
-    with optional filtering by rally, player, or time range.
+    with optional filtering by game, player, or time range.
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -75,7 +80,7 @@ async def get_stroke_distribution(
 )
 async def get_shot_type_distribution(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -89,7 +94,7 @@ async def get_shot_type_distribution(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -102,7 +107,7 @@ async def get_shot_type_distribution(
 @router.get("/{video_id}/analytics/ball-speed", response_model=BallSpeedResponse)
 async def get_ball_speed_analytics(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -116,7 +121,7 @@ async def get_ball_speed_analytics(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -131,7 +136,7 @@ async def get_ball_speed_analytics(
 )
 async def get_rhythm_disruption(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -145,7 +150,7 @@ async def get_rhythm_disruption(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -161,7 +166,7 @@ async def get_rhythm_disruption(
 )
 async def get_player_position_heatmap(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -176,7 +181,7 @@ async def get_player_position_heatmap(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -193,7 +198,7 @@ async def get_player_position_heatmap(
 async def get_shot_placement_effectiveness(
     video_id: str,
     player_id: int,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
     service: AnalysisService = Depends(get_analysis_service),
@@ -208,7 +213,7 @@ async def get_shot_placement_effectiveness(
         raise HTTPException(status_code=400, detail="player_id must be 1 or 2")
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             start_time=start_time,
             end_time=end_time,
         )
@@ -222,7 +227,7 @@ async def get_shot_placement_effectiveness(
 )
 async def get_court_quadrant_distribution(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -236,7 +241,7 @@ async def get_court_quadrant_distribution(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -252,7 +257,7 @@ async def get_court_quadrant_distribution(
 )
 async def get_wall_hit_heatmap(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -266,7 +271,7 @@ async def get_wall_hit_heatmap(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -279,7 +284,7 @@ async def get_wall_hit_heatmap(
 @router.get("/{video_id}/analytics/wall-quadrants", response_model=WallQuadrantResponse)
 async def get_wall_quadrant_distribution(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -294,7 +299,7 @@ async def get_wall_quadrant_distribution(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -311,7 +316,7 @@ async def get_wall_quadrant_distribution(
 async def get_winning_stats(
     video_id: str,
     player_id: int,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
     service: AnalysisService = Depends(get_analysis_service),
@@ -326,7 +331,7 @@ async def get_winning_stats(
         raise HTTPException(status_code=400, detail="player_id must be 1 or 2")
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             start_time=start_time,
             end_time=end_time,
         )
@@ -335,17 +340,12 @@ async def get_winning_stats(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-# ============================================================================
-# EXTENDED ANALYTICS ENDPOINTS
-# ============================================================================
-
-
 @router.get(
     "/{video_id}/analytics/movement-metrics", response_model=MovementMetricsResponse
 )
 async def get_movement_metrics(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -359,7 +359,7 @@ async def get_movement_metrics(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -374,7 +374,7 @@ async def get_movement_metrics(
 )
 async def get_t_zone_occupancy(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     player_id: Optional[int] = Query(None, ge=1, le=2),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
@@ -389,7 +389,7 @@ async def get_t_zone_occupancy(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             player_id=player_id,
             start_time=start_time,
             end_time=end_time,
@@ -406,7 +406,7 @@ async def get_t_zone_occupancy(
 async def get_shot_effectiveness(
     video_id: str,
     player_id: int,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
     service: AnalysisService = Depends(get_analysis_service),
@@ -423,7 +423,7 @@ async def get_shot_effectiveness(
         raise HTTPException(status_code=400, detail="player_id must be 1 or 2")
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             start_time=start_time,
             end_time=end_time,
         )
@@ -437,7 +437,7 @@ async def get_shot_effectiveness(
 )
 async def get_rally_intensity(
     video_id: str,
-    rally_id: Optional[int] = None,
+    game_number: Optional[int] = Query(None, ge=1),
     start_time: Optional[float] = Query(None, ge=0),
     end_time: Optional[float] = Query(None, ge=0),
     service: AnalysisService = Depends(get_analysis_service),
@@ -451,10 +451,148 @@ async def get_rally_intensity(
     """
     try:
         filters = AnalyticsFilters(
-            rally_id=rally_id,
+            game_number=game_number,
             start_time=start_time,
             end_time=end_time,
         )
         return service.get_rally_intensity(video_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# TIME-SERIES ANALYTICS ENDPOINTS
+# ============================================================================
+
+
+@router.get(
+    "/{video_id}/analytics/rally-timeline",
+    response_model=RallyTimelineResponse,
+)
+async def get_rally_timeline(
+    video_id: str,
+    game_number: Optional[int] = Query(None, ge=1),
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get rally-by-rally timeline with key metrics.
+
+    Returns chronological sequence of rallies with:
+    - Rally duration and shot count
+    - Average ball speed and variance (rhythm)
+    - Point winner for each rally
+    - Wall hit count
+
+    Useful for:
+    - Line charts of rally duration over time
+    - Bar charts of shots per rally
+    - Ball speed trend visualization
+    """
+    try:
+        filters = AnalyticsFilters(
+            game_number=game_number,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_rally_timeline(video_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/{video_id}/analytics/momentum-timeline",
+    response_model=MomentumTimelineResponse,
+)
+async def get_momentum_timeline(
+    video_id: str,
+    game_number: Optional[int] = Query(None, ge=1),
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get cumulative score progression and momentum shifts.
+
+    Returns running scoreboard after each rally with:
+    - Cumulative scores for both players
+    - Point winner for each rally
+    - Score differential (lead changes)
+
+    Useful for:
+    - Dual-line chart showing score progression
+    - Area chart showing lead changes
+    - Momentum shift identification
+    """
+    try:
+        filters = AnalyticsFilters(
+            game_number=game_number,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_momentum_timeline(video_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/{video_id}/analytics/time-to-t-timeline",
+    response_model=TimeToTTimelineResponse,
+)
+async def get_time_to_t_timeline(
+    video_id: str,
+    game_number: Optional[int] = Query(None, ge=1),
+    start_time: Optional[float] = Query(None, ge=0),
+    end_time: Optional[float] = Query(None, ge=0),
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get per-rally time-to-T metrics timeline.
+
+    Returns chronological sequence of rallies with time-to-T statistics:
+    - Average, min, max time for each player to return to T-zone after shots
+    - Number of measurements per player per rally
+
+    Useful for:
+    - Line charts showing time-to-T trends over a match
+    - Comparing player court recovery speed
+    - Identifying fatigue patterns (increasing time-to-T)
+    - Analyzing positioning effectiveness
+    """
+    try:
+        filters = AnalyticsFilters(
+            game_number=game_number,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return service.get_time_to_t_timeline(video_id, filters)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# MATCH SUMMARY ENDPOINT
+# ============================================================================
+
+
+@router.get(
+    "/{video_id}/match-summary",
+    response_model=MatchSummaryResponse,
+)
+async def get_match_summary(
+    video_id: str,
+    service: AnalysisService = Depends(get_analysis_service),
+):
+    """
+    Get match summary including game results and overall match winner.
+
+    Returns complete match information following squash scoring rules:
+    - Individual game scores
+    - Match winner and games won by each player
+    - Rally counts and scoring system used
+    """
+    try:
+        return service.get_match_summary(video_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

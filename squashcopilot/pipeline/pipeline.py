@@ -365,6 +365,7 @@ class Pipeline:
 
         # Stage 8: Precompute Analytics Fields
         self._report_progress("analytics_preprocessing", 82)
+        self.session = session  # Store session reference for stage 8
         session.current_df = self._stage8_precompute_analytics(session.current_df)
         self._report_progress("analytics_preprocessing", 85)
 
@@ -381,7 +382,11 @@ class Pipeline:
         total_time = time.time() - start_time
         self.logger.info(f"Pipeline completed in {total_time:.2f}s")
 
-        return output_paths
+        # Return both output paths and processing stats (includes game/match results)
+        return {
+            "output_paths": output_paths,
+            "processing_stats": session.processing_stats,
+        }
 
     def _get_video_metadata(self, video_path: str) -> VideoMetadata:
         """Extract video metadata."""
@@ -857,6 +862,154 @@ class Pipeline:
 
         return df
 
+    def _compute_game_and_match_scores(
+        self, df: pd.DataFrame
+    ) -> Tuple[List[Dict], Dict]:
+        """Compute game and match results following squash scoring rules.
+
+        Args:
+            df: DataFrame with point_winner column
+
+        Returns:
+            Tuple of (game_results list, match_result dict)
+        """
+        # Default values if no point winners found
+        if "point_winner" not in df.columns or df["point_winner"].isna().all():
+            return [], {
+                "winner": None,
+                "player_1_games_won": 0,
+                "player_2_games_won": 0,
+                "total_games": 0,
+                "total_rallies": 0,
+                "scoring_system": "11-point",
+                "best_of": 3,
+            }
+
+        # Get all rallies with point winners (group by rally_id)
+        rallies_with_winners = (
+            df[df["point_winner"].notna() & (df["rally_id"].notna())]
+            .groupby("rally_id")
+            .agg({"point_winner": "first", "timestamp": ["min", "max"]})
+            .reset_index()
+        )
+
+        if len(rallies_with_winners) == 0:
+            return [], {
+                "winner": None,
+                "player_1_games_won": 0,
+                "player_2_games_won": 0,
+                "total_games": 0,
+                "total_rallies": 0,
+                "scoring_system": "11-point",
+                "best_of": 3,
+            }
+
+        games = []
+        player_1_score = 0
+        player_2_score = 0
+        current_game = 1
+        game_start_rally = int(rallies_with_winners.iloc[0]["rally_id"])
+
+        # Scoring parameters (standard squash rules)
+        points_to_win_game = 11
+        win_by_two = True
+        best_of = 3
+        games_to_win = 2
+
+        player_1_games = 0
+        player_2_games = 0
+
+        for idx, row in rallies_with_winners.iterrows():
+            rally_id = int(row["rally_id"])
+            winner = int(row["point_winner"]["first"])
+
+            # Only count valid point winners (1 or 2)
+            if winner == 1:
+                player_1_score += 1
+            elif winner == 2:
+                player_2_score += 1
+            else:
+                continue  # Skip lets (-1 = unknown, 0 = let)
+
+            # Check if game is won
+            game_won = False
+            game_winner = None
+
+            if (
+                player_1_score >= points_to_win_game
+                or player_2_score >= points_to_win_game
+            ):
+                if not win_by_two:
+                    # Simple win
+                    if player_1_score >= points_to_win_game:
+                        game_winner = 1
+                        game_won = True
+                    elif player_2_score >= points_to_win_game:
+                        game_winner = 2
+                        game_won = True
+                else:
+                    # Must win by 2
+                    if (
+                        player_1_score >= points_to_win_game
+                        and player_1_score - player_2_score >= 2
+                    ):
+                        game_winner = 1
+                        game_won = True
+                    elif (
+                        player_2_score >= points_to_win_game
+                        and player_2_score - player_1_score >= 2
+                    ):
+                        game_winner = 2
+                        game_won = True
+
+            if game_won:
+                # Record game result
+                games.append(
+                    {
+                        "game_number": current_game,
+                        "winner": game_winner,
+                        "player_1_score": player_1_score,
+                        "player_2_score": player_2_score,
+                        "start_rally_id": game_start_rally,
+                        "end_rally_id": rally_id,
+                        "start_time": float(row["timestamp"]["min"]),
+                        "end_time": float(row["timestamp"]["max"]),
+                    }
+                )
+
+                # Update games won
+                if game_winner == 1:
+                    player_1_games += 1
+                else:
+                    player_2_games += 1
+
+                # Check if match is won
+                if player_1_games >= games_to_win or player_2_games >= games_to_win:
+                    break
+
+                # Reset for next game
+                current_game += 1
+                player_1_score = 0
+                player_2_score = 0
+                game_start_rally = rally_id + 1
+
+        # Match result
+        match_result = {
+            "winner": (
+                1
+                if player_1_games > player_2_games
+                else (2 if player_2_games > player_1_games else None)
+            ),
+            "player_1_games_won": player_1_games,
+            "player_2_games_won": player_2_games,
+            "total_games": len(games),
+            "total_rallies": len(rallies_with_winners),
+            "scoring_system": f"{points_to_win_game}-point",
+            "best_of": best_of,
+        }
+
+        return games, match_result
+
     def _stage8_precompute_analytics(self, df: pd.DataFrame) -> pd.DataFrame:
         """Stage 8: Precompute analytics-optimized fields for faster querying."""
         self.logger.info("Stage 8: Analytics Preprocessing")
@@ -871,6 +1024,10 @@ class Pipeline:
         df["wall_hit_height"] = None
         df["next_opponent_x"] = None
         df["next_opponent_y"] = None
+        df["player_1_in_t_zone"] = False
+        df["player_2_in_t_zone"] = False
+        df["player_1_time_to_t"] = None
+        df["player_2_time_to_t"] = None
 
         # 1. Compute wall_hit_player_id: match each wall hit to the player who hit the ball
         if "is_wall_hit" in df.columns and "is_racket_hit" in df.columns:
@@ -922,10 +1079,13 @@ class Pipeline:
                     if wall_x is not None and wall_y is not None:
                         # Calculate distance
                         import math
+
                         distance = math.sqrt((wall_x - px) ** 2 + (wall_y - py) ** 2)
 
                         # Calculate time difference
-                        time_diff = next_wall_hit.get("timestamp") - racket_row.get("timestamp")
+                        time_diff = next_wall_hit.get("timestamp") - racket_row.get(
+                            "timestamp"
+                        )
 
                         if time_diff > 0:
                             speed = distance / time_diff
@@ -958,9 +1118,9 @@ class Pipeline:
 
                 # Find next opponent hit
                 next_opp_hits = df[
-                    (df.index > racket_idx) &
-                    (df["is_racket_hit"] == True) &
-                    (df["racket_hit_player_id"] == opponent_id)
+                    (df.index > racket_idx)
+                    & (df["is_racket_hit"] == True)
+                    & (df["racket_hit_player_id"] == opponent_id)
                 ]
 
                 if len(next_opp_hits) > 0:
@@ -970,9 +1130,10 @@ class Pipeline:
 
                     if opp_x_after is not None and opp_y_after is not None:
                         import math
+
                         distance_moved = math.sqrt(
-                            (opp_x_after - opp_x_before) ** 2 +
-                            (opp_y_after - opp_y_before) ** 2
+                            (opp_x_after - opp_x_before) ** 2
+                            + (opp_y_after - opp_y_before) ** 2
                         )
                         df.at[racket_idx, "opponent_distance_moved"] = distance_moved
                         # Also store opponent's next position for shot placement analysis
@@ -982,13 +1143,98 @@ class Pipeline:
         num_distances = df["opponent_distance_moved"].notna().sum()
         num_opp_positions = df["next_opponent_x"].notna().sum()
 
+        # 4. Compute T-zone occupancy and time-to-T metrics
+        import math
+        import numpy as np
+
+        # Define T-zone parameters (standard squash court)
+        T_X = 3.05  # meters (half of 6.1m court width)
+        T_Y = 5.44  # meters (standard T position)
+        T_RADIUS = 1.2  # meters (T-zone radius)
+
+        # Compute T-zone occupancy for all frames
+        if "player_1_x_meter" in df.columns and "player_1_y_meter" in df.columns:
+            df["player_1_in_t_zone"] = (
+                np.sqrt(
+                    (df["player_1_x_meter"] - T_X) ** 2
+                    + (df["player_1_y_meter"] - T_Y) ** 2
+                )
+                <= T_RADIUS
+            )
+
+        if "player_2_x_meter" in df.columns and "player_2_y_meter" in df.columns:
+            df["player_2_in_t_zone"] = (
+                np.sqrt(
+                    (df["player_2_x_meter"] - T_X) ** 2
+                    + (df["player_2_y_meter"] - T_Y) ** 2
+                )
+                <= T_RADIUS
+            )
+
+        # Compute time-to-T: time from player's shot to when they return to T
+        # This requires iterating through frames to track state
+        if "is_racket_hit" in df.columns:
+            # Track last shot time for each player
+            last_p1_shot_time = None
+            last_p2_shot_time = None
+            p1_entered_t_after_shot = False
+            p2_entered_t_after_shot = False
+
+            for idx in df.index:
+                row = df.loc[idx]
+
+                # Update last shot times
+                if row.get("is_racket_hit", False):
+                    if row.get("racket_hit_player_id") == 1:
+                        last_p1_shot_time = row.get("timestamp")
+                        p1_entered_t_after_shot = False  # Reset tracking
+                    elif row.get("racket_hit_player_id") == 2:
+                        last_p2_shot_time = row.get("timestamp")
+                        p2_entered_t_after_shot = False  # Reset tracking
+
+                # Check if player 1 entered T after their shot
+                if (
+                    last_p1_shot_time is not None
+                    and not p1_entered_t_after_shot
+                    and row.get("player_1_in_t_zone", False)
+                ):
+                    time_to_t = row.get("timestamp") - last_p1_shot_time
+                    df.at[idx, "player_1_time_to_t"] = time_to_t
+                    p1_entered_t_after_shot = True
+
+                # Check if player 2 entered T after their shot
+                if (
+                    last_p2_shot_time is not None
+                    and not p2_entered_t_after_shot
+                    and row.get("player_2_in_t_zone", False)
+                ):
+                    time_to_t = row.get("timestamp") - last_p2_shot_time
+                    df.at[idx, "player_2_time_to_t"] = time_to_t
+                    p2_entered_t_after_shot = True
+
+        num_p1_in_t = df["player_1_in_t_zone"].sum()
+        num_p2_in_t = df["player_2_in_t_zone"].sum()
+        num_p1_time_to_t = df["player_1_time_to_t"].notna().sum()
+        num_p2_time_to_t = df["player_2_time_to_t"].notna().sum()
+
+        # 5. Compute game and match results from point winners
+        game_results, match_result = self._compute_game_and_match_scores(df)
+
+        # Store results in session for database insertion
+        if hasattr(self.session, "processing_stats"):
+            self.session.processing_stats["game_results"] = game_results
+            self.session.processing_stats["match_result"] = match_result
+
         self.logger.info(
             f"Stage 8 completed in {time.time() - stage_start:.2f}s - "
             f"Matched {num_matched}/{num_wall_hits} wall hits to players, "
             f"computed {num_speeds} ball speeds, "
             f"computed {num_heights} wall hit heights, "
             f"computed {num_distances} opponent distances, "
-            f"computed {num_opp_positions} opponent next positions"
+            f"computed {num_opp_positions} opponent next positions, "
+            f"T-zone occupancy: P1={num_p1_in_t} frames, P2={num_p2_in_t} frames, "
+            f"time-to-T: P1={num_p1_time_to_t} measurements, P2={num_p2_time_to_t} measurements, "
+            f"computed {match_result.get('total_games', 0)} games and match result"
         )
 
         return df

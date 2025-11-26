@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from backend.models.job import Job, JobStatus
 from backend.models.video import Video
 from backend.models.frame_data import FrameData
+from backend.models.game import Game
+from backend.models.match import Match
 from backend.storage.local import LocalStorage
 
 logger = logging.getLogger(__name__)
@@ -182,8 +184,12 @@ class PipelineService:
             ) as pipeline:
                 result = pipeline.run()
 
-            # Store results in database
-            self._store_pipeline_results(video.id, result, output_dir)
+            # Store results in database (includes frame data, games, and match)
+            self._store_pipeline_results(
+                video.id,
+                result.get("processing_stats", {}),
+                output_dir
+            )
 
             # Update video with output paths
             video.annotated_video_path = str(
@@ -209,9 +215,9 @@ class PipelineService:
             raise
 
     def _store_pipeline_results(
-        self, video_id: str, result: dict, output_dir: Path
+        self, video_id: str, processing_stats: dict, output_dir: Path
     ) -> None:
-        """Store pipeline results (frame data) in the database."""
+        """Store pipeline results (frame data, games, and match) in the database."""
         # Try to load the CSV output
         csv_files = list(output_dir.glob("*_analysis.csv"))
         if not csv_files:
@@ -326,6 +332,19 @@ class PipelineService:
                     if pd.notna(row.get("next_opponent_y"))
                     else None
                 ),
+                # T-zone occupancy fields
+                player_1_in_t_zone=bool(row.get("player_1_in_t_zone", False)),
+                player_2_in_t_zone=bool(row.get("player_2_in_t_zone", False)),
+                player_1_time_to_t=(
+                    float(row.get("player_1_time_to_t"))
+                    if pd.notna(row.get("player_1_time_to_t"))
+                    else None
+                ),
+                player_2_time_to_t=(
+                    float(row.get("player_2_time_to_t"))
+                    if pd.notna(row.get("player_2_time_to_t"))
+                    else None
+                ),
             )
             frame_records.append(frame_data)
 
@@ -340,3 +359,33 @@ class PipelineService:
             self.db.commit()
 
         logger.info(f"Stored {len(df)} frames for video {video_id}")
+
+        # Store game results if available
+        game_results = processing_stats.get("game_results", [])
+        if game_results:
+            # Delete existing games for this video
+            self.db.query(Game).filter(Game.video_id == video_id).delete()
+
+            # Insert new games
+            for game_data in game_results:
+                game = Game(video_id=video_id, **game_data)
+                self.db.add(game)
+
+            self.db.commit()
+            logger.info(f"Stored {len(game_results)} games for video {video_id}")
+
+        # Store match result if available
+        match_result = processing_stats.get("match_result")
+        if match_result:
+            # Delete existing match for this video
+            self.db.query(Match).filter(Match.video_id == video_id).delete()
+
+            # Insert new match
+            match = Match(video_id=video_id, **match_result)
+            self.db.add(match)
+            self.db.commit()
+            logger.info(
+                f"Stored match result for video {video_id}: "
+                f"Player 1 won {match.player_1_games_won} games, "
+                f"Player 2 won {match.player_2_games_won} games"
+            )

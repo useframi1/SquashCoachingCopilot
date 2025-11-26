@@ -55,6 +55,11 @@ output:
         - wall_hit_height
         - next_opponent_x
         - next_opponent_y
+        # T-zone occupancy fields
+        - player_1_in_t_zone
+        - player_2_in_t_zone
+        - player_1_time_to_t
+        - player_2_time_to_t
 
 # Module Configurations
 # Each module references its own config file

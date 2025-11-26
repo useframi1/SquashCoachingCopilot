@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 class AnalyticsFilters(BaseModel):
     """Common filters for analytics queries."""
 
-    rally_id: Optional[int] = Field(None, description="Filter by specific rally")
+    game_number: Optional[int] = Field(None, ge=1, description="Filter by specific game number")
     player_id: Optional[int] = Field(
         None, ge=1, le=2, description="Filter by player (1 or 2)"
     )
@@ -354,3 +354,84 @@ class RallyIntensityResponse(AnalyticsResponseBase):
     """Rally intensity and pace analytics (aggregate only)."""
 
     data: RallyIntensityData
+
+
+# ============================================================================
+# PATTERN 6: TIME-SERIES PATTERN
+# For: Rally timeline, Momentum timeline (per-rally granularity)
+# ============================================================================
+
+
+class RallyTimelineItem(BaseModel):
+    """Single rally's timeline data."""
+
+    rally_id: int
+    rally_start_time: float = Field(description="Timestamp when rally started (seconds)")
+    rally_duration: float = Field(description="Rally length in seconds")
+    shot_count: int = Field(description="Total shots in rally")
+    point_winner: Optional[int] = Field(None, description="Player who won (1 or 2)")
+    avg_ball_speed: Optional[float] = Field(None, description="Average ball speed in m/s")
+    ball_speed_variance: Optional[float] = Field(None, description="Ball speed variance")
+    wall_hit_count: int = Field(description="Number of wall hits in rally")
+
+
+class RallyTimelineResponse(AnalyticsResponseBase):
+    """Rally timeline response with metadata."""
+
+    data: List[RallyTimelineItem]
+    total_rallies: int = Field(description="Total number of rallies returned")
+
+
+class MomentumTimelineItem(BaseModel):
+    """Cumulative score at each rally."""
+
+    rally_id: int
+    timestamp: float = Field(description="Rally timestamp")
+    point_winner: Optional[int] = Field(None, description="Who won this rally (1 or 2)")
+    player_1_score: int = Field(description="Player 1 cumulative score")
+    player_2_score: int = Field(description="Player 2 cumulative score")
+    score_differential: int = Field(description="Player 1 score - Player 2 score")
+
+
+class MomentumTimelineResponse(AnalyticsResponseBase):
+    """Momentum timeline with cumulative scores."""
+
+    data: List[MomentumTimelineItem]
+
+
+class TimeToTTimelineItem(BaseModel):
+    """Per-rally time-to-T metrics."""
+
+    rally_id: int
+    rally_start_time: float = Field(description="Timestamp when rally started (seconds)")
+    player_1_avg_time_to_t: Optional[float] = Field(
+        None, description="Player 1 average time to return to T (seconds)"
+    )
+    player_1_min_time_to_t: Optional[float] = Field(
+        None, description="Player 1 fastest time to return to T (seconds)"
+    )
+    player_1_max_time_to_t: Optional[float] = Field(
+        None, description="Player 1 slowest time to return to T (seconds)"
+    )
+    player_1_measurements: int = Field(
+        description="Number of time-to-T measurements for player 1"
+    )
+    player_2_avg_time_to_t: Optional[float] = Field(
+        None, description="Player 2 average time to return to T (seconds)"
+    )
+    player_2_min_time_to_t: Optional[float] = Field(
+        None, description="Player 2 fastest time to return to T (seconds)"
+    )
+    player_2_max_time_to_t: Optional[float] = Field(
+        None, description="Player 2 slowest time to return to T (seconds)"
+    )
+    player_2_measurements: int = Field(
+        description="Number of time-to-T measurements for player 2"
+    )
+
+
+class TimeToTTimelineResponse(AnalyticsResponseBase):
+    """Time-to-T timeline response with metadata."""
+
+    data: List[TimeToTTimelineItem]
+    total_rallies: int = Field(description="Total number of rallies returned")

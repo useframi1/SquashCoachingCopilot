@@ -58,6 +58,12 @@ class FrameData(Base):
     next_opponent_x = Column(Float, nullable=True)  # Opponent x position at their next hit (m)
     next_opponent_y = Column(Float, nullable=True)  # Opponent y position at their next hit (m)
 
+    # T-zone occupancy tracking (computed in pipeline Stage 8)
+    player_1_in_t_zone = Column(Boolean, default=False, nullable=False)  # Is player 1 in T-zone this frame
+    player_2_in_t_zone = Column(Boolean, default=False, nullable=False)  # Is player 2 in T-zone this frame
+    player_1_time_to_t = Column(Float, nullable=True)  # Time since player 1's last shot when entering T (seconds)
+    player_2_time_to_t = Column(Float, nullable=True)  # Time since player 2's last shot when entering T (seconds)
+
     # Relationships
     video = relationship("Video", back_populates="frames")
 
