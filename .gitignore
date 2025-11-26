@@ -7,3 +7,6 @@ runs/
 *.pt
 dist/
 *.db
+.env
+.env.*
+!.env.example
