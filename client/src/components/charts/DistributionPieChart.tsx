@@ -25,9 +25,9 @@ export function DistributionPieChart({ data, title }: DistributionPieChartProps)
   }
 
   return (
-    <div className="space-y-4">
-      {title && <h4 className="text-md font-semibold text-gray-900">{title}</h4>}
-      <ResponsiveContainer width="100%" height={300}>
+    <div>
+      {title && <h4 className="text-md font-semibold text-gray-900 mb-4">{title}</h4>}
+      <ResponsiveContainer width="100%" height={350}>
         <PieChart>
           <Pie
             data={data}

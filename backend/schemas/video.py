@@ -19,6 +19,8 @@ class VideoMetadataResponse(BaseModel):
     duration_seconds: Optional[float] = None
     file_size_bytes: Optional[int] = None
     has_annotated_video: bool = False
+    player_1_name: Optional[str] = None
+    player_2_name: Optional[str] = None
     uploaded_at: datetime
     processed_at: Optional[datetime] = None
 
@@ -48,3 +50,19 @@ class VideoDeleteResponse(BaseModel):
 
     id: str
     message: str = "Video deleted successfully"
+
+
+class PlayerNamesUpdate(BaseModel):
+    """Request to update player names."""
+
+    player_1_name: Optional[str] = None
+    player_2_name: Optional[str] = None
+
+
+class PlayerNamesResponse(BaseModel):
+    """Response after updating player names."""
+
+    id: str
+    player_1_name: Optional[str] = None
+    player_2_name: Optional[str] = None
+    message: str = "Player names updated successfully"

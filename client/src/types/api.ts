@@ -45,6 +45,8 @@ export interface VideoMetadata {
   duration_seconds: number;
   file_size_bytes: number;
   has_annotated_video: boolean;
+  player_1_name: string | null;
+  player_2_name: string | null;
   uploaded_at: string;
   processed_at: string | null;
 }
@@ -269,6 +271,9 @@ export interface SingleShotEffectivenessMetrics {
   avg_displacement_from_t: number | null;
   max_displacement_from_t: number | null;
   displacement_variance: number | null;
+  avg_opponent_distance_moved: number | null;
+  max_opponent_distance_moved: number | null;
+  opponent_distance_moved_variance: number | null;
   depth_dominance_pct: number | null;
   avg_depth_difference: number | null;
   min_depth_difference: number | null;
@@ -331,4 +336,189 @@ export interface TimeToTTimelineItem {
 export interface TimeToTTimelineResponse extends AnalyticsResponseBase {
   data: TimeToTTimelineItem[];
   total_rallies: number;
+}
+
+// ============================================================================
+// MATCH HIGHLIGHTS
+// ============================================================================
+
+export interface LongestRallyData {
+  rally_id: number;
+  game_number: number | null;
+  rally_start_time: number;
+  rally_duration: number;
+  shot_count: number;
+  point_winner: 1 | 2 | null;
+}
+
+export interface LongestRallyResponse extends AnalyticsResponseBase {
+  data: LongestRallyData;
+}
+
+export interface FastestShotData {
+  frame_number: number;
+  timestamp: number;
+  rally_id: number | null;
+  game_number: number | null;
+  player_id: 1 | 2;
+  ball_speed: number;
+  stroke_type: string | null;
+  shot_type: string | null;
+}
+
+export interface FastestShotResponse extends AnalyticsResponseBase {
+  data: FastestShotData;
+}
+
+export interface LetStatsData {
+  total_lets: number;
+  total_rallies: number;
+  let_percentage: number;
+}
+
+export interface LetStatsResponse extends AnalyticsResponseBase {
+  data: LetStatsData;
+}
+
+export interface BreakTimeData {
+  avg_break_time: number;
+  min_break_time: number;
+  max_break_time: number;
+  std_dev: number;
+  total_breaks: number;
+}
+
+export interface BreakTimeResponse extends AnalyticsResponseBase {
+  data: BreakTimeData;
+}
+
+// ============================================================================
+// PER-RALLY TIME-SERIES
+// ============================================================================
+
+export interface BallSpeedPerRallyItem {
+  rally_id: number;
+  game_number: number | null;
+  rally_start_time: number;
+  rally_duration: number;
+  shot_count: number;
+  point_winner: 1 | 2 | null;
+  player_1: BallSpeedData;
+  player_2: BallSpeedData;
+}
+
+export interface BallSpeedPerRallyResponse extends AnalyticsResponseBase {
+  data: BallSpeedPerRallyItem[];
+  total_rallies: number;
+}
+
+export interface ShotEffectivenessPerRallyItem {
+  rally_id: number;
+  game_number: number | null;
+  rally_start_time: number;
+  rally_duration: number;
+  shot_count: number;
+  point_winner: 1 | 2 | null;
+  player_1: SingleShotEffectivenessMetrics;
+  player_2: SingleShotEffectivenessMetrics;
+}
+
+export interface ShotEffectivenessPerRallyResponse extends AnalyticsResponseBase {
+  data: ShotEffectivenessPerRallyItem[];
+  total_rallies: number;
+}
+
+export interface TZoneOccupancyPerRallyItem {
+  rally_id: number;
+  game_number: number | null;
+  rally_start_time: number;
+  rally_duration: number;
+  shot_count: number;
+  point_winner: 1 | 2 | null;
+  player_1: SingleTZoneMetrics;
+  player_2: SingleTZoneMetrics;
+}
+
+export interface TZoneOccupancyPerRallyResponse extends AnalyticsResponseBase {
+  data: TZoneOccupancyPerRallyItem[];
+  total_rallies: number;
+}
+
+// ============================================================================
+// LLM CHAT TYPES
+// ============================================================================
+
+export interface LLMQueryRequest {
+  message: string;
+  video_id?: string;
+  conversation_id?: string;
+  player_id?: 1 | 2;
+}
+
+export interface LLMFunctionCall {
+  function_name: string;
+  arguments: Record<string, any>;
+  result_summary: string;
+}
+
+export interface LLMQueryResponse {
+  conversation_id: string;
+  answer: string;
+  function_calls: LLMFunctionCall[];
+  context: {
+    video_id: string | null;
+    player_id: number | null;
+  };
+  metadata: {
+    tokens_used: number;
+    execution_time_ms: number;
+    functions_executed: number;
+  };
+}
+
+export interface LLMMessage {
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  timestamp: string;
+  function_calls?: LLMFunctionCall[];
+}
+
+export interface LLMConversationSummary {
+  id: string;
+  video_id: string | null;
+  player_id: number | null;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LLMConversationsResponse {
+  conversations: LLMConversationSummary[];
+  limit: number;
+  offset: number;
+}
+
+export interface LLMConversationDetail {
+  id: string;
+  video_id: string | null;
+  player_id: number | null;
+  messages: LLMMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
+// PLAYER NAMES TYPES
+// ============================================================================
+
+export interface PlayerNamesUpdate {
+  player_1_name?: string | null;
+  player_2_name?: string | null;
+}
+
+export interface PlayerNamesResponse {
+  id: string;
+  player_1_name: string | null;
+  player_2_name: string | null;
+  message: string;
 }

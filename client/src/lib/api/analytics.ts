@@ -5,6 +5,7 @@ import type {
   StrokeDistributionResponse,
   ShotTypeDistributionResponse,
   BallSpeedResponse,
+  BallSpeedPerRallyResponse,
   RhythmDisruptionResponse,
   PlayerPositionHeatmapResponse,
   WallHitHeatmapResponse,
@@ -12,13 +13,19 @@ import type {
   WallQuadrantResponse,
   MovementMetricsResponse,
   TZoneOccupancyResponse,
+  TZoneOccupancyPerRallyResponse,
   ShotEffectivenessResponse,
+  ShotEffectivenessPerRallyResponse,
   ShotPlacementResponse,
   WinningStatsResponse,
   RallyIntensityResponse,
   RallyTimelineResponse,
   MomentumTimelineResponse,
   TimeToTTimelineResponse,
+  LongestRallyResponse,
+  FastestShotResponse,
+  LetStatsResponse,
+  BreakTimeResponse,
 } from '@/types/api';
 
 /**
@@ -316,6 +323,108 @@ export const getTimeToTTimeline = async (
   const params = buildQueryParams(filters);
   const { data } = await apiClient.get<TimeToTTimelineResponse>(
     `/api/analysis/${videoId}/analytics/time-to-t-timeline?${params}`
+  );
+  return data;
+};
+
+// ============================================================================
+// MATCH HIGHLIGHTS
+// ============================================================================
+
+/**
+ * Get the longest rally in the match
+ */
+export const getLongestRally = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<LongestRallyResponse> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get<LongestRallyResponse>(
+    `/api/analysis/${videoId}/analytics/longest-rally?${params}`
+  );
+  return data;
+};
+
+/**
+ * Get the fastest shot in the match
+ */
+export const getFastestShot = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<FastestShotResponse> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get<FastestShotResponse>(
+    `/api/analysis/${videoId}/analytics/fastest-shot?${params}`
+  );
+  return data;
+};
+
+/**
+ * Get let/replay statistics
+ */
+export const getLetStats = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<LetStatsResponse> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get<LetStatsResponse>(
+    `/api/analysis/${videoId}/analytics/let-stats?${params}`
+  );
+  return data;
+};
+
+/**
+ * Get break time statistics between rallies
+ */
+export const getBreakTime = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<BreakTimeResponse> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get<BreakTimeResponse>(
+    `/api/analysis/${videoId}/analytics/break-time?${params}`
+  );
+  return data;
+};
+
+/**
+ * Get ball speed per rally with both players' data
+ */
+export const getBallSpeedPerRally = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<BallSpeedPerRallyResponse> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get<BallSpeedPerRallyResponse>(
+    `/api/analysis/${videoId}/analytics/ball-speed/per-rally?${params}`
+  );
+  return data;
+};
+
+/**
+ * Get shot effectiveness per rally with both players' data
+ */
+export const getShotEffectivenessPerRally = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<ShotEffectivenessPerRallyResponse> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get<ShotEffectivenessPerRallyResponse>(
+    `/api/analysis/${videoId}/analytics/shot-effectiveness/per-rally?${params}`
+  );
+  return data;
+};
+
+/**
+ * Get T-zone occupancy per rally with both players' data
+ */
+export const getTZoneOccupancyPerRally = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<TZoneOccupancyPerRallyResponse> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get<TZoneOccupancyPerRallyResponse>(
+    `/api/analysis/${videoId}/analytics/t-zone-occupancy/per-rally?${params}`
   );
   return data;
 };

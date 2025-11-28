@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { VideoUploadResponse, VideoMetadata } from '@/types/api';
+import { VideoUploadResponse, VideoMetadata, PlayerNamesUpdate, PlayerNamesResponse } from '@/types/api';
 
 /**
  * Upload a video file for analysis
@@ -34,4 +34,25 @@ export const getVideoMetadata = async (videoId: string): Promise<VideoMetadata> 
  */
 export const deleteVideo = async (videoId: string): Promise<void> => {
   await apiClient.delete(`/api/videos/${videoId}`);
+};
+
+/**
+ * Update player names for a video
+ */
+export const updatePlayerNames = async (
+  videoId: string,
+  playerNames: PlayerNamesUpdate
+): Promise<PlayerNamesResponse> => {
+  const { data } = await apiClient.patch<PlayerNamesResponse>(
+    `/api/videos/${videoId}/player-names`,
+    playerNames
+  );
+  return data;
+};
+
+/**
+ * Get the URL for the first annotated frame of a video
+ */
+export const getFirstFrameUrl = (videoId: string): string => {
+  return `/api/videos/${videoId}/first-frame`;
 };

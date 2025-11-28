@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
+import supervision as sv
 
 from squashcopilot.common.types import Frame
 from squashcopilot.common.utils import load_config
@@ -365,8 +366,7 @@ class Pipeline:
 
         # Stage 8: Precompute Analytics Fields
         self._report_progress("analytics_preprocessing", 82)
-        self.session = session  # Store session reference for stage 8
-        session.current_df = self._stage8_precompute_analytics(session.current_df)
+        session.current_df = self._stage8_precompute_analytics(session.current_df, session)
         self._report_progress("analytics_preprocessing", 85)
 
         # Stage 9: Export Results
@@ -886,10 +886,11 @@ class Pipeline:
             }
 
         # Get all rallies with point winners (group by rally_id)
+        # Use 'max' to get the actual winner (1 or 2) instead of -1 (unknown/in-progress)
         rallies_with_winners = (
             df[df["point_winner"].notna() & (df["rally_id"].notna())]
             .groupby("rally_id")
-            .agg({"point_winner": "first", "timestamp": ["min", "max"]})
+            .agg({"point_winner": "max", "timestamp": ["min", "max"]})
             .reset_index()
         )
 
@@ -908,7 +909,16 @@ class Pipeline:
         player_1_score = 0
         player_2_score = 0
         current_game = 1
-        game_start_rally = int(rallies_with_winners.iloc[0]["rally_id"])
+
+        # Get the first rally ID from the data (should already be filtered to rally frames only in stage 8)
+        # This represents the true start of the first game
+        valid_rally_ids = df[df["rally_id"].notna()]["rally_id"]
+        first_rally_id = int(valid_rally_ids.min()) if len(valid_rally_ids) > 0 else 0
+
+        game_start_rally = first_rally_id
+        # Get start time from the first rally
+        first_rally_df = df[df["rally_id"] == first_rally_id]
+        game_start_time = float(first_rally_df["timestamp"].min()) if len(first_rally_df) > 0 else float(rallies_with_winners.iloc[0]["timestamp"]["min"])
 
         # Scoring parameters (standard squash rules)
         points_to_win_game = 11
@@ -918,10 +928,12 @@ class Pipeline:
 
         player_1_games = 0
         player_2_games = 0
+        last_rally_id = int(rallies_with_winners.iloc[-1]["rally_id"])
+        last_rally_time = float(rallies_with_winners.iloc[-1]["timestamp"]["max"])
 
         for idx, row in rallies_with_winners.iterrows():
             rally_id = int(row["rally_id"])
-            winner = int(row["point_winner"]["first"])
+            winner = int(row["point_winner"]["max"])
 
             # Only count valid point winners (1 or 2)
             if winner == 1:
@@ -972,7 +984,7 @@ class Pipeline:
                         "player_2_score": player_2_score,
                         "start_rally_id": game_start_rally,
                         "end_rally_id": rally_id,
-                        "start_time": float(row["timestamp"]["min"]),
+                        "start_time": game_start_time,
                         "end_time": float(row["timestamp"]["max"]),
                     }
                 )
@@ -992,6 +1004,25 @@ class Pipeline:
                 player_1_score = 0
                 player_2_score = 0
                 game_start_rally = rally_id + 1
+                # Set start time for next game (if there are more rallies)
+                if idx + 1 < len(rallies_with_winners):
+                    game_start_time = float(rallies_with_winners.iloc[idx + 1]["timestamp"]["min"])
+
+        # If there are remaining rallies that didn't complete a game, create an incomplete game
+        # Incomplete games always have winner = None (even if someone is leading)
+        if game_start_rally <= last_rally_id:
+            games.append(
+                {
+                    "game_number": current_game,
+                    "winner": None,  # Incomplete game - no winner yet
+                    "player_1_score": player_1_score,
+                    "player_2_score": player_2_score,
+                    "start_rally_id": game_start_rally,
+                    "end_rally_id": last_rally_id,
+                    "start_time": game_start_time,
+                    "end_time": last_rally_time,
+                }
+            )
 
         # Match result
         match_result = {
@@ -1010,12 +1041,17 @@ class Pipeline:
 
         return games, match_result
 
-    def _stage8_precompute_analytics(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _stage8_precompute_analytics(self, df: pd.DataFrame, session: PipelineSession) -> pd.DataFrame:
         """Stage 8: Precompute analytics-optimized fields for faster querying."""
         self.logger.info("Stage 8: Analytics Preprocessing")
         stage_start = time.time()
 
-        df = df.copy()
+        # Filter to rally frames only - non-rally frames (rally_id = -1) are not needed for analytics
+        if "is_rally_frame" in df.columns:
+            df = df[df["is_rally_frame"]].copy()
+            self.logger.info(f"Filtered to {len(df)} rally frames for analytics")
+        else:
+            df = df.copy()
 
         # Initialize new columns
         df["wall_hit_player_id"] = None
@@ -1221,9 +1257,8 @@ class Pipeline:
         game_results, match_result = self._compute_game_and_match_scores(df)
 
         # Store results in session for database insertion
-        if hasattr(self.session, "processing_stats"):
-            self.session.processing_stats["game_results"] = game_results
-            self.session.processing_stats["match_result"] = match_result
+        session.processing_stats["game_results"] = game_results
+        session.processing_stats["match_result"] = match_result
 
         self.logger.info(
             f"Stage 8 completed in {time.time() - stage_start:.2f}s - "
@@ -1310,6 +1345,11 @@ class Pipeline:
             output_paths["video"] = str(video_output_path)
             self.logger.info(f"Annotated video exported: {video_output_path}")
 
+            # Add first frame path to output paths
+            first_frame_path = output_dir / "first_frame.jpg"
+            if first_frame_path.exists():
+                output_paths["first_frame"] = str(first_frame_path)
+
         self.logger.info(f"Stage 9 completed in {time.time() - stage_start:.2f}s")
         return output_paths
 
@@ -1395,6 +1435,7 @@ class Pipeline:
         total_rally_frames = len(rally_frame_set)
 
         frame_number = 0
+        first_frame_saved = False
         pbar = tqdm(
             total=total_rally_frames,
             desc="Rendering video",
@@ -1409,6 +1450,14 @@ class Pipeline:
             if frame_number in rally_frame_set:
                 frame_data = df.loc[frame_number]
                 frame = self._draw_frame_annotations(frame, frame_data)
+
+                # Save first annotated frame
+                if not first_frame_saved:
+                    first_frame_path = output_path.parent / "first_frame.jpg"
+                    cv2.imwrite(str(first_frame_path), frame)
+                    first_frame_saved = True
+                    self.logger.info(f"First frame saved: {first_frame_path}")
+
                 out.write(frame)
                 pbar.update(1)
 
@@ -1421,82 +1470,93 @@ class Pipeline:
     def _draw_frame_annotations(
         self, frame: np.ndarray, frame_data: pd.Series
     ) -> np.ndarray:
-        """Draw annotations on a single frame."""
-        vis_config = self.config["visualization"]
+        """Draw annotations on a single frame using Supervision."""
+        # Define themed colors (red theme matching the app)
+        PLAYER_1_COLOR = sv.Color(220, 38, 38)  # Red-600 (rgb(220, 38, 38))
+        PLAYER_2_COLOR = sv.Color(37, 99, 235)  # Blue-600 (rgb(37, 99, 235))
 
-        # Draw players
+        # Draw players with elliptical circles at their feet
         for player_id in [1, 2]:
             x = frame_data.get(f"player_{player_id}_x_pixel")
             y = frame_data.get(f"player_{player_id}_y_pixel")
 
             if pd.notna(x) and pd.notna(y):
                 x, y = int(x), int(y)
-                cv2.circle(frame, (x, y), 10, tuple(vis_config["player_box_color"]), -1)
+
+                # Choose color based on player
+                color = PLAYER_1_COLOR if player_id == 1 else PLAYER_2_COLOR
+                color_bgr = (color.b, color.g, color.r)  # Convert to BGR for OpenCV
+
+                # Draw elliptical circle at player's feet
+                # Ellipse parameters: center, axes (width, height), angle, start_angle, end_angle, color, thickness
+                ellipse_width = 40  # Horizontal axis
+                ellipse_height = 20  # Vertical axis (smaller for ground perspective)
+                cv2.ellipse(
+                    frame,
+                    (x, y),
+                    (ellipse_width, ellipse_height),
+                    0,  # rotation angle
+                    0,  # start angle
+                    360,  # end angle
+                    color_bgr,
+                    3,  # thickness
+                )
+
+                # Fill the ellipse with semi-transparency effect
+                overlay = frame.copy()
+                cv2.ellipse(
+                    overlay,
+                    (x, y),
+                    (ellipse_width, ellipse_height),
+                    0,
+                    0,
+                    360,
+                    color_bgr,
+                    -1,  # filled
+                )
+                # Blend with original frame (30% opacity)
+                cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
+
+                # Draw player label (P1 or P2) above the ellipse
+                label = f"P{player_id}"
+                label_y = y - ellipse_height - 10  # Position above the ellipse
+
+                # Get text size for background
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.7
+                font_thickness = 2
+                (text_width, text_height), baseline = cv2.getTextSize(
+                    label, font, font_scale, font_thickness
+                )
+
+                # Draw background rectangle for text
+                bg_x1 = x - text_width // 2 - 5
+                bg_y1 = label_y - text_height - 5
+                bg_x2 = x + text_width // 2 + 5
+                bg_y2 = label_y + 5
+
+                # Draw rounded rectangle background
+                cv2.rectangle(
+                    frame,
+                    (bg_x1, bg_y1),
+                    (bg_x2, bg_y2),
+                    color_bgr,
+                    -1,  # filled
+                )
+
+                # Draw text in white
                 cv2.putText(
                     frame,
-                    f"P{player_id}",
-                    (x - 20, y - 20),
-                    vis_config["font"],
-                    0.6,
-                    tuple(vis_config["player_box_color"]),
-                    vis_config["font_thickness"],
+                    label,
+                    (x - text_width // 2, label_y),
+                    font,
+                    font_scale,
+                    (255, 255, 255),  # White text
+                    font_thickness,
+                    cv2.LINE_AA,  # Anti-aliased
                 )
 
-        # Draw ball
-        if vis_config["draw_ball"]:
-            ball_x = frame_data.get("ball_x")
-            ball_y = frame_data.get("ball_y")
-            if pd.notna(ball_x) and pd.notna(ball_y):
-                cv2.circle(
-                    frame,
-                    (int(ball_x), int(ball_y)),
-                    vis_config["ball_radius"],
-                    tuple(vis_config["ball_color"]),
-                    -1,
-                )
-
-        # Draw rally ID
-        if vis_config["show_rally_id"]:
-            rally_id = frame_data.get("rally_id")
-            if pd.notna(rally_id) and rally_id >= 0:
-                cv2.putText(
-                    frame,
-                    f"Rally {int(rally_id)}",
-                    tuple(vis_config["rally_id_position"]),
-                    vis_config["font"],
-                    vis_config["rally_id_font_scale"],
-                    tuple(vis_config["rally_id_color"]),
-                    vis_config["font_thickness"],
-                )
-
-        # Draw stroke label
-        if vis_config["show_stroke_labels"]:
-            stroke_type = frame_data.get("stroke_type")
-            if pd.notna(stroke_type) and stroke_type:
-                cv2.putText(
-                    frame,
-                    f"Stroke: {stroke_type}",
-                    (20, 100),
-                    vis_config["font"],
-                    vis_config["stroke_label_font_scale"],
-                    tuple(vis_config["stroke_label_color"]),
-                    vis_config["font_thickness"],
-                )
-
-        # Draw shot label
-        if vis_config["show_shot_labels"]:
-            shot_type = frame_data.get("shot_type")
-            if pd.notna(shot_type) and shot_type:
-                cv2.putText(
-                    frame,
-                    f"Shot: {shot_type}",
-                    (20, 150),
-                    vis_config["font"],
-                    vis_config["shot_label_font_scale"],
-                    tuple(vis_config["shot_label_color"]),
-                    vis_config["font_thickness"],
-                )
-
+        # Only annotate players - no ball, court lines, or other elements
         return frame
 
 

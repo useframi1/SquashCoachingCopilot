@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
-import { Filter, X, Menu } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Filter, X, Menu, UserCog } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { PlayerNamingModal } from '@/components/dashboard/PlayerNamingModal';
 import {
   Select,
   SelectContent,
@@ -13,6 +14,8 @@ import {
 import { useFilterStore } from '@/lib/stores/filterStore';
 import { useQuery } from '@tanstack/react-query';
 import { getMatchSummary } from '@/lib/api/analytics';
+import { getVideoMetadata } from '@/lib/api/videos';
+import { usePlayerNames } from '@/lib/hooks/usePlayerNames';
 
 interface FilterBarProps {
   videoId: string;
@@ -24,6 +27,7 @@ interface FilterBarProps {
  * Filters persist across all tabs and trigger data refetch
  */
 export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const {
     gameNumber,
     playerId,
@@ -40,6 +44,16 @@ export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Fetch video metadata for player names
+  const { data: videoMetadata } = useQuery({
+    queryKey: ['video', videoId],
+    queryFn: () => getVideoMetadata(videoId),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Get player names
+  const { player1Name, player2Name } = usePlayerNames(videoId);
+
   // Set videoId in store when component mounts
   useEffect(() => {
     setVideoId(videoId);
@@ -48,28 +62,29 @@ export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
   const hasActiveFilters = gameNumber !== null || playerId !== null;
 
   return (
-    <div className="min-h-16 bg-white border-b border-gray-200 px-4 md:px-6 py-3">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        {/* Left: Mobile Menu + Filter Icon and Title */}
-        <div className="flex items-center gap-3">
-          {onMenuClick && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onMenuClick}
-              className="md:hidden"
-              aria-label="Open menu"
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-          )}
-          <Filter className="h-5 w-5 text-muted-foreground" />
-          <span className="text-sm font-medium">Filters</span>
-        </div>
+    <>
+      <div className="min-h-16 bg-card border-b border-border/20 shadow-sm px-4 md:px-6 py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Left: Filter Icon, Title, and Filter Controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+            <div className="flex items-center gap-3">
+              {onMenuClick && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onMenuClick}
+                  className="md:hidden"
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+              )}
+              <Filter className="h-5 w-5 text-muted-foreground" />
+              <span className="text-sm font-medium">Filters</span>
+            </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-          {/* Filter Controls */}
-          <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+            {/* Filter Controls */}
+            <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
             {/* Game Number Filter */}
             <div className="flex items-center gap-2">
               <label htmlFor="game-filter" className="text-sm text-muted-foreground">
@@ -111,8 +126,8 @@ export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Players</SelectItem>
-                  <SelectItem value="1">Player 1</SelectItem>
-                  <SelectItem value="2">Player 2</SelectItem>
+                  <SelectItem value="1">{player1Name}</SelectItem>
+                  <SelectItem value="2">{player2Name}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -123,25 +138,38 @@ export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
                 variant="ghost"
                 size="sm"
                 onClick={clearFilters}
-                className="text-destructive hover:text-destructive"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
               >
                 <X className="h-4 w-4 mr-1" />
                 Clear
               </Button>
             )}
           </div>
+        </div>
 
-          {/* Match Info */}
-          <div className="text-sm text-muted-foreground">
-            {matchSummary && (
-              <span>
-                {matchSummary.match.player_1_games_won}-
-                {matchSummary.match.player_2_games_won}
-              </span>
-            )}
-          </div>
+        {/* Right: Edit Player Names Button */}
+        <div className="flex items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsModalOpen(true)}
+            className="gap-2"
+          >
+            <UserCog className="h-4 w-4" />
+            Edit Player Names
+          </Button>
         </div>
       </div>
-    </div>
+      </div>
+
+      {/* Player Naming Modal */}
+      <PlayerNamingModal
+        videoId={videoId}
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        currentPlayer1Name={videoMetadata?.player_1_name}
+        currentPlayer2Name={videoMetadata?.player_2_name}
+      />
+    </>
   );
 }

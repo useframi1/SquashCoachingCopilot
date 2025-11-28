@@ -32,6 +32,11 @@ class Video(Base):
     annotated_video_path = Column(String(512), nullable=True)
     csv_path = Column(String(512), nullable=True)
     stats_path = Column(String(512), nullable=True)
+    first_frame_path = Column(String(512), nullable=True)
+
+    # Player metadata
+    player_1_name = Column(String(255), nullable=True)
+    player_2_name = Column(String(255), nullable=True)
 
     # Court calibration data (stored as JSON)
     calibration_data = Column(JSON, nullable=True)

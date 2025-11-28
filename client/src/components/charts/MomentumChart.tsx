@@ -15,6 +15,8 @@ import { CHART_COLORS } from '@/lib/utils/chart-utils';
 
 interface MomentumChartProps {
   data: MomentumTimelineItem[];
+  player1Name?: string;
+  player2Name?: string;
 }
 
 /**
@@ -22,7 +24,7 @@ interface MomentumChartProps {
  * Positive values (red) = Player 1 ahead
  * Negative values (grey) = Player 2 ahead
  */
-export function MomentumChart({ data }: MomentumChartProps) {
+export function MomentumChart({ data, player1Name = 'Player 1', player2Name = 'Player 2' }: MomentumChartProps) {
   if (!data || data.length === 0) {
     return (
       <div className="h-96 flex items-center justify-center text-gray-500">
@@ -34,7 +36,7 @@ export function MomentumChart({ data }: MomentumChartProps) {
   return (
     <div role="img" aria-label="Momentum chart showing score differential over rallies">
       <ResponsiveContainer width="100%" height={400}>
-        <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
           <defs>
             <linearGradient id="colorDifferential" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={CHART_COLORS.player1} stopOpacity={0.8} />
@@ -46,12 +48,17 @@ export function MomentumChart({ data }: MomentumChartProps) {
 
         <XAxis
           dataKey="rally_id"
-          label={{ value: 'Rally Number', position: 'insideBottom', offset: -5 }}
+          label={{ value: 'Rally Number', position: 'insideBottom', offset: 0 }}
           stroke="#6b7280"
         />
 
         <YAxis
-          label={{ value: 'Score Differential', angle: -90, position: 'insideLeft' }}
+          label={{
+            value: 'Score Differential',
+            angle: -90,
+            position: 'insideLeft',
+            style: { textAnchor: 'middle' }
+          }}
           stroke="#6b7280"
         />
 
@@ -68,10 +75,10 @@ export function MomentumChart({ data }: MomentumChartProps) {
                 </p>
                 <div className="space-y-1 text-sm">
                   <p className="text-gray-700">
-                    Player 1: <span className="font-semibold">{data.player_1_score}</span>
+                    {player1Name}: <span className="font-semibold">{data.player_1_score}</span>
                   </p>
                   <p className="text-gray-700">
-                    Player 2: <span className="font-semibold">{data.player_2_score}</span>
+                    {player2Name}: <span className="font-semibold">{data.player_2_score}</span>
                   </p>
                   <p className="text-gray-700">
                     Differential:{' '}
@@ -86,7 +93,7 @@ export function MomentumChart({ data }: MomentumChartProps) {
                   </p>
                   {data.point_winner && (
                     <p className="text-gray-700">
-                      Point winner: <span className="font-semibold">Player {data.point_winner}</span>
+                      Point winner: <span className="font-semibold">{data.point_winner === 1 ? player1Name : player2Name}</span>
                     </p>
                   )}
                 </div>

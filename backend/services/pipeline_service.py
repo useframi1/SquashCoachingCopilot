@@ -195,6 +195,12 @@ class PipelineService:
             )
             video.csv_path = str(output_dir / f"{video_path.stem}_analysis.csv")
             video.stats_path = str(output_dir / f"{video_path.stem}_stats.json")
+
+            # Save first frame path if it exists
+            first_frame_path = output_dir / "first_frame.jpg"
+            if first_frame_path.exists():
+                video.first_frame_path = str(first_frame_path)
+
             video.processed_at = datetime.utcnow()
             self.db.commit()
 

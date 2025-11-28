@@ -9,6 +9,7 @@ import {
   getBallSpeed,
   getRhythmDisruption,
   getWallQuadrants,
+  getWallHitsHeatmap,
   getRallyTimeline,
   getMovementMetrics,
   getTZoneOccupancy,
@@ -18,6 +19,10 @@ import {
   getShotEffectiveness,
   getWinningStats,
   getRallyIntensity,
+  getLongestRally,
+  getFastestShot,
+  getLetStats,
+  getBreakTime,
 } from '@/lib/api/analytics';
 
 /**
@@ -236,6 +241,75 @@ export function useRallyIntensity(videoId: string) {
   return useQuery({
     queryKey: ['rally-intensity', videoId, filters],
     queryFn: () => getRallyIntensity(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+// ============================================================================
+// MATCH HIGHLIGHTS HOOKS
+// ============================================================================
+
+/**
+ * Hook for longest rally
+ */
+export function useLongestRally(videoId: string) {
+  const filters = useFilters();
+
+  return useQuery({
+    queryKey: ['longest-rally', videoId, filters],
+    queryFn: () => getLongestRally(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for fastest shot
+ */
+export function useFastestShot(videoId: string) {
+  const filters = useFilters();
+
+  return useQuery({
+    queryKey: ['fastest-shot', videoId, filters],
+    queryFn: () => getFastestShot(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for let statistics
+ */
+export function useLetStats(videoId: string) {
+  const filters = useFilters();
+
+  return useQuery({
+    queryKey: ['let-stats', videoId, filters],
+    queryFn: () => getLetStats(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for break time statistics
+ */
+export function useBreakTime(videoId: string) {
+  const filters = useFilters();
+
+  return useQuery({
+    queryKey: ['break-time', videoId, filters],
+    queryFn: () => getBreakTime(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for wall hits heatmap
+ */
+export function useWallHitsHeatmap(videoId: string) {
+  const filters = useFilters();
+
+  return useQuery({
+    queryKey: ['wall-hits-heatmap', videoId, filters],
+    queryFn: () => getWallHitsHeatmap(videoId, filters),
     enabled: !!videoId,
   });
 }

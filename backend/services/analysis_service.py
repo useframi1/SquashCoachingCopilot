@@ -21,8 +21,7 @@ from backend.schemas.analysis import (
     SingleAggregate,
     BallSpeedData,
     RhythmDisruptionData,
-    ShotPlacementData,
-    WinningStatsData,
+    WinningEfficiencyData,
     RallyIntensityData,
     # Pattern 3: Spatial
     HeatmapGrid,
@@ -34,27 +33,77 @@ from backend.schemas.analysis import (
     # Pattern 6: Time-Series
     RallyTimelineItem,
     MomentumTimelineItem,
-    TimeToTTimelineItem,
-    # Response schemas
+    # Aggregate response schemas
     StrokeDistributionResponse,
     ShotTypeDistributionResponse,
     BallSpeedResponse,
     RhythmDisruptionResponse,
     PlayerPositionHeatmapResponse,
-    ShotPlacementResponse,
     CourtQuadrantResponse,
     WallHitHeatmapResponse,
     WallQuadrantResponse,
-    WinningStatsResponse,
-    # Extended analytics schemas
+    WinningEfficiencyResponse,
     MovementMetricsResponse,
     TZoneOccupancyResponse,
     ShotEffectivenessResponse,
     RallyIntensityResponse,
-    # Time-series analytics schemas
+    LetStatsData,
+    LetStatsResponse,
+    BreakTimeData,
+    BreakTimeResponse,
     RallyTimelineResponse,
     MomentumTimelineResponse,
-    TimeToTTimelineResponse,
+    # Per-game time-series schemas
+    StrokeDistributionPerGameResponse,
+    StrokeDistributionPerGameItem,
+    ShotTypeDistributionPerGameResponse,
+    ShotTypeDistributionPerGameItem,
+    BallSpeedPerGameResponse,
+    BallSpeedPerGameItem,
+    RhythmDisruptionPerGameResponse,
+    RhythmDisruptionPerGameItem,
+    CourtQuadrantPerGameResponse,
+    CourtQuadrantPerGameItem,
+    WallQuadrantPerGameResponse,
+    WallQuadrantPerGameItem,
+    MovementMetricsPerGameResponse,
+    MovementMetricsPerGameItem,
+    TZoneOccupancyPerGameResponse,
+    TZoneOccupancyPerGameItem,
+    ShotEffectivenessPerGameResponse,
+    ShotEffectivenessPerGameItem,
+    WinningEfficiencyPerGameResponse,
+    WinningEfficiencyPerGameItem,
+    RallyIntensityPerGameResponse,
+    RallyIntensityPerGameItem,
+    # Per-rally time-series schemas
+    StrokeDistributionPerRallyResponse,
+    StrokeDistributionPerRallyItem,
+    ShotTypeDistributionPerRallyResponse,
+    ShotTypeDistributionPerRallyItem,
+    BallSpeedPerRallyResponse,
+    BallSpeedPerRallyItem,
+    RhythmDisruptionPerRallyResponse,
+    RhythmDisruptionPerRallyItem,
+    CourtQuadrantPerRallyResponse,
+    CourtQuadrantPerRallyItem,
+    WallQuadrantPerRallyResponse,
+    WallQuadrantPerRallyItem,
+    MovementMetricsPerRallyResponse,
+    MovementMetricsPerRallyItem,
+    TZoneOccupancyPerRallyResponse,
+    TZoneOccupancyPerRallyItem,
+    ShotEffectivenessPerRallyResponse,
+    ShotEffectivenessPerRallyItem,
+    WinningEfficiencyPerRallyResponse,
+    WinningEfficiencyPerRallyItem,
+    RallyIntensityPerRallyResponse,
+    RallyIntensityPerRallyItem,
+    # Match highlights schemas
+    LongestRallyResponse,
+    LongestRallyData,
+    FastestShotResponse,
+    FastestShotData,
 )
 from backend.schemas.match import MatchSummaryResponse
 
@@ -99,7 +148,9 @@ class AnalysisService:
         if filters.game_number is not None:
             game = (
                 self.db.query(Game)
-                .filter(Game.video_id == video_id, Game.game_number == filters.game_number)
+                .filter(
+                    Game.video_id == video_id, Game.game_number == filters.game_number
+                )
                 .first()
             )
             if not game:
@@ -185,6 +236,167 @@ class AnalysisService:
         return HeatmapGrid(
             grid=grid.tolist(), width=WIDTH, height=HEIGHT, bounds=bounds
         )
+
+    def _get_games_metadata(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> List[Dict]:
+        """Get list of games with metadata for per-game time-series queries.
+
+        Returns list of game metadata including game_number, rally range, times, etc.
+        Respects game_number filter if provided.
+        """
+        params = {"video_id": video_id}
+        where_clauses = ["video_id = :video_id"]
+
+        if filters.game_number is not None:
+            where_clauses.append("game_number = :game_number")
+            params["game_number"] = filters.game_number
+
+        where_sql = " AND ".join(where_clauses)
+
+        query = text(
+            f"""
+            SELECT
+                game_number,
+                start_rally_id,
+                end_rally_id,
+                start_time,
+                end_time,
+                (end_time - start_time) as duration,
+                (end_rally_id - start_rally_id + 1) as rally_count
+            FROM games
+            WHERE {where_sql}
+            ORDER BY game_number
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        return [
+            {
+                "game_number": row.game_number,
+                "start_rally_id": row.start_rally_id,
+                "end_rally_id": row.end_rally_id,
+                "start_time": float(row.start_time),
+                "end_time": float(row.end_time),
+                "duration": float(row.duration),
+                "rally_count": int(row.rally_count),
+            }
+            for row in results
+        ]
+
+    def _pivot_by_game(
+        self, rows: List, game_metadata: List[Dict], metric_builder
+    ) -> List[Dict]:
+        """Pivot player rows into game items with player_1 and player_2 fields.
+
+        Args:
+            rows: Database rows with game_number and racket_hit_player_id
+            game_metadata: List of game metadata dicts
+            metric_builder: Callable that takes a row and returns metric dict
+
+        Returns:
+            List of game items with player_1 and player_2 nested data
+        """
+        # Group rows by game_number
+        games_data = {}
+        for row in rows:
+            game_num = row.game_number
+            player_id = (
+                row.racket_hit_player_id
+                if hasattr(row, "racket_hit_player_id")
+                else None
+            )
+
+            if game_num not in games_data:
+                games_data[game_num] = {"player_1": None, "player_2": None}
+
+            if player_id:
+                metrics = metric_builder(row)
+                if player_id == 1:
+                    games_data[game_num]["player_1"] = metrics
+                else:
+                    games_data[game_num]["player_2"] = metrics
+
+        # Combine with game metadata
+        result = []
+        for game_meta in game_metadata:
+            game_num = game_meta["game_number"]
+            game_item = {**game_meta}
+
+            if game_num in games_data:
+                game_item["player_1"] = games_data[game_num]["player_1"]
+                game_item["player_2"] = games_data[game_num]["player_2"]
+            else:
+                game_item["player_1"] = None
+                game_item["player_2"] = None
+
+            result.append(game_item)
+
+        return result
+
+    def _pivot_by_rally(self, rows: List, metric_builder) -> List[Dict]:
+        """Pivot player rows into rally items with player_1 and player_2 fields.
+
+        Args:
+            rows: Database rows with rally_id and racket_hit_player_id
+            metric_builder: Callable that takes a row and returns metric dict
+
+        Returns:
+            List of rally items with player_1 and player_2 nested data
+        """
+        rallies_data = {}
+
+        for row in rows:
+            rally_id = row.rally_id
+            player_id = (
+                row.racket_hit_player_id
+                if hasattr(row, "racket_hit_player_id")
+                else None
+            )
+
+            if rally_id not in rallies_data:
+                rallies_data[rally_id] = {
+                    "rally_id": rally_id,
+                    "game_number": (
+                        row.game_number if hasattr(row, "game_number") else None
+                    ),
+                    "rally_start_time": (
+                        float(row.rally_start_time)
+                        if hasattr(row, "rally_start_time")
+                        else 0.0
+                    ),
+                    "rally_duration": (
+                        float(row.rally_duration)
+                        if hasattr(row, "rally_duration")
+                        else 0.0
+                    ),
+                    "shot_count": (
+                        int(row.shot_count)
+                        if hasattr(row, "shot_count") and row.shot_count is not None
+                        else 0
+                    ),
+                    "point_winner": (
+                        int(row.point_winner)
+                        if hasattr(row, "point_winner") and row.point_winner
+                        else None
+                    ),
+                    "player_1": None,
+                    "player_2": None,
+                }
+
+            if player_id:
+                metrics = metric_builder(row)
+                if player_id == 1:
+                    rallies_data[rally_id]["player_1"] = metrics
+                else:
+                    rallies_data[rally_id]["player_2"] = metrics
+
+                # Accumulate shot count
+                if hasattr(row, "player_shot_count"):
+                    rallies_data[rally_id]["shot_count"] += int(row.player_shot_count)
+
+        return list(rallies_data.values())
 
     # ========================================================================
     # ANALYTICS ENDPOINT METHODS
@@ -356,15 +568,21 @@ class AnalysisService:
 
         data = RhythmDisruptionData(
             ball_speed_cv=float(result.ball_speed_cv) if result.ball_speed_cv else 0.0,
-            ball_speed_variance=float(result.ball_speed_variance) if result.ball_speed_variance else 0.0,
-            wall_hit_height_cv=float(result.wall_hit_height_cv) if result.wall_hit_height_cv else 0.0,
-            wall_hit_height_variance=float(result.wall_hit_height_variance) if result.wall_hit_height_variance else 0.0,
+            ball_speed_variance=(
+                float(result.ball_speed_variance) if result.ball_speed_variance else 0.0
+            ),
+            wall_hit_height_cv=(
+                float(result.wall_hit_height_cv) if result.wall_hit_height_cv else 0.0
+            ),
+            wall_hit_height_variance=(
+                float(result.wall_hit_height_variance)
+                if result.wall_hit_height_variance
+                else 0.0
+            ),
             shot_count=int(result.shot_count) if result.shot_count else 0,
         )
 
-        return RhythmDisruptionResponse(
-            video_id=video_id, filters=filters, data=data
-        )
+        return RhythmDisruptionResponse(video_id=video_id, filters=filters, data=data)
 
     def get_player_position_heatmap(
         self, video_id: str, filters: AnalyticsFilters
@@ -434,99 +652,7 @@ class AnalysisService:
             video_id=video_id, filters=filters, data=spatial_data
         )
 
-    def get_shot_placement_effectiveness(
-        self, video_id: str, player_id: int, filters: AnalyticsFilters
-    ) -> ShotPlacementResponse:
-        """Analyze shot placement effectiveness - PostgreSQL optimized.
-
-        Measures average distance opponent had to move after each shot.
-        Greater distance indicates more effective shot placement.
-        """
-        logger.info(f"Computing shot placement effectiveness for player {player_id}")
-        self._check_processed(video_id)
-
-        # Build WHERE clause without player_id (we'll add it manually for the specific player)
-        where_sql, params = self._build_where_clause(video_id, filters, include_player_id=False)
-
-        # Determine opponent
-        opponent_id = 2 if player_id == 1 else 1
-
-        # Add player IDs to params
-        params["player_id"] = player_id
-        params["opponent_id"] = opponent_id
-
-        # Use PostgreSQL window functions to calculate opponent distance moved
-        opp_x = f"player_{opponent_id}_x_meter"
-        opp_y = f"player_{opponent_id}_y_meter"
-
-        query = text(
-            f"""
-            WITH all_shots AS (
-                SELECT
-                    rally_id,
-                    frame_number,
-                    racket_hit_player_id,
-                    {opp_x} as opponent_x,
-                    {opp_y} as opponent_y
-                FROM frame_data
-                WHERE {where_sql}
-                  AND is_racket_hit = TRUE
-                  AND {opp_x} IS NOT NULL
-                  AND {opp_y} IS NOT NULL
-            ),
-            player_shots_with_next_opponent_position AS (
-                SELECT
-                    curr.rally_id,
-                    curr.frame_number,
-                    curr.opponent_x as opp_x_at_player_shot,
-                    curr.opponent_y as opp_y_at_player_shot,
-                    next_opp.opponent_x as opp_x_at_next_shot,
-                    next_opp.opponent_y as opp_y_at_next_shot
-                FROM all_shots curr
-                LEFT JOIN LATERAL (
-                    SELECT opponent_x, opponent_y
-                    FROM all_shots next
-                    WHERE next.rally_id = curr.rally_id
-                      AND next.frame_number > curr.frame_number
-                      AND next.racket_hit_player_id = :opponent_id
-                    ORDER BY next.frame_number ASC
-                    LIMIT 1
-                ) next_opp ON TRUE
-                WHERE curr.racket_hit_player_id = :player_id
-            ),
-            distances AS (
-                SELECT
-                    SQRT(
-                        POW(opp_x_at_next_shot - opp_x_at_player_shot, 2) +
-                        POW(opp_y_at_next_shot - opp_y_at_player_shot, 2)
-                    ) as distance_moved
-                FROM player_shots_with_next_opponent_position
-                WHERE opp_x_at_player_shot IS NOT NULL
-                  AND opp_y_at_player_shot IS NOT NULL
-                  AND opp_x_at_next_shot IS NOT NULL
-                  AND opp_y_at_next_shot IS NOT NULL
-            )
-            SELECT
-                AVG(distance_moved) as avg_distance,
-                MIN(distance_moved) as min_distance,
-                MAX(distance_moved) as max_distance,
-                STDDEV_POP(distance_moved) as std_dev,
-                COUNT(*) as count
-            FROM distances
-        """
-        )
-
-        result = self.db.execute(query, params).fetchone()
-
-        data = ShotPlacementData(
-            avg_opponent_distance_moved=float(result.avg_distance) if result.avg_distance else 0.0,
-            min_opponent_distance_moved=float(result.min_distance) if result.min_distance else 0.0,
-            max_opponent_distance_moved=float(result.max_distance) if result.max_distance else 0.0,
-            std_dev=float(result.std_dev) if result.std_dev else 0.0,
-            shot_count=int(result.count) if result.count else 0,
-        )
-
-        return ShotPlacementResponse(video_id=video_id, filters=filters, data=data)
+    # get_shot_placement_effectiveness removed - use get_shot_effectiveness instead
 
     def get_court_quadrant_distribution(
         self, video_id: str, filters: AnalyticsFilters
@@ -749,29 +875,39 @@ class AnalysisService:
             quadrant_boundaries={"x_cut": X_CUT, "y_cut": Y_CUT},
         )
 
-    def get_winning_stats(
+    def get_winning_efficiency(
         self, video_id: str, player_id: int, filters: AnalyticsFilters
-    ) -> WinningStatsResponse:
-        """Calculate winning statistics for a specific player - PostgreSQL optimized.
+    ) -> WinningEfficiencyResponse:
+        """Calculate winning efficiency for a specific player - PostgreSQL optimized.
 
-        Returns aggregate winning efficiency metrics (points won per shot ratio).
+        Returns aggregate winning efficiency metrics showing how many shots are needed to win a point.
+        Lower values indicate better efficiency (winning points with fewer shots).
         """
-        logger.info(f"Computing winning stats for player {player_id}")
+        logger.info(f"Computing winning efficiency for player {player_id}")
         self._check_processed(video_id)
 
         where_sql, params = self._build_where_clause(video_id, filters)
         params["player_id"] = player_id
 
-        # Aggregate query for a single player
+        # Query to get total shots per rally and points won
         query = text(
             f"""
+            WITH rally_stats AS (
+                SELECT
+                    rally_id,
+                    SUM(CASE WHEN is_racket_hit = TRUE AND racket_hit_player_id = :player_id THEN 1 ELSE 0 END) as player_shots,
+                    MAX(CASE WHEN point_winner = :player_id THEN 1 ELSE 0 END) as won_point
+                FROM frame_data
+                WHERE {where_sql}
+                  AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            )
             SELECT
-                SUM(CASE WHEN is_racket_hit = TRUE AND racket_hit_player_id = :player_id THEN 1 ELSE 0 END) as total_shots,
-                SUM(CASE WHEN point_winner = :player_id THEN 1 ELSE 0 END) as points_won,
-                COUNT(DISTINCT rally_id) as rallies_played
-            FROM frame_data
-            WHERE {where_sql}
-              AND rally_id IS NOT NULL
+                SUM(player_shots) as total_shots,
+                SUM(won_point) as points_won,
+                COUNT(*) as rallies_played,
+                SUM(CASE WHEN won_point = 1 THEN player_shots ELSE 0 END) as shots_in_won_rallies
+            FROM rally_stats
         """
         )
 
@@ -780,19 +916,25 @@ class AnalysisService:
         total_shots = int(result.total_shots) if result.total_shots else 0
         points_won = int(result.points_won) if result.points_won else 0
         rallies_played = int(result.rallies_played) if result.rallies_played else 0
+        shots_in_won_rallies = (
+            int(result.shots_in_won_rallies) if result.shots_in_won_rallies else 0
+        )
 
-        efficiency = (points_won / total_shots) if total_shots > 0 else 0.0
-        points_per_rally = (points_won / rallies_played) if rallies_played > 0 else 0.0
+        # Calculate shots needed per point won (lower is better)
+        shots_per_point_won = (
+            (shots_in_won_rallies / points_won) if points_won > 0 else 0.0
+        )
+        win_rate = (points_won / rallies_played * 100) if rallies_played > 0 else 0.0
 
-        data = WinningStatsData(
-            efficiency=efficiency,
+        data = WinningEfficiencyData(
+            shots_per_point_won=shots_per_point_won,
             points_won=points_won,
             total_shots=total_shots,
-            points_per_rally=points_per_rally,
+            win_rate=win_rate,
             rallies_played=rallies_played,
         )
 
-        return WinningStatsResponse(video_id=video_id, filters=filters, data=data)
+        return WinningEfficiencyResponse(video_id=video_id, filters=filters, data=data)
 
     def get_movement_metrics(
         self, video_id: str, filters: AnalyticsFilters
@@ -825,12 +967,6 @@ class AnalysisService:
                     SELECT
                         rally_id,
                         frame_number,
-                        {player_col_x},
-                        {player_col_y},
-                        {opponent_col_x},
-                        {opponent_col_y},
-                        is_racket_hit,
-                        racket_hit_player_id,
                         -- Player distance from previous frame
                         SQRT(
                             POW({player_col_x} - LAG({player_col_x}) OVER (PARTITION BY rally_id ORDER BY frame_number), 2) +
@@ -842,38 +978,6 @@ class AnalysisService:
                       AND {player_col_x} IS NOT NULL
                       AND {player_col_y} IS NOT NULL
                 ),
-                shot_frames AS (
-                    SELECT
-                        rally_id,
-                        frame_number,
-                        racket_hit_player_id,
-                        {player_col_x} as player_x,
-                        {player_col_y} as player_y,
-                        {opponent_col_x} as opponent_x,
-                        {opponent_col_y} as opponent_y
-                    FROM frame_distances
-                    WHERE is_racket_hit = TRUE
-                ),
-                distance_to_ball AS (
-                    SELECT
-                        curr.rally_id,
-                        curr.frame_number,
-                        SQRT(
-                            POW(curr.player_x - prev.opponent_x, 2) +
-                            POW(curr.player_y - prev.opponent_y, 2)
-                        ) as distance_to_ball
-                    FROM shot_frames curr
-                    LEFT JOIN LATERAL (
-                        SELECT opponent_x, opponent_y
-                        FROM shot_frames prev
-                        WHERE prev.rally_id = curr.rally_id
-                          AND prev.frame_number < curr.frame_number
-                          AND prev.racket_hit_player_id != curr.racket_hit_player_id
-                        ORDER BY prev.frame_number DESC
-                        LIMIT 1
-                    ) prev ON TRUE
-                    WHERE curr.racket_hit_player_id = :player_id_param
-                ),
                 rally_totals AS (
                     SELECT
                         rally_id,
@@ -882,14 +986,9 @@ class AnalysisService:
                     GROUP BY rally_id
                 )
                 SELECT
-                    SUM(rt.rally_distance) as total_distance,
-                    AVG(rt.rally_distance) as avg_distance_per_rally,
-                    AVG(dtb.distance_to_ball) as avg_distance_to_ball,
-                    MIN(dtb.distance_to_ball) as min_distance_to_ball,
-                    MAX(dtb.distance_to_ball) as max_distance_to_ball,
-                    COUNT(dtb.distance_to_ball) as shot_count
-                FROM rally_totals rt
-                LEFT JOIN distance_to_ball dtb ON rt.rally_id = dtb.rally_id
+                    SUM(rally_distance) as total_distance,
+                    AVG(rally_distance) as avg_distance_per_rally
+                FROM rally_totals
             """
             )
             params["player_id_param"] = filters.player_id
@@ -901,12 +1000,6 @@ class AnalysisService:
                     SELECT
                         rally_id,
                         frame_number,
-                        player_1_x_meter,
-                        player_1_y_meter,
-                        player_2_x_meter,
-                        player_2_y_meter,
-                        is_racket_hit,
-                        racket_hit_player_id,
                         -- Player 1 distance from previous frame
                         SQRT(
                             POW(player_1_x_meter - LAG(player_1_x_meter) OVER (PARTITION BY rally_id ORDER BY frame_number), 2) +
@@ -925,76 +1018,18 @@ class AnalysisService:
                       AND player_2_x_meter IS NOT NULL
                       AND player_2_y_meter IS NOT NULL
                 ),
-                shot_frames AS (
+                rally_distances AS (
                     SELECT
                         rally_id,
-                        frame_number,
-                        racket_hit_player_id,
-                        player_1_x_meter,
-                        player_1_y_meter,
-                        player_2_x_meter,
-                        player_2_y_meter
-                    FROM frame_distances
-                    WHERE is_racket_hit = TRUE
-                ),
-                distance_to_ball AS (
-                    SELECT
-                        curr.rally_id,
-                        curr.frame_number,
-                        curr.racket_hit_player_id,
-                        -- P1 distance to ball
-                        CASE
-                            WHEN curr.racket_hit_player_id = 1 AND prev.player_2_x_meter IS NOT NULL THEN
-                                SQRT(
-                                    POW(curr.player_1_x_meter - prev.player_2_x_meter, 2) +
-                                    POW(curr.player_1_y_meter - prev.player_2_y_meter, 2)
-                                )
-                            ELSE NULL
-                        END as p1_distance_to_ball,
-                        -- P2 distance to ball
-                        CASE
-                            WHEN curr.racket_hit_player_id = 2 AND prev.player_1_x_meter IS NOT NULL THEN
-                                SQRT(
-                                    POW(curr.player_2_x_meter - prev.player_1_x_meter, 2) +
-                                    POW(curr.player_2_y_meter - prev.player_1_y_meter, 2)
-                                )
-                            ELSE NULL
-                        END as p2_distance_to_ball
-                    FROM shot_frames curr
-                    LEFT JOIN LATERAL (
-                        SELECT player_1_x_meter, player_1_y_meter, player_2_x_meter, player_2_y_meter
-                        FROM shot_frames prev
-                        WHERE prev.rally_id = curr.rally_id
-                          AND prev.frame_number < curr.frame_number
-                          AND prev.racket_hit_player_id != curr.racket_hit_player_id
-                        ORDER BY prev.frame_number DESC
-                        LIMIT 1
-                    ) prev ON TRUE
-                ),
-                rally_totals AS (
-                    SELECT
-                        rally_id,
-                        SUM(p1_frame_distance) + SUM(p2_frame_distance) as combined_rally_distance
+                        SUM(p1_frame_distance) as p1_rally_distance,
+                        SUM(p2_frame_distance) as p2_rally_distance
                     FROM frame_distances
                     GROUP BY rally_id
-                ),
-                all_distances_to_ball AS (
-                    SELECT distance_to_ball
-                    FROM (
-                        SELECT p1_distance_to_ball as distance_to_ball FROM distance_to_ball WHERE p1_distance_to_ball IS NOT NULL
-                        UNION ALL
-                        SELECT p2_distance_to_ball as distance_to_ball FROM distance_to_ball WHERE p2_distance_to_ball IS NOT NULL
-                    ) combined
                 )
                 SELECT
-                    SUM(rt.combined_rally_distance) as total_distance,
-                    AVG(rt.combined_rally_distance) as avg_distance_per_rally,
-                    AVG(dtb.distance_to_ball) as avg_distance_to_ball,
-                    MIN(dtb.distance_to_ball) as min_distance_to_ball,
-                    MAX(dtb.distance_to_ball) as max_distance_to_ball,
-                    COUNT(dtb.distance_to_ball) as shot_count
-                FROM rally_totals rt
-                CROSS JOIN all_distances_to_ball dtb
+                    SUM(p1_rally_distance) + SUM(p2_rally_distance) as total_distance,
+                    AVG(p1_rally_distance) + AVG(p2_rally_distance) as avg_distance_per_rally
+                FROM rally_distances
             """
             )
 
@@ -1011,22 +1046,6 @@ class AnalysisService:
                 if result and result.avg_distance_per_rally
                 else 0.0
             ),
-            avg_distance_to_ball=(
-                float(result.avg_distance_to_ball)
-                if result and result.avg_distance_to_ball
-                else 0.0
-            ),
-            min_distance_to_ball=(
-                float(result.min_distance_to_ball)
-                if result and result.min_distance_to_ball
-                else None
-            ),
-            max_distance_to_ball=(
-                float(result.max_distance_to_ball)
-                if result and result.max_distance_to_ball
-                else None
-            ),
-            shot_count=int(result.shot_count) if result and result.shot_count else 0,
         )
 
         return MovementMetricsResponse(
@@ -1240,10 +1259,13 @@ class AnalysisService:
                 curr.opponent_distance_from_t,
                 curr.shot_type,
                 -- Get opponent's distance from T at their next shot (response shot)
-                next_shot.opponent_distance_from_t as next_opponent_dist_from_t
+                next_shot.opponent_distance_from_t as next_opponent_dist_from_t,
+                -- Get opponent's position at their next shot (to calculate distance moved)
+                next_shot.opponent_x as next_opponent_x,
+                next_shot.opponent_y as next_opponent_y
             FROM shot_frames curr
             LEFT JOIN LATERAL (
-                SELECT opponent_distance_from_t
+                SELECT opponent_distance_from_t, opponent_x, opponent_y
                 FROM shot_frames next
                 WHERE next.rally_id = curr.rally_id
                   AND next.frame_number > curr.frame_number
@@ -1261,6 +1283,7 @@ class AnalysisService:
 
         # Track metrics
         displacements = []
+        opponent_distances_moved = []
         depth_diffs = []
         straight_shots = 0
         shots_close_to_wall = 0
@@ -1276,6 +1299,19 @@ class AnalysisService:
                 )
                 displacements.append(displacement)
 
+            # Calculate absolute distance opponent moved to return shot
+            if (
+                row.opponent_x is not None
+                and row.opponent_y is not None
+                and row.next_opponent_x is not None
+                and row.next_opponent_y is not None
+            ):
+                distance_moved = np.sqrt(
+                    (row.next_opponent_x - row.opponent_x) ** 2
+                    + (row.next_opponent_y - row.opponent_y) ** 2
+                )
+                opponent_distances_moved.append(distance_moved)
+
             # Depth dominance
             depth_diff = row.opponent_y - row.player_y
             depth_diffs.append(depth_diff)
@@ -1289,12 +1325,16 @@ class AnalysisService:
 
         # Calculate aggregates (vectorized)
         displ = np.array(displacements) if displacements else np.array([])
+        opp_dist = np.array(opponent_distances_moved) if opponent_distances_moved else np.array([])
         depth = np.array(depth_diffs) if depth_diffs else np.array([])
 
         metrics = SingleShotEffectivenessMetrics(
             avg_displacement_from_t=float(displ.mean()) if len(displ) > 0 else None,
             max_displacement_from_t=float(displ.max()) if len(displ) > 0 else None,
             displacement_variance=float(displ.var()) if len(displ) > 0 else None,
+            avg_opponent_distance_moved=float(opp_dist.mean()) if len(opp_dist) > 0 else None,
+            max_opponent_distance_moved=float(opp_dist.max()) if len(opp_dist) > 0 else None,
+            opponent_distance_moved_variance=float(opp_dist.var()) if len(opp_dist) > 0 else None,
             depth_dominance_pct=(
                 (np.sum(depth > 0) / len(depth) * 100) if len(depth) > 0 else None
             ),
@@ -1353,16 +1393,143 @@ class AnalysisService:
         result = self.db.execute(query, params).fetchone()
 
         data = RallyIntensityData(
-            avg_seconds_per_shot=float(result.avg_sec_per_shot) if result.avg_sec_per_shot else 0.0,
-            min_seconds_per_shot=float(result.min_sec_per_shot) if result.min_sec_per_shot else 0.0,
-            max_seconds_per_shot=float(result.max_sec_per_shot) if result.max_sec_per_shot else 0.0,
+            avg_seconds_per_shot=(
+                float(result.avg_sec_per_shot) if result.avg_sec_per_shot else 0.0
+            ),
+            min_seconds_per_shot=(
+                float(result.min_sec_per_shot) if result.min_sec_per_shot else 0.0
+            ),
+            max_seconds_per_shot=(
+                float(result.max_sec_per_shot) if result.max_sec_per_shot else 0.0
+            ),
             std_dev=float(result.std_dev) if result.std_dev else 0.0,
             rally_count=int(result.rally_count) if result.rally_count else 0,
         )
 
-        return RallyIntensityResponse(
-            video_id=video_id, filters=filters, data=data
+        return RallyIntensityResponse(video_id=video_id, filters=filters, data=data)
+
+    def get_let_stats(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> LetStatsResponse:
+        """Get let/replay statistics.
+
+        Counts rallies where point_winner = 0 (indicates a let).
+
+        Args:
+            video_id: Video identifier
+            filters: Analytics filters
+
+        Returns:
+            LetStatsResponse with let statistics
+        """
+        logger.info(f"Computing let stats for video {video_id}")
+        self._check_processed(video_id)
+
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
         )
+
+        query = text(
+            f"""
+            SELECT DISTINCT
+                rally_id,
+                MAX(point_winner) as point_winner
+            FROM frame_data
+            WHERE {where_sql}
+              AND rally_id IS NOT NULL
+            GROUP BY rally_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        total_rallies = len(results)
+        total_lets = sum(1 for row in results if row.point_winner == 0)
+        let_percentage = (total_lets / total_rallies * 100) if total_rallies > 0 else 0.0
+
+        data = LetStatsData(
+            total_lets=total_lets,
+            total_rallies=total_rallies,
+            let_percentage=let_percentage,
+        )
+
+        return LetStatsResponse(video_id=video_id, filters=filters, data=data)
+
+    def get_break_time(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> BreakTimeResponse:
+        """Get break time statistics between rallies.
+
+        Calculates time between end of one rally and start of next rally.
+
+        Args:
+            video_id: Video identifier
+            filters: Analytics filters
+
+        Returns:
+            BreakTimeResponse with break time statistics
+        """
+        logger.info(f"Computing break time stats for video {video_id}")
+        self._check_processed(video_id)
+
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        query = text(
+            f"""
+            WITH rally_times AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start,
+                    MAX(timestamp) as rally_end
+                FROM frame_data
+                WHERE {where_sql}
+                  AND rally_id IS NOT NULL
+                GROUP BY rally_id
+                ORDER BY rally_id
+            ),
+            break_times AS (
+                SELECT
+                    curr.rally_id,
+                    curr.rally_start - prev.rally_end as break_time
+                FROM rally_times curr
+                LEFT JOIN LATERAL (
+                    SELECT rally_end
+                    FROM rally_times prev_rally
+                    WHERE prev_rally.rally_id < curr.rally_id
+                    ORDER BY prev_rally.rally_id DESC
+                    LIMIT 1
+                ) prev ON TRUE
+                WHERE prev.rally_end IS NOT NULL
+            )
+            SELECT
+                AVG(break_time) as avg_break_time,
+                MIN(break_time) as min_break_time,
+                MAX(break_time) as max_break_time,
+                STDDEV_POP(break_time) as std_dev,
+                COUNT(*) as total_breaks
+            FROM break_times
+        """
+        )
+
+        result = self.db.execute(query, params).fetchone()
+
+        data = BreakTimeData(
+            avg_break_time=(
+                float(result.avg_break_time) if result.avg_break_time else 0.0
+            ),
+            min_break_time=(
+                float(result.min_break_time) if result.min_break_time else 0.0
+            ),
+            max_break_time=(
+                float(result.max_break_time) if result.max_break_time else 0.0
+            ),
+            std_dev=float(result.std_dev) if result.std_dev else 0.0,
+            total_breaks=int(result.total_breaks) if result.total_breaks else 0,
+        )
+
+        return BreakTimeResponse(video_id=video_id, filters=filters, data=data)
 
     def get_match_summary(self, video_id: str) -> MatchSummaryResponse:
         """Get match summary including game results and overall match winner.
@@ -1393,11 +1560,7 @@ class AnalysisService:
             .all()
         )
 
-        return MatchSummaryResponse(
-            video_id=video_id,
-            match=match,
-            games=games
-        )
+        return MatchSummaryResponse(video_id=video_id, match=match, games=games)
 
     def get_rally_timeline(
         self, video_id: str, filters: AnalyticsFilters
@@ -1424,7 +1587,8 @@ class AnalysisService:
             video_id, filters, include_player_id=False
         )
 
-        query = text(f"""
+        query = text(
+            f"""
             WITH rally_aggregates AS (
                 SELECT
                     rally_id,
@@ -1432,8 +1596,6 @@ class AnalysisService:
                     MAX(timestamp) - MIN(timestamp) as rally_duration,
                     COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
                     MAX(point_winner) as point_winner,
-                    AVG(ball_speed) as avg_ball_speed,
-                    STDDEV_POP(ball_speed) as ball_speed_variance,
                     COUNT(CASE WHEN is_wall_hit = TRUE THEN 1 END) as wall_hit_count
                 FROM frame_data
                 WHERE {where_sql} AND rally_id IS NOT NULL
@@ -1441,7 +1603,8 @@ class AnalysisService:
                 HAVING COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) > 0
             )
             SELECT * FROM rally_aggregates ORDER BY rally_id
-        """)
+        """
+        )
 
         results = self.db.execute(query, params).fetchall()
 
@@ -1452,10 +1615,6 @@ class AnalysisService:
                 rally_duration=float(row.rally_duration),
                 shot_count=int(row.shot_count),
                 point_winner=int(row.point_winner) if row.point_winner else None,
-                avg_ball_speed=float(row.avg_ball_speed) if row.avg_ball_speed else None,
-                ball_speed_variance=(
-                    float(row.ball_speed_variance) if row.ball_speed_variance else None
-                ),
                 wall_hit_count=int(row.wall_hit_count),
             )
             for row in results
@@ -1494,7 +1653,8 @@ class AnalysisService:
         )
 
         # Build query with window functions for cumulative scores
-        query = text(f"""
+        query = text(
+            f"""
             WITH rally_outcomes AS (
                 SELECT
                     rally_id,
@@ -1525,7 +1685,8 @@ class AnalysisService:
                 (player_1_score - player_2_score) as score_differential
             FROM cumulative_score
             ORDER BY rally_id
-        """)
+        """
+        )
 
         results = self.db.execute(query, params).fetchall()
 
@@ -1545,96 +1706,3374 @@ class AnalysisService:
             video_id=video_id, filters=filters, data=timeline_items
         )
 
-    def get_time_to_t_timeline(
-        self, video_id: str, filters: AnalyticsFilters
-    ) -> TimeToTTimelineResponse:
-        """Get per-rally time-to-T metrics timeline.
+    # ========================================================================
+    # PER-GAME TIME-SERIES ANALYTICS METHODS
+    # ========================================================================
 
-        Returns chronological sequence of rallies with time-to-T statistics
-        for both players (average, min, max time to return to T-zone after shots).
+    def get_ball_speed_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> BallSpeedPerGameResponse:
+        """Get ball speed statistics per game with both players' data.
+
+        Returns per-game breakdown of ball speed metrics for both players.
 
         Args:
             video_id: Video identifier
-            filters: Analytics filters
+            filters: Analytics filters (game_number, time range)
 
         Returns:
-            TimeToTTimelineResponse with per-rally time-to-T metrics
-
-        Raises:
-            ValueError: If video not processed or invalid filters
+            BallSpeedPerGameResponse with per-game data for both players
         """
-        logger.info(f"Computing time-to-T timeline for video {video_id}")
+        logger.info(f"Computing ball speed per-game for video {video_id}")
+        self._check_processed(video_id)
+
+        # Get game metadata
+        games_metadata = self._get_games_metadata(video_id, filters)
+
+        if not games_metadata:
+            return BallSpeedPerGameResponse(
+                video_id=video_id, filters=filters, data=[], total_games=0
+            )
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        # Query per-game ball speed grouped by game and player
+        query = text(
+            f"""
+            WITH game_player_speeds AS (
+                SELECT
+                    g.game_number,
+                    f.racket_hit_player_id,
+                    AVG(f.ball_speed) as mean_speed,
+                    MIN(f.ball_speed) as min_speed,
+                    MAX(f.ball_speed) as max_speed,
+                    STDDEV_POP(f.ball_speed) as std_dev,
+                    COUNT(*) as shot_count
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_racket_hit = TRUE
+                  AND f.ball_speed IS NOT NULL
+                GROUP BY g.game_number, f.racket_hit_player_id
+                ORDER BY g.game_number, f.racket_hit_player_id
+            )
+            SELECT * FROM game_player_speeds
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Define metric builder function
+        def build_ball_speed_data(row):
+            return BallSpeedData(
+                mean_speed=float(row.mean_speed) if row.mean_speed else 0.0,
+                min_speed=float(row.min_speed) if row.min_speed else 0.0,
+                max_speed=float(row.max_speed) if row.max_speed else 0.0,
+                std_dev=float(row.std_dev) if row.std_dev else 0.0,
+                shot_count=int(row.shot_count) if row.shot_count else 0,
+            )
+
+        # Pivot data
+        game_items_data = self._pivot_by_game(
+            results, games_metadata, build_ball_speed_data
+        )
+
+        # Create empty metrics for missing players
+        empty_ball_speed = BallSpeedData(
+            mean_speed=0.0,
+            min_speed=0.0,
+            max_speed=0.0,
+            std_dev=0.0,
+            shot_count=0,
+        )
+
+        # Convert to response items, filling in empty metrics for missing players
+        game_items = []
+        for item in game_items_data:
+            game_items.append(
+                BallSpeedPerGameItem(
+                    game_number=item["game_number"],
+                    start_rally_id=item["start_rally_id"],
+                    end_rally_id=item["end_rally_id"],
+                    start_time=item["start_time"],
+                    end_time=item["end_time"],
+                    duration=item["duration"],
+                    rally_count=item["rally_count"],
+                    player_1=(
+                        item["player_1"]
+                        if item["player_1"] is not None
+                        else empty_ball_speed
+                    ),
+                    player_2=(
+                        item["player_2"]
+                        if item["player_2"] is not None
+                        else empty_ball_speed
+                    ),
+                )
+            )
+
+        return BallSpeedPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=game_items,
+            total_games=len(game_items),
+        )
+
+    # ========================================================================
+    # PER-RALLY TIME-SERIES ANALYTICS METHODS
+    # ========================================================================
+
+    def get_ball_speed_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> BallSpeedPerRallyResponse:
+        """Get ball speed statistics per rally with both players' data.
+
+        Returns per-rally breakdown of ball speed metrics for both players.
+
+        Args:
+            video_id: Video identifier
+            filters: Analytics filters (game_number, time range)
+
+        Returns:
+            BallSpeedPerRallyResponse with per-rally data for both players
+        """
+        logger.info(f"Computing ball speed per-rally for video {video_id}")
+        self._check_processed(video_id)
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        # Query per-rally ball speed grouped by rally and player
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql}
+                  AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            rally_player_speeds AS (
+                SELECT
+                    f.rally_id,
+                    f.racket_hit_player_id,
+                    AVG(f.ball_speed) as mean_speed,
+                    MIN(f.ball_speed) as min_speed,
+                    MAX(f.ball_speed) as max_speed,
+                    STDDEV_POP(f.ball_speed) as std_dev,
+                    COUNT(*) as player_shot_count
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_racket_hit = TRUE
+                  AND f.ball_speed IS NOT NULL
+                GROUP BY f.rally_id, f.racket_hit_player_id
+            )
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                rps.racket_hit_player_id,
+                rps.mean_speed,
+                rps.min_speed,
+                rps.max_speed,
+                rps.std_dev,
+                rps.player_shot_count
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN rally_player_speeds rps ON rm.rally_id = rps.rally_id
+            WHERE rps.racket_hit_player_id IS NOT NULL
+            ORDER BY rm.rally_id, rps.racket_hit_player_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Define metric builder function
+        def build_ball_speed_data(row):
+            return BallSpeedData(
+                mean_speed=float(row.mean_speed) if row.mean_speed else 0.0,
+                min_speed=float(row.min_speed) if row.min_speed else 0.0,
+                max_speed=float(row.max_speed) if row.max_speed else 0.0,
+                std_dev=float(row.std_dev) if row.std_dev else 0.0,
+                shot_count=int(row.player_shot_count) if row.player_shot_count else 0,
+            )
+
+        # Pivot data
+        rally_items_data = self._pivot_by_rally(results, build_ball_speed_data)
+
+        # Create empty metrics for missing players
+        empty_ball_speed = BallSpeedData(
+            mean_speed=0.0,
+            min_speed=0.0,
+            max_speed=0.0,
+            std_dev=0.0,
+            shot_count=0,
+        )
+
+        # Convert to response items, filling in empty metrics for missing players
+        rally_items = []
+        for item in rally_items_data:
+            # Convert -1 point_winner to None (indicates unknown/not set)
+            point_winner = (
+                item["point_winner"] if item["point_winner"] not in [-1, None] else None
+            )
+
+            rally_items.append(
+                BallSpeedPerRallyItem(
+                    rally_id=item["rally_id"],
+                    game_number=item["game_number"],
+                    rally_start_time=item["rally_start_time"],
+                    rally_duration=item["rally_duration"],
+                    shot_count=item["shot_count"],
+                    point_winner=point_winner,
+                    player_1=(
+                        item["player_1"]
+                        if item["player_1"] is not None
+                        else empty_ball_speed
+                    ),
+                    player_2=(
+                        item["player_2"]
+                        if item["player_2"] is not None
+                        else empty_ball_speed
+                    ),
+                )
+            )
+
+        return BallSpeedPerRallyResponse(
+            video_id=video_id,
+            filters=filters,
+            data=rally_items,
+            total_rallies=len(rally_items),
+        )
+
+    def get_stroke_distribution_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> StrokeDistributionPerGameResponse:
+        """Get stroke distribution per game with both players' data - Pure SQL."""
+        logger.info(f"Computing stroke distribution per-game for video {video_id}")
+        self._check_processed(video_id)
+
+        games_metadata = self._get_games_metadata(video_id, filters)
+        if not games_metadata:
+            return StrokeDistributionPerGameResponse(
+                video_id=video_id, filters=filters, data=[], total_games=0
+            )
+
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        # Pure SQL query - aggregates stroke counts by game and player
+        query = text(
+            f"""
+            WITH game_player_strokes AS (
+                SELECT
+                    g.game_number,
+                    f.racket_hit_player_id as player_id,
+                    f.stroke_type,
+                    COUNT(*) as stroke_count
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_racket_hit = TRUE
+                  AND f.stroke_type IS NOT NULL
+                  AND f.racket_hit_player_id IN (1, 2)
+                GROUP BY g.game_number, f.racket_hit_player_id, f.stroke_type
+            ),
+            player_totals AS (
+                SELECT
+                    game_number,
+                    player_id,
+                    SUM(stroke_count) as total_strokes
+                FROM game_player_strokes
+                GROUP BY game_number, player_id
+            )
+            SELECT
+                gps.game_number,
+                gps.player_id,
+                gps.stroke_type,
+                gps.stroke_count,
+                pt.total_strokes,
+                CASE
+                    WHEN pt.total_strokes > 0
+                    THEN (gps.stroke_count::float / pt.total_strokes * 100)
+                    ELSE 0
+                END as percentage
+            FROM game_player_strokes gps
+            JOIN player_totals pt ON gps.game_number = pt.game_number
+                AND gps.player_id = pt.player_id
+            ORDER BY gps.game_number, gps.player_id, gps.stroke_type
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build game items from SQL results
+        games_data = {}
+        for row in results:
+            game_num = row.game_number
+            player_id = row.player_id
+
+            if game_num not in games_data:
+                games_data[game_num] = {
+                    "player_1": [],
+                    "player_2": [],
+                    "total_1": 0,
+                    "total_2": 0,
+                }
+
+            dist_item = DistributionItem(
+                label=row.stroke_type,
+                count=int(row.stroke_count),
+                percentage=float(row.percentage),
+            )
+
+            if player_id == 1:
+                games_data[game_num]["player_1"].append(dist_item)
+                games_data[game_num]["total_1"] = int(row.total_strokes)
+            else:
+                games_data[game_num]["player_2"].append(dist_item)
+                games_data[game_num]["total_2"] = int(row.total_strokes)
+
+        # Combine with game metadata
+        result = []
+        for game_meta in games_metadata:
+            game_num = game_meta["game_number"]
+            game_item = {**game_meta}
+
+            if game_num in games_data:
+                game_item["player_1"] = SingleDistribution(
+                    distribution=games_data[game_num]["player_1"],
+                    total=games_data[game_num]["total_1"],
+                )
+                game_item["player_2"] = SingleDistribution(
+                    distribution=games_data[game_num]["player_2"],
+                    total=games_data[game_num]["total_2"],
+                )
+            else:
+                game_item["player_1"] = SingleDistribution(distribution=[], total=0)
+                game_item["player_2"] = SingleDistribution(distribution=[], total=0)
+
+            result.append(StrokeDistributionPerGameItem(**game_item))
+
+        return StrokeDistributionPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=result,
+            total_games=len(result),
+        )
+
+    def get_stroke_distribution_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> StrokeDistributionPerRallyResponse:
+        """Get stroke distribution per rally with both players' data - Pure SQL."""
+        logger.info(f"Computing stroke distribution per-rally for video {video_id}")
         self._check_processed(video_id)
 
         where_sql, params = self._build_where_clause(
             video_id, filters, include_player_id=False
         )
 
-        query = text(f"""
-            WITH rally_time_to_t AS (
-                SELECT
+        # Pure SQL query - aggregates stroke counts by rally and player
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
                     rally_id,
                     MIN(timestamp) as rally_start_time,
-                    AVG(player_1_time_to_t) as player_1_avg_time_to_t,
-                    MIN(player_1_time_to_t) as player_1_min_time_to_t,
-                    MAX(player_1_time_to_t) as player_1_max_time_to_t,
-                    COUNT(player_1_time_to_t) as player_1_measurements,
-                    AVG(player_2_time_to_t) as player_2_avg_time_to_t,
-                    MIN(player_2_time_to_t) as player_2_min_time_to_t,
-                    MAX(player_2_time_to_t) as player_2_max_time_to_t,
-                    COUNT(player_2_time_to_t) as player_2_measurements
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
                 FROM frame_data
-                WHERE {where_sql} AND rally_id IS NOT NULL
+                WHERE {where_sql}
+                  AND rally_id IS NOT NULL
                 GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            rally_player_strokes AS (
+                SELECT
+                    f.rally_id,
+                    f.racket_hit_player_id as player_id,
+                    f.stroke_type,
+                    COUNT(*) as stroke_count
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_racket_hit = TRUE
+                  AND f.stroke_type IS NOT NULL
+                  AND f.racket_hit_player_id IN (1, 2)
+                GROUP BY f.rally_id, f.racket_hit_player_id, f.stroke_type
+            ),
+            player_totals AS (
+                SELECT
+                    rally_id,
+                    player_id,
+                    SUM(stroke_count) as total_strokes
+                FROM rally_player_strokes
+                GROUP BY rally_id, player_id
             )
-            SELECT * FROM rally_time_to_t ORDER BY rally_id
-        """)
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                rps.player_id,
+                rps.stroke_type,
+                rps.stroke_count,
+                pt.total_strokes,
+                CASE
+                    WHEN pt.total_strokes > 0
+                    THEN (rps.stroke_count::float / pt.total_strokes * 100)
+                    ELSE 0
+                END as percentage
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN rally_player_strokes rps ON rm.rally_id = rps.rally_id
+            LEFT JOIN player_totals pt ON rps.rally_id = pt.rally_id
+                AND rps.player_id = pt.player_id
+            WHERE rps.player_id IS NOT NULL
+            ORDER BY rm.rally_id, rps.player_id, rps.stroke_type
+        """
+        )
 
         results = self.db.execute(query, params).fetchall()
 
-        timeline_items = [
-            TimeToTTimelineItem(
-                rally_id=row.rally_id,
-                rally_start_time=float(row.rally_start_time),
-                player_1_avg_time_to_t=(
-                    float(row.player_1_avg_time_to_t)
-                    if row.player_1_avg_time_to_t
-                    else None
-                ),
-                player_1_min_time_to_t=(
-                    float(row.player_1_min_time_to_t)
-                    if row.player_1_min_time_to_t
-                    else None
-                ),
-                player_1_max_time_to_t=(
-                    float(row.player_1_max_time_to_t)
-                    if row.player_1_max_time_to_t
-                    else None
-                ),
-                player_1_measurements=int(row.player_1_measurements),
-                player_2_avg_time_to_t=(
-                    float(row.player_2_avg_time_to_t)
-                    if row.player_2_avg_time_to_t
-                    else None
-                ),
-                player_2_min_time_to_t=(
-                    float(row.player_2_min_time_to_t)
-                    if row.player_2_min_time_to_t
-                    else None
-                ),
-                player_2_max_time_to_t=(
-                    float(row.player_2_max_time_to_t)
-                    if row.player_2_max_time_to_t
-                    else None
-                ),
-                player_2_measurements=int(row.player_2_measurements),
-            )
-            for row in results
-        ]
+        # Build rally items from SQL results
+        rallies_data = {}
+        rally_metadata = {}
 
-        return TimeToTTimelineResponse(
+        for row in results:
+            rally_id = row.rally_id
+
+            if rally_id not in rally_metadata:
+                rally_metadata[rally_id] = {
+                    "rally_id": rally_id,
+                    "game_number": row.game_number,
+                    "rally_start_time": float(row.rally_start_time),
+                    "rally_duration": float(row.rally_duration),
+                    "shot_count": int(row.shot_count),
+                    "point_winner": int(row.point_winner) if row.point_winner else None,
+                }
+
+            if rally_id not in rallies_data:
+                rallies_data[rally_id] = {
+                    "player_1": [],
+                    "player_2": [],
+                    "total_1": 0,
+                    "total_2": 0,
+                }
+
+            player_id = row.player_id
+            dist_item = DistributionItem(
+                label=row.stroke_type,
+                count=int(row.stroke_count),
+                percentage=float(row.percentage),
+            )
+
+            if player_id == 1:
+                rallies_data[rally_id]["player_1"].append(dist_item)
+                rallies_data[rally_id]["total_1"] = int(row.total_strokes)
+            else:
+                rallies_data[rally_id]["player_2"].append(dist_item)
+                rallies_data[rally_id]["total_2"] = int(row.total_strokes)
+
+        # Build result
+        result = []
+        for rally_id, meta in rally_metadata.items():
+            rally_item = {**meta}
+
+            if rally_id in rallies_data:
+                rally_item["player_1"] = SingleDistribution(
+                    distribution=rallies_data[rally_id]["player_1"],
+                    total=rallies_data[rally_id]["total_1"],
+                )
+                rally_item["player_2"] = SingleDistribution(
+                    distribution=rallies_data[rally_id]["player_2"],
+                    total=rallies_data[rally_id]["total_2"],
+                )
+            else:
+                rally_item["player_1"] = SingleDistribution(distribution=[], total=0)
+                rally_item["player_2"] = SingleDistribution(distribution=[], total=0)
+
+            result.append(StrokeDistributionPerRallyItem(**rally_item))
+
+        return StrokeDistributionPerRallyResponse(
             video_id=video_id,
             filters=filters,
-            data=timeline_items,
-            total_rallies=len(timeline_items),
+            data=result,
+            total_rallies=len(result),
         )
+
+    def get_shot_type_distribution_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> ShotTypeDistributionPerGameResponse:
+        """Get shot type distribution per game with both players' data - Pure SQL."""
+        games_metadata = self._get_games_metadata(video_id, filters)
+        if not games_metadata:
+            return ShotTypeDistributionPerGameResponse(
+                video_id=video_id,
+                filters=filters,
+                data=[],
+                total_games=0,
+                all_shot_types=[],
+            )
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH game_player_shot_types AS (
+                SELECT
+                    g.game_number,
+                    f.racket_hit_player_id as player_id,
+                    f.shot_type,
+                    COUNT(*) as shot_count
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_racket_hit = TRUE
+                  AND f.shot_type IS NOT NULL
+                  AND f.racket_hit_player_id IN (1, 2)
+                GROUP BY g.game_number, f.racket_hit_player_id, f.shot_type
+            ),
+            player_totals AS (
+                SELECT
+                    game_number,
+                    player_id,
+                    SUM(shot_count) as total_shots
+                FROM game_player_shot_types
+                GROUP BY game_number, player_id
+            )
+            SELECT
+                gpst.game_number,
+                gpst.player_id,
+                gpst.shot_type,
+                gpst.shot_count,
+                pt.total_shots,
+                CASE
+                    WHEN pt.total_shots > 0
+                    THEN (gpst.shot_count::float / pt.total_shots * 100)
+                    ELSE 0
+                END as percentage
+            FROM game_player_shot_types gpst
+            JOIN player_totals pt ON gpst.game_number = pt.game_number
+                AND gpst.player_id = pt.player_id
+            ORDER BY gpst.game_number, gpst.player_id, gpst.shot_type
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Get all shot types from separate query for response
+        all_types_query = text(
+            f"""
+            SELECT DISTINCT shot_type
+            FROM frame_data
+            WHERE {where_sql}
+              AND shot_type IS NOT NULL
+              AND is_racket_hit = TRUE
+            ORDER BY shot_type
+        """
+        )
+        all_shot_types = [
+            row[0] for row in self.db.execute(all_types_query, params).fetchall()
+        ]
+
+        # Build distribution data per game and player
+        def build_shot_type_dist(rows):
+            distribution = []
+            total = 0
+            for r in rows:
+                shot_type = r.shot_type
+                count = r.shot_count
+                percentage = r.percentage
+                distribution.append(
+                    DistributionItem(
+                        label=shot_type, count=count, percentage=percentage
+                    )
+                )
+                total += count
+            return SingleDistribution(distribution=distribution, total=total)
+
+        # Organize by game -> player
+        game_player_rows = {}
+        for row in results:
+            game_num = row.game_number
+            player_id = row.player_id
+            if game_num not in game_player_rows:
+                game_player_rows[game_num] = {1: [], 2: []}
+            game_player_rows[game_num][player_id].append(row)
+
+        # Build final response
+        game_items = []
+        for game_meta in games_metadata:
+            game_num = game_meta["game_number"]
+            player_data = game_player_rows.get(game_num, {1: [], 2: []})
+
+            p1_dist = build_shot_type_dist(player_data.get(1, []))
+            p2_dist = build_shot_type_dist(player_data.get(2, []))
+
+            game_items.append(
+                ShotTypeDistributionPerGameItem(
+                    game_number=game_num,
+                    start_rally_id=game_meta["start_rally_id"],
+                    end_rally_id=game_meta["end_rally_id"],
+                    start_time=game_meta["start_time"],
+                    end_time=game_meta["end_time"],
+                    duration=game_meta["duration"],
+                    rally_count=game_meta["rally_count"],
+                    player_1=p1_dist,
+                    player_2=p2_dist,
+                )
+            )
+
+        return ShotTypeDistributionPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=game_items,
+            total_games=len(game_items),
+            all_shot_types=all_shot_types,
+        )
+
+    def get_shot_type_distribution_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> ShotTypeDistributionPerRallyResponse:
+        """Get shot type distribution per rally with both players' data - Pure SQL."""
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            rally_player_shot_types AS (
+                SELECT
+                    f.rally_id,
+                    f.racket_hit_player_id as player_id,
+                    f.shot_type,
+                    COUNT(*) as shot_count
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_racket_hit = TRUE
+                  AND f.shot_type IS NOT NULL
+                  AND f.racket_hit_player_id IN (1, 2)
+                GROUP BY f.rally_id, f.racket_hit_player_id, f.shot_type
+            ),
+            player_totals AS (
+                SELECT rally_id, player_id, SUM(shot_count) as total_shots
+                FROM rally_player_shot_types
+                GROUP BY rally_id, player_id
+            )
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                rpst.player_id,
+                rpst.shot_type,
+                rpst.shot_count as type_count,
+                pt.total_shots,
+                CASE
+                    WHEN pt.total_shots > 0
+                    THEN (rpst.shot_count::float / pt.total_shots * 100)
+                    ELSE 0
+                END as percentage
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN rally_player_shot_types rpst ON rm.rally_id = rpst.rally_id
+            LEFT JOIN player_totals pt ON rpst.rally_id = pt.rally_id
+                AND rpst.player_id = pt.player_id
+            WHERE rpst.player_id IS NOT NULL
+            ORDER BY rm.rally_id, rpst.player_id, rpst.shot_type
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Get all shot types from separate query
+        all_types_query = text(
+            f"""
+            SELECT DISTINCT shot_type
+            FROM frame_data
+            WHERE {where_sql}
+              AND shot_type IS NOT NULL
+              AND is_racket_hit = TRUE
+            ORDER BY shot_type
+        """
+        )
+        all_shot_types = [
+            row[0] for row in self.db.execute(all_types_query, params).fetchall()
+        ]
+
+        # Build distribution data per rally
+        def build_shot_type_dist(rows):
+            distribution = []
+            total = 0
+            for r in rows:
+                shot_type = r.shot_type
+                count = r.type_count
+                percentage = r.percentage
+                distribution.append(
+                    DistributionItem(
+                        label=shot_type, count=count, percentage=percentage
+                    )
+                )
+                total += count
+            return SingleDistribution(distribution=distribution, total=total)
+
+        # Organize by rally -> player
+        rally_player_rows = {}
+        rally_metadata_map = {}
+        for row in results:
+            rally_id = row.rally_id
+            player_id = row.player_id
+
+            if rally_id not in rally_metadata_map:
+                rally_metadata_map[rally_id] = {
+                    "rally_start_time": row.rally_start_time,
+                    "rally_duration": row.rally_duration,
+                    "shot_count": row.shot_count,
+                    "point_winner": row.point_winner,
+                    "game_number": row.game_number,
+                }
+
+            if rally_id not in rally_player_rows:
+                rally_player_rows[rally_id] = {1: [], 2: []}
+            rally_player_rows[rally_id][player_id].append(row)
+
+        # Build final response
+        rally_items = []
+        for rally_id, metadata in rally_metadata_map.items():
+            player_data = rally_player_rows.get(rally_id, {1: [], 2: []})
+
+            p1_dist = build_shot_type_dist(player_data.get(1, []))
+            p2_dist = build_shot_type_dist(player_data.get(2, []))
+
+            rally_items.append(
+                ShotTypeDistributionPerRallyItem(
+                    rally_id=rally_id,
+                    game_number=metadata["game_number"],
+                    rally_start_time=metadata["rally_start_time"],
+                    rally_duration=metadata["rally_duration"],
+                    shot_count=metadata["shot_count"],
+                    point_winner=metadata["point_winner"],
+                    player_1=p1_dist,
+                    player_2=p2_dist,
+                )
+            )
+
+        return ShotTypeDistributionPerRallyResponse(
+            video_id=video_id,
+            filters=filters,
+            data=rally_items,
+            total_rallies=len(rally_items),
+            all_shot_types=all_shot_types,
+        )
+
+    def get_rhythm_disruption_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> RhythmDisruptionPerGameResponse:
+        """Get rhythm disruption statistics per game with both players' data - Pure SQL."""
+        games_metadata = self._get_games_metadata(video_id, filters)
+        if not games_metadata:
+            return RhythmDisruptionPerGameResponse(
+                video_id=video_id, data=[], total_games=0
+            )
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH game_player_stats AS (
+                SELECT
+                    g.game_number,
+                    f.racket_hit_player_id as player_id,
+                    AVG(f.ball_speed) as mean_ball_speed,
+                    STDDEV_POP(f.ball_speed) as stddev_ball_speed,
+                    VARIANCE(f.ball_speed) as ball_speed_variance,
+                    AVG(f.wall_hit_height) as mean_wall_height,
+                    STDDEV_POP(f.wall_hit_height) as stddev_wall_height,
+                    VARIANCE(f.wall_hit_height) as wall_height_variance,
+                    COUNT(*) FILTER (WHERE f.is_racket_hit = TRUE) as player_shot_count
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.racket_hit_player_id IN (1, 2)
+                  AND f.ball_speed IS NOT NULL
+                  AND f.wall_hit_height IS NOT NULL
+                GROUP BY g.game_number, f.racket_hit_player_id
+            )
+            SELECT
+                game_number,
+                player_id,
+                player_shot_count,
+                mean_ball_speed,
+                stddev_ball_speed,
+                ball_speed_variance,
+                CASE
+                    WHEN mean_ball_speed > 0
+                    THEN (stddev_ball_speed / mean_ball_speed)
+                    ELSE 0
+                END as ball_speed_cv,
+                mean_wall_height,
+                stddev_wall_height,
+                wall_height_variance,
+                CASE
+                    WHEN mean_wall_height > 0
+                    THEN (stddev_wall_height / mean_wall_height)
+                    ELSE 0
+                END as wall_height_cv
+            FROM game_player_stats
+            ORDER BY game_number, player_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build rhythm disruption data
+        def build_rhythm_data(row):
+            if row is None:
+                return RhythmDisruptionData(
+                    ball_speed_cv=0.0,
+                    ball_speed_variance=0.0,
+                    wall_hit_height_cv=0.0,
+                    wall_hit_height_variance=0.0,
+                    shot_count=0,
+                )
+            return RhythmDisruptionData(
+                ball_speed_cv=(
+                    float(row.ball_speed_cv) if row.ball_speed_cv is not None else 0.0
+                ),
+                ball_speed_variance=(
+                    float(row.ball_speed_variance)
+                    if row.ball_speed_variance is not None
+                    else 0.0
+                ),
+                wall_hit_height_cv=(
+                    float(row.wall_height_cv) if row.wall_height_cv is not None else 0.0
+                ),
+                wall_hit_height_variance=(
+                    float(row.wall_height_variance)
+                    if row.wall_height_variance is not None
+                    else 0.0
+                ),
+                shot_count=int(row.player_shot_count) if row.player_shot_count else 0,
+            )
+
+        # Organize by game -> player
+        game_player_rows = {}
+        for row in results:
+            game_num = row.game_number
+            player_id = row.player_id
+            if game_num not in game_player_rows:
+                game_player_rows[game_num] = {}
+            game_player_rows[game_num][player_id] = row
+
+        # Build final response
+        game_items = []
+        for game_meta in games_metadata:
+            game_num = game_meta["game_number"]
+            player_data = game_player_rows.get(game_num, {})
+
+            p1_data = build_rhythm_data(player_data.get(1))
+            p2_data = build_rhythm_data(player_data.get(2))
+
+            game_items.append(
+                RhythmDisruptionPerGameItem(
+                    game_number=game_num,
+                    start_rally_id=game_meta["start_rally_id"],
+                    end_rally_id=game_meta["end_rally_id"],
+                    start_time=game_meta["start_time"],
+                    end_time=game_meta["end_time"],
+                    duration=game_meta["duration"],
+                    rally_count=game_meta["rally_count"],
+                    player_1=p1_data,
+                    player_2=p2_data,
+                )
+            )
+
+        return RhythmDisruptionPerGameResponse(
+            video_id=video_id, data=game_items, total_games=len(game_items)
+        )
+
+    def get_rhythm_disruption_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> RhythmDisruptionPerRallyResponse:
+        """Get rhythm disruption statistics per rally with both players' data - Pure SQL."""
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            rally_player_stats AS (
+                SELECT
+                    f.rally_id,
+                    f.racket_hit_player_id as player_id,
+                    AVG(f.ball_speed) as mean_ball_speed,
+                    STDDEV_POP(f.ball_speed) as stddev_ball_speed,
+                    VARIANCE(f.ball_speed) as ball_speed_variance,
+                    AVG(f.wall_hit_height) as mean_wall_height,
+                    STDDEV_POP(f.wall_hit_height) as stddev_wall_height,
+                    VARIANCE(f.wall_hit_height) as wall_height_variance,
+                    COUNT(*) FILTER (WHERE f.is_racket_hit = TRUE) as player_shot_count
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.racket_hit_player_id IN (1, 2)
+                  AND f.ball_speed IS NOT NULL
+                  AND f.wall_hit_height IS NOT NULL
+                GROUP BY f.rally_id, f.racket_hit_player_id
+            )
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                rps.player_id,
+                rps.player_shot_count,
+                rps.mean_ball_speed,
+                rps.stddev_ball_speed,
+                rps.ball_speed_variance,
+                CASE
+                    WHEN rps.mean_ball_speed > 0
+                    THEN (rps.stddev_ball_speed / rps.mean_ball_speed)
+                    ELSE 0
+                END as ball_speed_cv,
+                rps.mean_wall_height,
+                rps.stddev_wall_height,
+                rps.wall_height_variance,
+                CASE
+                    WHEN rps.mean_wall_height > 0
+                    THEN (rps.stddev_wall_height / rps.mean_wall_height)
+                    ELSE 0
+                END as wall_height_cv
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN rally_player_stats rps ON rm.rally_id = rps.rally_id
+            WHERE rps.player_id IS NOT NULL
+            ORDER BY rm.rally_id, rps.player_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build rhythm disruption data
+        def build_rhythm_data(row):
+            if row is None:
+                return RhythmDisruptionData(
+                    ball_speed_cv=0.0,
+                    ball_speed_variance=0.0,
+                    wall_hit_height_cv=0.0,
+                    wall_hit_height_variance=0.0,
+                    shot_count=0,
+                )
+            return RhythmDisruptionData(
+                ball_speed_cv=(
+                    float(row.ball_speed_cv) if row.ball_speed_cv is not None else 0.0
+                ),
+                ball_speed_variance=(
+                    float(row.ball_speed_variance)
+                    if row.ball_speed_variance is not None
+                    else 0.0
+                ),
+                wall_hit_height_cv=(
+                    float(row.wall_height_cv) if row.wall_height_cv is not None else 0.0
+                ),
+                wall_hit_height_variance=(
+                    float(row.wall_height_variance)
+                    if row.wall_height_variance is not None
+                    else 0.0
+                ),
+                shot_count=int(row.player_shot_count) if row.player_shot_count else 0,
+            )
+
+        # Organize by rally -> player
+        rally_player_rows = {}
+        rally_metadata_map = {}
+        for row in results:
+            rally_id = row.rally_id
+            player_id = row.player_id
+
+            if rally_id not in rally_metadata_map:
+                rally_metadata_map[rally_id] = {
+                    "rally_start_time": row.rally_start_time,
+                    "rally_duration": row.rally_duration,
+                    "shot_count": row.shot_count,
+                    "point_winner": row.point_winner,
+                    "game_number": row.game_number,
+                }
+
+            if rally_id not in rally_player_rows:
+                rally_player_rows[rally_id] = {}
+            rally_player_rows[rally_id][player_id] = row
+
+        # Build final response
+        rally_items = []
+        for rally_id, metadata in rally_metadata_map.items():
+            player_data = rally_player_rows.get(rally_id, {})
+
+            p1_data = build_rhythm_data(player_data.get(1))
+            p2_data = build_rhythm_data(player_data.get(2))
+
+            rally_items.append(
+                RhythmDisruptionPerRallyItem(
+                    rally_id=rally_id,
+                    game_number=metadata["game_number"],
+                    rally_start_time=metadata["rally_start_time"],
+                    rally_duration=metadata["rally_duration"],
+                    shot_count=metadata["shot_count"],
+                    point_winner=metadata["point_winner"],
+                    player_1=p1_data,
+                    player_2=p2_data,
+                )
+            )
+
+        return RhythmDisruptionPerRallyResponse(
+            video_id=video_id, data=rally_items, total_rallies=len(rally_items)
+        )
+
+    def get_court_quadrant_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> CourtQuadrantPerGameResponse:
+        """Get court quadrant distribution per game with both players' data - Pure SQL."""
+        X_CUT = 3.2
+        Y_CUT = 5.44
+
+        games_metadata = self._get_games_metadata(video_id, filters)
+        if not games_metadata:
+            return CourtQuadrantPerGameResponse(
+                video_id=video_id,
+                filters=filters,
+                data=[],
+                total_games=0,
+                quadrant_boundaries={"x_cut": X_CUT, "y_cut": Y_CUT},
+            )
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH game_player_quadrants AS (
+                SELECT
+                    g.game_number,
+                    1 as player_id,
+                    CASE
+                        WHEN player_1_y_meter < {Y_CUT} THEN
+                            CASE WHEN player_1_x_meter < {X_CUT} THEN 'Front-Left' ELSE 'Front-Right' END
+                        ELSE
+                            CASE WHEN player_1_x_meter < {X_CUT} THEN 'Back-Left' ELSE 'Back-Right' END
+                    END as quadrant
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_rally_frame = TRUE
+                  AND f.player_1_x_meter IS NOT NULL
+                  AND f.player_1_y_meter IS NOT NULL
+
+                UNION ALL
+
+                SELECT
+                    g.game_number,
+                    2 as player_id,
+                    CASE
+                        WHEN player_2_y_meter < {Y_CUT} THEN
+                            CASE WHEN player_2_x_meter < {X_CUT} THEN 'Front-Left' ELSE 'Front-Right' END
+                        ELSE
+                            CASE WHEN player_2_x_meter < {X_CUT} THEN 'Back-Left' ELSE 'Back-Right' END
+                    END as quadrant
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_rally_frame = TRUE
+                  AND f.player_2_x_meter IS NOT NULL
+                  AND f.player_2_y_meter IS NOT NULL
+            ),
+            quadrant_counts AS (
+                SELECT
+                    game_number,
+                    player_id,
+                    quadrant,
+                    COUNT(*) as count
+                FROM game_player_quadrants
+                GROUP BY game_number, player_id, quadrant
+            ),
+            player_totals AS (
+                SELECT
+                    game_number,
+                    player_id,
+                    SUM(count) as total
+                FROM quadrant_counts
+                GROUP BY game_number, player_id
+            )
+            SELECT
+                qc.game_number,
+                qc.player_id,
+                qc.quadrant,
+                qc.count,
+                pt.total,
+                CASE
+                    WHEN pt.total > 0
+                    THEN (qc.count::float / pt.total * 100)
+                    ELSE 0
+                END as percentage
+            FROM quadrant_counts qc
+            JOIN player_totals pt ON qc.game_number = pt.game_number
+                AND qc.player_id = pt.player_id
+            ORDER BY qc.game_number, qc.player_id, qc.quadrant
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build quadrant distribution
+        def build_quadrant_dist(rows):
+            distribution = []
+            total = 0
+            for r in rows:
+                quadrant = r.quadrant
+                count = r.count
+                percentage = r.percentage
+                distribution.append(
+                    DistributionItem(label=quadrant, count=count, percentage=percentage)
+                )
+                total += count
+            return SingleDistribution(distribution=distribution, total=total)
+
+        # Organize by game -> player
+        game_player_rows = {}
+        for row in results:
+            game_num = row.game_number
+            player_id = row.player_id
+            if game_num not in game_player_rows:
+                game_player_rows[game_num] = {1: [], 2: []}
+            game_player_rows[game_num][player_id].append(row)
+
+        # Build final response
+        game_items = []
+        for game_meta in games_metadata:
+            game_num = game_meta["game_number"]
+            player_data = game_player_rows.get(game_num, {1: [], 2: []})
+
+            p1_dist = build_quadrant_dist(player_data.get(1, []))
+            p2_dist = build_quadrant_dist(player_data.get(2, []))
+
+            game_items.append(
+                CourtQuadrantPerGameItem(
+                    game_number=game_num,
+                    start_rally_id=game_meta["start_rally_id"],
+                    end_rally_id=game_meta["end_rally_id"],
+                    start_time=game_meta["start_time"],
+                    end_time=game_meta["end_time"],
+                    duration=game_meta["duration"],
+                    rally_count=game_meta["rally_count"],
+                    player_1=p1_dist,
+                    player_2=p2_dist,
+                )
+            )
+
+        return CourtQuadrantPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=game_items,
+            total_games=len(game_items),
+            quadrant_boundaries={"x_cut": X_CUT, "y_cut": Y_CUT},
+        )
+
+    def get_court_quadrant_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> CourtQuadrantPerRallyResponse:
+        """Get court quadrant distribution per rally with both players' data - Pure SQL."""
+        X_CUT = 3.2
+        Y_CUT = 5.44
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            rally_player_quadrants AS (
+                SELECT
+                    f.rally_id,
+                    1 as player_id,
+                    CASE
+                        WHEN player_1_y_meter < {Y_CUT} THEN
+                            CASE WHEN player_1_x_meter < {X_CUT} THEN 'Front-Left' ELSE 'Front-Right' END
+                        ELSE
+                            CASE WHEN player_1_x_meter < {X_CUT} THEN 'Back-Left' ELSE 'Back-Right' END
+                    END as quadrant
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_rally_frame = TRUE
+                  AND f.player_1_x_meter IS NOT NULL
+                  AND f.player_1_y_meter IS NOT NULL
+
+                UNION ALL
+
+                SELECT
+                    f.rally_id,
+                    2 as player_id,
+                    CASE
+                        WHEN player_2_y_meter < {Y_CUT} THEN
+                            CASE WHEN player_2_x_meter < {X_CUT} THEN 'Front-Left' ELSE 'Front-Right' END
+                        ELSE
+                            CASE WHEN player_2_x_meter < {X_CUT} THEN 'Back-Left' ELSE 'Back-Right' END
+                    END as quadrant
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_rally_frame = TRUE
+                  AND f.player_2_x_meter IS NOT NULL
+                  AND f.player_2_y_meter IS NOT NULL
+            ),
+            quadrant_counts AS (
+                SELECT
+                    rally_id,
+                    player_id,
+                    quadrant,
+                    COUNT(*) as count
+                FROM rally_player_quadrants
+                GROUP BY rally_id, player_id, quadrant
+            ),
+            player_totals AS (
+                SELECT
+                    rally_id,
+                    player_id,
+                    SUM(count) as total
+                FROM quadrant_counts
+                GROUP BY rally_id, player_id
+            )
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                qc.player_id,
+                qc.quadrant,
+                qc.count,
+                pt.total,
+                CASE
+                    WHEN pt.total > 0
+                    THEN (qc.count::float / pt.total * 100)
+                    ELSE 0
+                END as percentage
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN quadrant_counts qc ON rm.rally_id = qc.rally_id
+            LEFT JOIN player_totals pt ON qc.rally_id = pt.rally_id
+                AND qc.player_id = pt.player_id
+            WHERE qc.player_id IS NOT NULL
+            ORDER BY rm.rally_id, qc.player_id, qc.quadrant
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build quadrant distribution
+        def build_quadrant_dist(rows):
+            distribution = []
+            total = 0
+            for r in rows:
+                quadrant = r.quadrant
+                count = r.count
+                percentage = r.percentage
+                distribution.append(
+                    DistributionItem(label=quadrant, count=count, percentage=percentage)
+                )
+                total += count
+            return SingleDistribution(distribution=distribution, total=total)
+
+        # Organize by rally -> player
+        rally_player_rows = {}
+        rally_metadata_map = {}
+        for row in results:
+            rally_id = row.rally_id
+            player_id = row.player_id
+
+            if rally_id not in rally_metadata_map:
+                rally_metadata_map[rally_id] = {
+                    "rally_start_time": row.rally_start_time,
+                    "rally_duration": row.rally_duration,
+                    "shot_count": row.shot_count,
+                    "point_winner": row.point_winner,
+                    "game_number": row.game_number,
+                }
+
+            if rally_id not in rally_player_rows:
+                rally_player_rows[rally_id] = {1: [], 2: []}
+            rally_player_rows[rally_id][player_id].append(row)
+
+        # Build final response
+        rally_items = []
+        for rally_id, metadata in rally_metadata_map.items():
+            player_data = rally_player_rows.get(rally_id, {1: [], 2: []})
+
+            p1_dist = build_quadrant_dist(player_data.get(1, []))
+            p2_dist = build_quadrant_dist(player_data.get(2, []))
+
+            rally_items.append(
+                CourtQuadrantPerRallyItem(
+                    rally_id=rally_id,
+                    game_number=metadata["game_number"],
+                    rally_start_time=metadata["rally_start_time"],
+                    rally_duration=metadata["rally_duration"],
+                    shot_count=metadata["shot_count"],
+                    point_winner=metadata["point_winner"],
+                    player_1=p1_dist,
+                    player_2=p2_dist,
+                )
+            )
+
+        return CourtQuadrantPerRallyResponse(
+            video_id=video_id,
+            filters=filters,
+            data=rally_items,
+            total_rallies=len(rally_items),
+            quadrant_boundaries={"x_cut": X_CUT, "y_cut": Y_CUT},
+        )
+
+    def get_wall_quadrant_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> WallQuadrantPerGameResponse:
+        """Get wall quadrant distribution per game with both players' data - Pure SQL."""
+        X_CUT = 3.2
+        Y_CUT = 2.285
+
+        games_metadata = self._get_games_metadata(video_id, filters)
+        if not games_metadata:
+            return WallQuadrantPerGameResponse(
+                video_id=video_id,
+                filters=filters,
+                data=[],
+                total_games=0,
+                quadrant_boundaries={"x_cut": X_CUT, "y_cut": Y_CUT},
+            )
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH game_player_wall_quadrants AS (
+                SELECT
+                    g.game_number,
+                    f.wall_hit_player_id as player_id,
+                    CASE
+                        WHEN wall_hit_y_meter < {Y_CUT} THEN
+                            CASE WHEN wall_hit_x_meter < {X_CUT} THEN 'Bottom-Left' ELSE 'Bottom-Right' END
+                        ELSE
+                            CASE WHEN wall_hit_x_meter < {X_CUT} THEN 'Top-Left' ELSE 'Top-Right' END
+                    END as quadrant
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_wall_hit = TRUE
+                  AND f.wall_hit_x_meter IS NOT NULL
+                  AND f.wall_hit_y_meter IS NOT NULL
+                  AND f.wall_hit_player_id IN (1, 2)
+            ),
+            quadrant_counts AS (
+                SELECT
+                    game_number,
+                    player_id,
+                    quadrant,
+                    COUNT(*) as count
+                FROM game_player_wall_quadrants
+                GROUP BY game_number, player_id, quadrant
+            ),
+            player_totals AS (
+                SELECT
+                    game_number,
+                    player_id,
+                    SUM(count) as total
+                FROM quadrant_counts
+                GROUP BY game_number, player_id
+            )
+            SELECT
+                qc.game_number,
+                qc.player_id,
+                qc.quadrant,
+                qc.count,
+                pt.total,
+                CASE
+                    WHEN pt.total > 0
+                    THEN (qc.count::float / pt.total * 100)
+                    ELSE 0
+                END as percentage
+            FROM quadrant_counts qc
+            JOIN player_totals pt ON qc.game_number = pt.game_number
+                AND qc.player_id = pt.player_id
+            ORDER BY qc.game_number, qc.player_id, qc.quadrant
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build wall quadrant distribution
+        def build_wall_quadrant_dist(rows):
+            distribution = []
+            total = 0
+            for r in rows:
+                quadrant = r.quadrant
+                count = r.count
+                percentage = r.percentage
+                distribution.append(
+                    DistributionItem(label=quadrant, count=count, percentage=percentage)
+                )
+                total += count
+            return SingleDistribution(distribution=distribution, total=total)
+
+        # Organize by game -> player
+        game_player_rows = {}
+        for row in results:
+            game_num = row.game_number
+            player_id = row.player_id
+            if game_num not in game_player_rows:
+                game_player_rows[game_num] = {1: [], 2: []}
+            game_player_rows[game_num][player_id].append(row)
+
+        # Build final response
+        game_items = []
+        for game_meta in games_metadata:
+            game_num = game_meta["game_number"]
+            player_data = game_player_rows.get(game_num, {1: [], 2: []})
+
+            p1_dist = build_wall_quadrant_dist(player_data.get(1, []))
+            p2_dist = build_wall_quadrant_dist(player_data.get(2, []))
+
+            game_items.append(
+                WallQuadrantPerGameItem(
+                    game_number=game_num,
+                    start_rally_id=game_meta["start_rally_id"],
+                    end_rally_id=game_meta["end_rally_id"],
+                    start_time=game_meta["start_time"],
+                    end_time=game_meta["end_time"],
+                    duration=game_meta["duration"],
+                    rally_count=game_meta["rally_count"],
+                    player_1=p1_dist,
+                    player_2=p2_dist,
+                )
+            )
+
+        return WallQuadrantPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=game_items,
+            total_games=len(game_items),
+            quadrant_boundaries={"x_cut": X_CUT, "y_cut": Y_CUT},
+        )
+
+    def get_wall_quadrant_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> WallQuadrantPerRallyResponse:
+        """Get wall quadrant distribution per rally with both players' data - Pure SQL."""
+        X_CUT = 3.2
+        Y_CUT = 2.285
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            rally_player_wall_quadrants AS (
+                SELECT
+                    f.rally_id,
+                    f.wall_hit_player_id as player_id,
+                    CASE
+                        WHEN wall_hit_y_meter < {Y_CUT} THEN
+                            CASE WHEN wall_hit_x_meter < {X_CUT} THEN 'Bottom-Left' ELSE 'Bottom-Right' END
+                        ELSE
+                            CASE WHEN wall_hit_x_meter < {X_CUT} THEN 'Top-Left' ELSE 'Top-Right' END
+                    END as quadrant
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_wall_hit = TRUE
+                  AND f.wall_hit_x_meter IS NOT NULL
+                  AND f.wall_hit_y_meter IS NOT NULL
+                  AND f.wall_hit_player_id IN (1, 2)
+            ),
+            quadrant_counts AS (
+                SELECT
+                    rally_id,
+                    player_id,
+                    quadrant,
+                    COUNT(*) as count
+                FROM rally_player_wall_quadrants
+                GROUP BY rally_id, player_id, quadrant
+            ),
+            player_totals AS (
+                SELECT
+                    rally_id,
+                    player_id,
+                    SUM(count) as total
+                FROM quadrant_counts
+                GROUP BY rally_id, player_id
+            )
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                qc.player_id,
+                qc.quadrant,
+                qc.count,
+                pt.total,
+                CASE
+                    WHEN pt.total > 0
+                    THEN (qc.count::float / pt.total * 100)
+                    ELSE 0
+                END as percentage
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN quadrant_counts qc ON rm.rally_id = qc.rally_id
+            LEFT JOIN player_totals pt ON qc.rally_id = pt.rally_id
+                AND qc.player_id = pt.player_id
+            WHERE qc.player_id IS NOT NULL
+            ORDER BY rm.rally_id, qc.player_id, qc.quadrant
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build wall quadrant distribution
+        def build_wall_quadrant_dist(rows):
+            distribution = []
+            total = 0
+            for r in rows:
+                quadrant = r.quadrant
+                count = r.count
+                percentage = r.percentage
+                distribution.append(
+                    DistributionItem(label=quadrant, count=count, percentage=percentage)
+                )
+                total += count
+            return SingleDistribution(distribution=distribution, total=total)
+
+        # Organize by rally -> player
+        rally_player_rows = {}
+        rally_metadata_map = {}
+        for row in results:
+            rally_id = row.rally_id
+            player_id = row.player_id
+
+            if rally_id not in rally_metadata_map:
+                rally_metadata_map[rally_id] = {
+                    "rally_start_time": row.rally_start_time,
+                    "rally_duration": row.rally_duration,
+                    "shot_count": row.shot_count,
+                    "point_winner": row.point_winner,
+                    "game_number": row.game_number,
+                }
+
+            if rally_id not in rally_player_rows:
+                rally_player_rows[rally_id] = {1: [], 2: []}
+            rally_player_rows[rally_id][player_id].append(row)
+
+        # Build final response
+        rally_items = []
+        for rally_id, metadata in rally_metadata_map.items():
+            player_data = rally_player_rows.get(rally_id, {1: [], 2: []})
+
+            p1_dist = build_wall_quadrant_dist(player_data.get(1, []))
+            p2_dist = build_wall_quadrant_dist(player_data.get(2, []))
+
+            rally_items.append(
+                WallQuadrantPerRallyItem(
+                    rally_id=rally_id,
+                    game_number=metadata["game_number"],
+                    rally_start_time=metadata["rally_start_time"],
+                    rally_duration=metadata["rally_duration"],
+                    shot_count=metadata["shot_count"],
+                    point_winner=metadata["point_winner"],
+                    player_1=p1_dist,
+                    player_2=p2_dist,
+                )
+            )
+
+        return WallQuadrantPerRallyResponse(
+            video_id=video_id,
+            filters=filters,
+            data=rally_items,
+            total_rallies=len(rally_items),
+            quadrant_boundaries={"x_cut": X_CUT, "y_cut": Y_CUT},
+        )
+
+    def get_movement_metrics_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> MovementMetricsPerGameResponse:
+        """Get movement metrics per game with both players' data - Pure SQL."""
+        games_metadata = self._get_games_metadata(video_id, filters)
+        if not games_metadata:
+            return MovementMetricsPerGameResponse(
+                video_id=video_id, data=[], total_games=0
+            )
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH frame_distances AS (
+                SELECT
+                    g.game_number,
+                    f.rally_id,
+                    f.frame_number,
+                    -- Player 1 distance from previous frame
+                    SQRT(
+                        POW(f.player_1_x_meter - LAG(f.player_1_x_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2) +
+                        POW(f.player_1_y_meter - LAG(f.player_1_y_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2)
+                    ) as p1_frame_distance,
+                    -- Player 2 distance from previous frame
+                    SQRT(
+                        POW(f.player_2_x_meter - LAG(f.player_2_x_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2) +
+                        POW(f.player_2_y_meter - LAG(f.player_2_y_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2)
+                    ) as p2_frame_distance
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_rally_frame = TRUE
+                  AND f.player_1_x_meter IS NOT NULL
+                  AND f.player_1_y_meter IS NOT NULL
+                  AND f.player_2_x_meter IS NOT NULL
+                  AND f.player_2_y_meter IS NOT NULL
+            ),
+            rally_distances AS (
+                SELECT
+                    game_number,
+                    rally_id,
+                    SUM(p1_frame_distance) as p1_rally_distance,
+                    SUM(p2_frame_distance) as p2_rally_distance
+                FROM frame_distances
+                GROUP BY game_number, rally_id
+            ),
+            game_shot_counts AS (
+                SELECT
+                    g.game_number,
+                    COUNT(CASE WHEN f.is_racket_hit = TRUE THEN 1 END) as total_shots
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                GROUP BY g.game_number
+            ),
+            game_distances AS (
+                SELECT
+                    rd.game_number,
+                    SUM(rd.p1_rally_distance) as p1_total_distance,
+                    AVG(rd.p1_rally_distance) as p1_avg_distance_per_rally,
+                    SUM(rd.p2_rally_distance) as p2_total_distance,
+                    AVG(rd.p2_rally_distance) as p2_avg_distance_per_rally,
+                    COUNT(*) as rally_count,
+                    gsc.total_shots
+                FROM rally_distances rd
+                LEFT JOIN game_shot_counts gsc ON rd.game_number = gsc.game_number
+                GROUP BY rd.game_number, gsc.total_shots
+            )
+            SELECT * FROM game_distances
+            ORDER BY game_number
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build movement metrics per game
+        game_metrics = {}
+        for row in results:
+            game_metrics[row.game_number] = {
+                "p1": SingleMovementMetrics(
+                    total_distance=row.p1_total_distance or 0.0,
+                    avg_distance_per_rally=row.p1_avg_distance_per_rally or 0.0,
+                ),
+                "p2": SingleMovementMetrics(
+                    total_distance=row.p2_total_distance or 0.0,
+                    avg_distance_per_rally=row.p2_avg_distance_per_rally or 0.0,
+                ),
+            }
+
+        # Build final response
+        game_items = []
+        for game_meta in games_metadata:
+            game_num = game_meta["game_number"]
+            metrics = game_metrics.get(
+                game_num,
+                {
+                    "p1": SingleMovementMetrics(
+                        total_distance=0.0,
+                        avg_distance_per_rally=0.0,
+                    ),
+                    "p2": SingleMovementMetrics(
+                        total_distance=0.0,
+                        avg_distance_per_rally=0.0,
+                    ),
+                },
+            )
+
+            game_items.append(
+                MovementMetricsPerGameItem(
+                    game_number=game_num,
+                    start_rally_id=game_meta["start_rally_id"],
+                    end_rally_id=game_meta["end_rally_id"],
+                    start_time=game_meta["start_time"],
+                    end_time=game_meta["end_time"],
+                    duration=game_meta["duration"],
+                    rally_count=game_meta["rally_count"],
+                    player_1=metrics["p1"],
+                    player_2=metrics["p2"],
+                )
+            )
+
+        return MovementMetricsPerGameResponse(
+            video_id=video_id, data=game_items, total_games=len(game_items)
+        )
+
+    def get_movement_metrics_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> MovementMetricsPerRallyResponse:
+        """Get movement metrics per rally with both players' data - Pure SQL."""
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            frame_distances AS (
+                SELECT
+                    f.rally_id,
+                    -- Player 1 distance from previous frame
+                    SQRT(
+                        POW(f.player_1_x_meter - LAG(f.player_1_x_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2) +
+                        POW(f.player_1_y_meter - LAG(f.player_1_y_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2)
+                    ) as p1_frame_distance,
+                    -- Player 2 distance from previous frame
+                    SQRT(
+                        POW(f.player_2_x_meter - LAG(f.player_2_x_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2) +
+                        POW(f.player_2_y_meter - LAG(f.player_2_y_meter) OVER (PARTITION BY f.rally_id ORDER BY f.frame_number), 2)
+                    ) as p2_frame_distance
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_rally_frame = TRUE
+                  AND f.player_1_x_meter IS NOT NULL
+                  AND f.player_1_y_meter IS NOT NULL
+                  AND f.player_2_x_meter IS NOT NULL
+                  AND f.player_2_y_meter IS NOT NULL
+            ),
+            rally_distances AS (
+                SELECT
+                    rally_id,
+                    SUM(p1_frame_distance) as p1_total_distance,
+                    SUM(p2_frame_distance) as p2_total_distance
+                FROM frame_distances
+                GROUP BY rally_id
+            )
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                rd.p1_total_distance,
+                rd.p2_total_distance
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN rally_distances rd ON rm.rally_id = rd.rally_id
+            ORDER BY rm.rally_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build final response
+        rally_items = []
+        for row in results:
+            p1_metrics = SingleMovementMetrics(
+                total_distance=row.p1_total_distance or 0.0,
+                avg_distance_per_rally=row.p1_total_distance
+                or 0.0,  # Same as total for per-rally
+            )
+            p2_metrics = SingleMovementMetrics(
+                total_distance=row.p2_total_distance or 0.0,
+                avg_distance_per_rally=row.p2_total_distance
+                or 0.0,  # Same as total for per-rally
+            )
+
+            rally_items.append(
+                MovementMetricsPerRallyItem(
+                    rally_id=row.rally_id,
+                    game_number=row.game_number,
+                    rally_start_time=row.rally_start_time,
+                    rally_duration=row.rally_duration,
+                    shot_count=row.shot_count,
+                    point_winner=row.point_winner,
+                    player_1=p1_metrics,
+                    player_2=p2_metrics,
+                )
+            )
+
+        return MovementMetricsPerRallyResponse(
+            video_id=video_id, data=rally_items, total_rallies=len(rally_items)
+        )
+
+    def get_t_zone_occupancy_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> TZoneOccupancyPerGameResponse:
+        """Get T-zone occupancy per game with both players' data - Pure SQL."""
+        games_metadata = self._get_games_metadata(video_id, filters)
+        if not games_metadata:
+            return TZoneOccupancyPerGameResponse(
+                video_id=video_id, data=[], total_games=0
+            )
+
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH game_frames AS (
+                SELECT
+                    g.game_number,
+                    f.player_1_in_t_zone,
+                    f.player_2_in_t_zone,
+                    f.player_1_time_to_t,
+                    f.player_2_time_to_t,
+                    f.is_racket_hit,
+                    f.racket_hit_player_id
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_rally_frame = TRUE
+            ),
+            game_stats AS (
+                SELECT
+                    game_number,
+                    -- Player 1 metrics
+                    COUNT(*) FILTER (WHERE player_1_in_t_zone = TRUE) as p1_frames_in_t,
+                    COUNT(*) as total_frames,
+                    AVG(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_avg_time_to_t,
+                    MIN(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_min_time_to_t,
+                    MAX(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_max_time_to_t,
+                    VARIANCE(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_time_to_t_var,
+                    COUNT(*) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_successful_returns,
+                    COUNT(*) FILTER (WHERE is_racket_hit = TRUE AND racket_hit_player_id = 2) as p1_opponent_shots,
+                    -- Player 2 metrics
+                    COUNT(*) FILTER (WHERE player_2_in_t_zone = TRUE) as p2_frames_in_t,
+                    AVG(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_avg_time_to_t,
+                    MIN(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_min_time_to_t,
+                    MAX(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_max_time_to_t,
+                    VARIANCE(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_time_to_t_var,
+                    COUNT(*) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_successful_returns,
+                    COUNT(*) FILTER (WHERE is_racket_hit = TRUE AND racket_hit_player_id = 1) as p2_opponent_shots
+                FROM game_frames
+                GROUP BY game_number
+            )
+            SELECT
+                game_number,
+                -- Player 1
+                CASE WHEN total_frames > 0 THEN (p1_frames_in_t::float / total_frames * 100) ELSE 0 END as p1_pct_time_in_t,
+                p1_avg_time_to_t,
+                p1_min_time_to_t,
+                p1_max_time_to_t,
+                p1_time_to_t_var,
+                CASE WHEN p1_opponent_shots > 0 THEN (p1_successful_returns::float / p1_opponent_shots * 100) ELSE NULL END as p1_success_rate,
+                p1_opponent_shots,
+                p1_successful_returns,
+                -- Player 2
+                CASE WHEN total_frames > 0 THEN (p2_frames_in_t::float / total_frames * 100) ELSE 0 END as p2_pct_time_in_t,
+                p2_avg_time_to_t,
+                p2_min_time_to_t,
+                p2_max_time_to_t,
+                p2_time_to_t_var,
+                CASE WHEN p2_opponent_shots > 0 THEN (p2_successful_returns::float / p2_opponent_shots * 100) ELSE NULL END as p2_success_rate,
+                p2_opponent_shots,
+                p2_successful_returns
+            FROM game_stats
+            ORDER BY game_number
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build T-zone metrics per game
+        game_metrics = {}
+        for row in results:
+            game_metrics[row.game_number] = {
+                "p1": SingleTZoneMetrics(
+                    pct_time_in_t=row.p1_pct_time_in_t,
+                    avg_time_to_t=row.p1_avg_time_to_t,
+                    min_time_to_t=row.p1_min_time_to_t,
+                    max_time_to_t=row.p1_max_time_to_t,
+                    time_to_t_variance=row.p1_time_to_t_var,
+                    t_zone_success_rate=row.p1_success_rate,
+                    total_shots_taken=row.p1_opponent_shots or 0,
+                    successful_returns=row.p1_successful_returns or 0,
+                ),
+                "p2": SingleTZoneMetrics(
+                    pct_time_in_t=row.p2_pct_time_in_t,
+                    avg_time_to_t=row.p2_avg_time_to_t,
+                    min_time_to_t=row.p2_min_time_to_t,
+                    max_time_to_t=row.p2_max_time_to_t,
+                    time_to_t_variance=row.p2_time_to_t_var,
+                    t_zone_success_rate=row.p2_success_rate,
+                    total_shots_taken=row.p2_opponent_shots or 0,
+                    successful_returns=row.p2_successful_returns or 0,
+                ),
+            }
+
+        # Build final response
+        game_items = []
+        for game_meta in games_metadata:
+            game_num = game_meta["game_number"]
+            metrics = game_metrics.get(
+                game_num,
+                {
+                    "p1": SingleTZoneMetrics(
+                        pct_time_in_t=0.0,
+                        avg_time_to_t=None,
+                        min_time_to_t=None,
+                        max_time_to_t=None,
+                        time_to_t_variance=None,
+                        t_zone_success_rate=None,
+                        total_shots_taken=0,
+                        successful_returns=0,
+                    ),
+                    "p2": SingleTZoneMetrics(
+                        pct_time_in_t=0.0,
+                        avg_time_to_t=None,
+                        min_time_to_t=None,
+                        max_time_to_t=None,
+                        time_to_t_variance=None,
+                        t_zone_success_rate=None,
+                        total_shots_taken=0,
+                        successful_returns=0,
+                    ),
+                },
+            )
+
+            game_items.append(
+                TZoneOccupancyPerGameItem(
+                    game_number=game_num,
+                    start_rally_id=game_meta["start_rally_id"],
+                    end_rally_id=game_meta["end_rally_id"],
+                    start_time=game_meta["start_time"],
+                    end_time=game_meta["end_time"],
+                    duration=game_meta["duration"],
+                    rally_count=game_meta["rally_count"],
+                    player_1=metrics["p1"],
+                    player_2=metrics["p2"],
+                )
+            )
+
+        return TZoneOccupancyPerGameResponse(
+            video_id=video_id, data=game_items, total_games=len(game_items)
+        )
+
+    def get_t_zone_occupancy_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> TZoneOccupancyPerRallyResponse:
+        """Get T-zone occupancy per rally with both players' data - Pure SQL."""
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            rally_frames AS (
+                SELECT
+                    f.rally_id,
+                    f.player_1_in_t_zone,
+                    f.player_2_in_t_zone,
+                    f.player_1_time_to_t,
+                    f.player_2_time_to_t,
+                    f.is_racket_hit,
+                    f.racket_hit_player_id
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                  AND f.is_rally_frame = TRUE
+            ),
+            rally_stats AS (
+                SELECT
+                    rally_id,
+                    -- Player 1 metrics
+                    COUNT(*) FILTER (WHERE player_1_in_t_zone = TRUE) as p1_frames_in_t,
+                    COUNT(*) as total_frames,
+                    AVG(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_avg_time_to_t,
+                    MIN(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_min_time_to_t,
+                    MAX(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_max_time_to_t,
+                    VARIANCE(player_1_time_to_t) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_time_to_t_var,
+                    COUNT(*) FILTER (WHERE player_1_time_to_t IS NOT NULL) as p1_successful_returns,
+                    COUNT(*) FILTER (WHERE is_racket_hit = TRUE AND racket_hit_player_id = 2) as p1_opponent_shots,
+                    -- Player 2 metrics
+                    COUNT(*) FILTER (WHERE player_2_in_t_zone = TRUE) as p2_frames_in_t,
+                    AVG(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_avg_time_to_t,
+                    MIN(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_min_time_to_t,
+                    MAX(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_max_time_to_t,
+                    VARIANCE(player_2_time_to_t) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_time_to_t_var,
+                    COUNT(*) FILTER (WHERE player_2_time_to_t IS NOT NULL) as p2_successful_returns,
+                    COUNT(*) FILTER (WHERE is_racket_hit = TRUE AND racket_hit_player_id = 1) as p2_opponent_shots
+                FROM rally_frames
+                GROUP BY rally_id
+            )
+            SELECT
+                rm.rally_id,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                rgm.game_number,
+                -- Player 1
+                CASE WHEN rs.total_frames > 0 THEN (rs.p1_frames_in_t::float / rs.total_frames * 100) ELSE 0 END as p1_pct_time_in_t,
+                rs.p1_avg_time_to_t,
+                rs.p1_min_time_to_t,
+                rs.p1_max_time_to_t,
+                rs.p1_time_to_t_var,
+                CASE WHEN rs.p1_opponent_shots > 0 THEN (rs.p1_successful_returns::float / rs.p1_opponent_shots * 100) ELSE NULL END as p1_success_rate,
+                rs.p1_opponent_shots,
+                rs.p1_successful_returns,
+                -- Player 2
+                CASE WHEN rs.total_frames > 0 THEN (rs.p2_frames_in_t::float / rs.total_frames * 100) ELSE 0 END as p2_pct_time_in_t,
+                rs.p2_avg_time_to_t,
+                rs.p2_min_time_to_t,
+                rs.p2_max_time_to_t,
+                rs.p2_time_to_t_var,
+                CASE WHEN rs.p2_opponent_shots > 0 THEN (rs.p2_successful_returns::float / rs.p2_opponent_shots * 100) ELSE NULL END as p2_success_rate,
+                rs.p2_opponent_shots,
+                rs.p2_successful_returns
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN rally_stats rs ON rm.rally_id = rs.rally_id
+            ORDER BY rm.rally_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build final response
+        rally_items = []
+        for row in results:
+            p1_metrics = SingleTZoneMetrics(
+                pct_time_in_t=row.p1_pct_time_in_t or 0.0,
+                avg_time_to_t=row.p1_avg_time_to_t,
+                min_time_to_t=row.p1_min_time_to_t,
+                max_time_to_t=row.p1_max_time_to_t,
+                time_to_t_variance=row.p1_time_to_t_var,
+                t_zone_success_rate=row.p1_success_rate,
+                total_shots_taken=row.p1_opponent_shots or 0,
+                successful_returns=row.p1_successful_returns or 0,
+            )
+            p2_metrics = SingleTZoneMetrics(
+                pct_time_in_t=row.p2_pct_time_in_t or 0.0,
+                avg_time_to_t=row.p2_avg_time_to_t,
+                min_time_to_t=row.p2_min_time_to_t,
+                max_time_to_t=row.p2_max_time_to_t,
+                time_to_t_variance=row.p2_time_to_t_var,
+                t_zone_success_rate=row.p2_success_rate,
+                total_shots_taken=row.p2_opponent_shots or 0,
+                successful_returns=row.p2_successful_returns or 0,
+            )
+
+            rally_items.append(
+                TZoneOccupancyPerRallyItem(
+                    rally_id=row.rally_id,
+                    game_number=row.game_number,
+                    rally_start_time=row.rally_start_time,
+                    rally_duration=row.rally_duration,
+                    shot_count=row.shot_count,
+                    point_winner=row.point_winner,
+                    player_1=p1_metrics,
+                    player_2=p2_metrics,
+                )
+            )
+
+        return TZoneOccupancyPerRallyResponse(
+            video_id=video_id, data=rally_items, total_rallies=len(rally_items)
+        )
+
+    # ============================================================================
+    # SHOT EFFECTIVENESS PER-GAME AND PER-RALLY
+    # ============================================================================
+
+    def get_shot_effectiveness_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> ShotEffectivenessPerGameResponse:
+        """Get shot effectiveness metrics per game with both players' data."""
+        logger.info(f"Computing shot effectiveness per-game for video {video_id}")
+        self._check_processed(video_id)
+
+        # Get game metadata
+        games_metadata = self._get_games_metadata(video_id, filters)
+
+        if not games_metadata:
+            return ShotEffectivenessPerGameResponse(
+                video_id=video_id, filters=filters, data=[], total_games=0
+            )
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+        params["video_id"] = video_id
+
+        # Query per-game shot effectiveness grouped by game and player
+        # Uses LATERAL JOIN like the original aggregate query to find opponent's next shot
+        query = text(
+            f"""
+            WITH shot_frames AS (
+                SELECT
+                    g.game_number,
+                    f.rally_id,
+                    f.frame_number,
+                    f.racket_hit_player_id,
+                    f.player_1_x_meter,
+                    f.player_1_y_meter,
+                    f.player_2_x_meter,
+                    f.player_2_y_meter,
+                    CASE
+                        WHEN f.racket_hit_player_id = 1 THEN
+                            SQRT(POW(f.player_2_x_meter - 3.05, 2) + POW(f.player_2_y_meter - 5.44, 2))
+                        WHEN f.racket_hit_player_id = 2 THEN
+                            SQRT(POW(f.player_1_x_meter - 3.05, 2) + POW(f.player_1_y_meter - 5.44, 2))
+                    END as opponent_distance_from_t,
+                    f.shot_type
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.is_racket_hit = TRUE
+                  AND f.player_1_x_meter IS NOT NULL
+                  AND f.player_2_x_meter IS NOT NULL
+            ),
+            shot_with_response AS (
+                SELECT
+                    curr.game_number,
+                    curr.racket_hit_player_id,
+                    curr.player_1_x_meter,
+                    curr.player_1_y_meter,
+                    curr.player_2_x_meter,
+                    curr.player_2_y_meter,
+                    curr.opponent_distance_from_t,
+                    curr.shot_type,
+                    next_shot.opponent_distance_from_t as next_opponent_dist_from_t,
+                    next_shot.player_1_x_meter as next_player_1_x,
+                    next_shot.player_1_y_meter as next_player_1_y,
+                    next_shot.player_2_x_meter as next_player_2_x,
+                    next_shot.player_2_y_meter as next_player_2_y
+                FROM shot_frames curr
+                LEFT JOIN LATERAL (
+                    SELECT opponent_distance_from_t, player_1_x_meter, player_1_y_meter, player_2_x_meter, player_2_y_meter
+                    FROM shot_frames next
+                    WHERE next.rally_id = curr.rally_id
+                      AND next.frame_number > curr.frame_number
+                      AND next.racket_hit_player_id != curr.racket_hit_player_id
+                    ORDER BY next.frame_number ASC
+                    LIMIT 1
+                ) next_shot ON TRUE
+            ),
+            game_effectiveness AS (
+                SELECT
+                    game_number,
+                    racket_hit_player_id,
+                    -- Displacement from T: change in opponent's distance from T
+                    AVG(next_opponent_dist_from_t - opponent_distance_from_t) as avg_displacement,
+                    MAX(next_opponent_dist_from_t - opponent_distance_from_t) as max_displacement,
+                    VARIANCE(next_opponent_dist_from_t - opponent_distance_from_t) as displacement_variance,
+                    -- Opponent distance moved: actual distance opponent moved to return shot
+                    AVG(CASE
+                        WHEN racket_hit_player_id = 1 AND next_player_2_x IS NOT NULL AND next_player_2_y IS NOT NULL THEN
+                            SQRT(POW(next_player_2_x - player_2_x_meter, 2) + POW(next_player_2_y - player_2_y_meter, 2))
+                        WHEN racket_hit_player_id = 2 AND next_player_1_x IS NOT NULL AND next_player_1_y IS NOT NULL THEN
+                            SQRT(POW(next_player_1_x - player_1_x_meter, 2) + POW(next_player_1_y - player_1_y_meter, 2))
+                    END) as avg_opponent_dist_moved,
+                    MAX(CASE
+                        WHEN racket_hit_player_id = 1 AND next_player_2_x IS NOT NULL AND next_player_2_y IS NOT NULL THEN
+                            SQRT(POW(next_player_2_x - player_2_x_meter, 2) + POW(next_player_2_y - player_2_y_meter, 2))
+                        WHEN racket_hit_player_id = 2 AND next_player_1_x IS NOT NULL AND next_player_1_y IS NOT NULL THEN
+                            SQRT(POW(next_player_1_x - player_1_x_meter, 2) + POW(next_player_1_y - player_1_y_meter, 2))
+                    END) as max_opponent_dist_moved,
+                    VARIANCE(CASE
+                        WHEN racket_hit_player_id = 1 AND next_player_2_x IS NOT NULL AND next_player_2_y IS NOT NULL THEN
+                            SQRT(POW(next_player_2_x - player_2_x_meter, 2) + POW(next_player_2_y - player_2_y_meter, 2))
+                        WHEN racket_hit_player_id = 2 AND next_player_1_x IS NOT NULL AND next_player_1_y IS NOT NULL THEN
+                            SQRT(POW(next_player_1_x - player_1_x_meter, 2) + POW(next_player_1_y - player_1_y_meter, 2))
+                    END) as opponent_dist_moved_variance,
+                    -- Depth dominance
+                    AVG(CASE
+                        WHEN racket_hit_player_id = 1 AND player_2_y_meter > player_1_y_meter THEN 1
+                        WHEN racket_hit_player_id = 2 AND player_1_y_meter > player_2_y_meter THEN 1
+                        ELSE 0
+                    END) * 100 as depth_dominance_pct,
+                    AVG(CASE
+                        WHEN racket_hit_player_id = 1 THEN player_2_y_meter - player_1_y_meter
+                        WHEN racket_hit_player_id = 2 THEN player_1_y_meter - player_2_y_meter
+                    END) as avg_depth_diff,
+                    MIN(CASE
+                        WHEN racket_hit_player_id = 1 THEN player_2_y_meter - player_1_y_meter
+                        WHEN racket_hit_player_id = 2 THEN player_1_y_meter - player_2_y_meter
+                    END) as min_depth_diff,
+                    MAX(CASE
+                        WHEN racket_hit_player_id = 1 THEN player_2_y_meter - player_1_y_meter
+                        WHEN racket_hit_player_id = 2 THEN player_1_y_meter - player_2_y_meter
+                    END) as max_depth_diff,
+                    -- Straight shot quality
+                    COUNT(CASE WHEN shot_type IN ('straight_drive', 'straight_drop') THEN 1 END) as straight_shots,
+                    COUNT(CASE
+                        WHEN shot_type IN ('straight_drive', 'straight_drop')
+                        AND (
+                            (racket_hit_player_id = 1 AND LEAST(player_1_x_meter, 6.1 - player_1_x_meter) <= 1.2)
+                            OR (racket_hit_player_id = 2 AND LEAST(player_2_x_meter, 6.1 - player_2_x_meter) <= 1.2)
+                        )
+                        THEN 1
+                    END) as quality_straights
+                FROM shot_with_response
+                WHERE next_opponent_dist_from_t IS NOT NULL
+                GROUP BY game_number, racket_hit_player_id
+                ORDER BY game_number, racket_hit_player_id
+            )
+            SELECT * FROM game_effectiveness
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Define metric builder function
+        def build_shot_effectiveness(row):
+            return SingleShotEffectivenessMetrics(
+                avg_displacement_from_t=(
+                    float(row.avg_displacement)
+                    if row.avg_displacement is not None
+                    else None
+                ),
+                max_displacement_from_t=(
+                    float(row.max_displacement)
+                    if row.max_displacement is not None
+                    else None
+                ),
+                displacement_variance=(
+                    float(row.displacement_variance)
+                    if row.displacement_variance is not None
+                    else None
+                ),
+                avg_opponent_distance_moved=(
+                    float(row.avg_opponent_dist_moved)
+                    if row.avg_opponent_dist_moved is not None
+                    else None
+                ),
+                max_opponent_distance_moved=(
+                    float(row.max_opponent_dist_moved)
+                    if row.max_opponent_dist_moved is not None
+                    else None
+                ),
+                opponent_distance_moved_variance=(
+                    float(row.opponent_dist_moved_variance)
+                    if row.opponent_dist_moved_variance is not None
+                    else None
+                ),
+                depth_dominance_pct=(
+                    float(row.depth_dominance_pct)
+                    if row.depth_dominance_pct is not None
+                    else None
+                ),
+                avg_depth_difference=(
+                    float(row.avg_depth_diff) if row.avg_depth_diff is not None else None
+                ),
+                min_depth_difference=(
+                    float(row.min_depth_diff) if row.min_depth_diff is not None else None
+                ),
+                max_depth_difference=(
+                    float(row.max_depth_diff) if row.max_depth_diff is not None else None
+                ),
+                straight_shot_quality_pct=(
+                    (float(row.quality_straights) / row.straight_shots * 100)
+                    if row.straight_shots > 0
+                    else None
+                ),
+                straight_shots_count=(
+                    int(row.straight_shots) if row.straight_shots else 0
+                ),
+                shots_close_to_wall=(
+                    int(row.quality_straights) if row.quality_straights else 0
+                ),
+            )
+
+        # Pivot data
+        game_items_data = self._pivot_by_game(
+            results, games_metadata, build_shot_effectiveness
+        )
+
+        # Create empty metrics for missing players
+        empty_shot_effectiveness = SingleShotEffectivenessMetrics(
+            avg_displacement_from_t=None,
+            max_displacement_from_t=None,
+            displacement_variance=None,
+            avg_opponent_distance_moved=None,
+            max_opponent_distance_moved=None,
+            opponent_distance_moved_variance=None,
+            depth_dominance_pct=None,
+            avg_depth_difference=None,
+            min_depth_difference=None,
+            max_depth_difference=None,
+            straight_shot_quality_pct=None,
+            straight_shots_count=0,
+            shots_close_to_wall=0,
+        )
+
+        # Convert to response items, filling in empty metrics for missing players
+        game_items = []
+        for item in game_items_data:
+            game_items.append(
+                ShotEffectivenessPerGameItem(
+                    game_number=item["game_number"],
+                    start_rally_id=item["start_rally_id"],
+                    end_rally_id=item["end_rally_id"],
+                    start_time=item["start_time"],
+                    end_time=item["end_time"],
+                    duration=item["duration"],
+                    rally_count=item["rally_count"],
+                    player_1=(
+                        item["player_1"]
+                        if item["player_1"] is not None
+                        else empty_shot_effectiveness
+                    ),
+                    player_2=(
+                        item["player_2"]
+                        if item["player_2"] is not None
+                        else empty_shot_effectiveness
+                    ),
+                )
+            )
+
+        return ShotEffectivenessPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=game_items,
+            total_games=len(game_items),
+        )
+
+    def get_shot_effectiveness_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> ShotEffectivenessPerRallyResponse:
+        """Get shot effectiveness metrics per rally with both players' data."""
+        logger.info(f"Computing shot effectiveness per-rally for video {video_id}")
+        self._check_processed(video_id)
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+        params["video_id"] = video_id
+
+        # Query per-rally shot effectiveness grouped by rally and player
+        # Uses LATERAL JOIN like the original aggregate query to find opponent's next shot
+        query = text(
+            f"""
+            WITH rally_metadata AS (
+                SELECT DISTINCT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql}
+                  AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            shot_frames AS (
+                SELECT
+                    rally_id,
+                    frame_number,
+                    racket_hit_player_id,
+                    player_1_x_meter,
+                    player_1_y_meter,
+                    player_2_x_meter,
+                    player_2_y_meter,
+                    CASE
+                        WHEN racket_hit_player_id = 1 THEN
+                            SQRT(POW(player_2_x_meter - 3.05, 2) + POW(player_2_y_meter - 5.44, 2))
+                        WHEN racket_hit_player_id = 2 THEN
+                            SQRT(POW(player_1_x_meter - 3.05, 2) + POW(player_1_y_meter - 5.44, 2))
+                    END as opponent_distance_from_t,
+                    shot_type
+                FROM frame_data
+                WHERE {where_sql}
+                  AND is_racket_hit = TRUE
+                  AND rally_id IS NOT NULL
+                  AND player_1_x_meter IS NOT NULL
+                  AND player_2_x_meter IS NOT NULL
+            ),
+            shot_with_response AS (
+                SELECT
+                    curr.rally_id,
+                    curr.racket_hit_player_id,
+                    curr.player_1_x_meter,
+                    curr.player_1_y_meter,
+                    curr.player_2_x_meter,
+                    curr.player_2_y_meter,
+                    curr.opponent_distance_from_t,
+                    curr.shot_type,
+                    next_shot.opponent_distance_from_t as next_opponent_dist_from_t,
+                    next_shot.player_1_x_meter as next_player_1_x,
+                    next_shot.player_1_y_meter as next_player_1_y,
+                    next_shot.player_2_x_meter as next_player_2_x,
+                    next_shot.player_2_y_meter as next_player_2_y
+                FROM shot_frames curr
+                LEFT JOIN LATERAL (
+                    SELECT opponent_distance_from_t, player_1_x_meter, player_1_y_meter, player_2_x_meter, player_2_y_meter
+                    FROM shot_frames next
+                    WHERE next.rally_id = curr.rally_id
+                      AND next.frame_number > curr.frame_number
+                      AND next.racket_hit_player_id != curr.racket_hit_player_id
+                    ORDER BY next.frame_number ASC
+                    LIMIT 1
+                ) next_shot ON TRUE
+            ),
+            rally_effectiveness AS (
+                SELECT
+                    rally_id,
+                    racket_hit_player_id,
+                    -- Displacement from T: change in opponent's distance from T
+                    AVG(next_opponent_dist_from_t - opponent_distance_from_t) as avg_displacement,
+                    MAX(next_opponent_dist_from_t - opponent_distance_from_t) as max_displacement,
+                    VARIANCE(next_opponent_dist_from_t - opponent_distance_from_t) as displacement_variance,
+                    -- Opponent distance moved: actual distance opponent moved to return shot
+                    AVG(CASE
+                        WHEN racket_hit_player_id = 1 AND next_player_2_x IS NOT NULL AND next_player_2_y IS NOT NULL THEN
+                            SQRT(POW(next_player_2_x - player_2_x_meter, 2) + POW(next_player_2_y - player_2_y_meter, 2))
+                        WHEN racket_hit_player_id = 2 AND next_player_1_x IS NOT NULL AND next_player_1_y IS NOT NULL THEN
+                            SQRT(POW(next_player_1_x - player_1_x_meter, 2) + POW(next_player_1_y - player_1_y_meter, 2))
+                    END) as avg_opponent_dist_moved,
+                    MAX(CASE
+                        WHEN racket_hit_player_id = 1 AND next_player_2_x IS NOT NULL AND next_player_2_y IS NOT NULL THEN
+                            SQRT(POW(next_player_2_x - player_2_x_meter, 2) + POW(next_player_2_y - player_2_y_meter, 2))
+                        WHEN racket_hit_player_id = 2 AND next_player_1_x IS NOT NULL AND next_player_1_y IS NOT NULL THEN
+                            SQRT(POW(next_player_1_x - player_1_x_meter, 2) + POW(next_player_1_y - player_1_y_meter, 2))
+                    END) as max_opponent_dist_moved,
+                    VARIANCE(CASE
+                        WHEN racket_hit_player_id = 1 AND next_player_2_x IS NOT NULL AND next_player_2_y IS NOT NULL THEN
+                            SQRT(POW(next_player_2_x - player_2_x_meter, 2) + POW(next_player_2_y - player_2_y_meter, 2))
+                        WHEN racket_hit_player_id = 2 AND next_player_1_x IS NOT NULL AND next_player_1_y IS NOT NULL THEN
+                            SQRT(POW(next_player_1_x - player_1_x_meter, 2) + POW(next_player_1_y - player_1_y_meter, 2))
+                    END) as opponent_dist_moved_variance,
+                    -- Depth dominance
+                    AVG(CASE
+                        WHEN racket_hit_player_id = 1 AND player_2_y_meter > player_1_y_meter THEN 1
+                        WHEN racket_hit_player_id = 2 AND player_1_y_meter > player_2_y_meter THEN 1
+                        ELSE 0
+                    END) * 100 as depth_dominance_pct,
+                    AVG(CASE
+                        WHEN racket_hit_player_id = 1 THEN player_2_y_meter - player_1_y_meter
+                        WHEN racket_hit_player_id = 2 THEN player_1_y_meter - player_2_y_meter
+                    END) as avg_depth_diff,
+                    MIN(CASE
+                        WHEN racket_hit_player_id = 1 THEN player_2_y_meter - player_1_y_meter
+                        WHEN racket_hit_player_id = 2 THEN player_1_y_meter - player_2_y_meter
+                    END) as min_depth_diff,
+                    MAX(CASE
+                        WHEN racket_hit_player_id = 1 THEN player_2_y_meter - player_1_y_meter
+                        WHEN racket_hit_player_id = 2 THEN player_1_y_meter - player_2_y_meter
+                    END) as max_depth_diff,
+                    -- Straight shot quality
+                    COUNT(CASE WHEN shot_type IN ('straight_drive', 'straight_drop') THEN 1 END) as straight_shots,
+                    COUNT(CASE
+                        WHEN shot_type IN ('straight_drive', 'straight_drop')
+                        AND (
+                            (racket_hit_player_id = 1 AND LEAST(player_1_x_meter, 6.1 - player_1_x_meter) <= 1.2)
+                            OR (racket_hit_player_id = 2 AND LEAST(player_2_x_meter, 6.1 - player_2_x_meter) <= 1.2)
+                        )
+                        THEN 1
+                    END) as quality_straights
+                FROM shot_with_response
+                WHERE next_opponent_dist_from_t IS NOT NULL
+                GROUP BY rally_id, racket_hit_player_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            )
+            SELECT
+                rm.rally_id,
+                rgm.game_number,
+                rm.rally_start_time,
+                rm.rally_duration,
+                rm.shot_count,
+                rm.point_winner,
+                re.racket_hit_player_id,
+                re.avg_displacement,
+                re.max_displacement,
+                re.displacement_variance,
+                re.avg_opponent_dist_moved,
+                re.max_opponent_dist_moved,
+                re.opponent_dist_moved_variance,
+                re.depth_dominance_pct,
+                re.avg_depth_diff,
+                re.min_depth_diff,
+                re.max_depth_diff,
+                re.straight_shots,
+                re.quality_straights
+            FROM rally_metadata rm
+            LEFT JOIN rally_game_mapping rgm ON rm.rally_id = rgm.rally_id
+            LEFT JOIN rally_effectiveness re ON rm.rally_id = re.rally_id
+            ORDER BY rm.rally_id, re.racket_hit_player_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Define metric builder function
+        def build_shot_effectiveness(row):
+            return SingleShotEffectivenessMetrics(
+                avg_displacement_from_t=(
+                    float(row.avg_displacement)
+                    if row.avg_displacement is not None
+                    else None
+                ),
+                max_displacement_from_t=(
+                    float(row.max_displacement)
+                    if row.max_displacement is not None
+                    else None
+                ),
+                displacement_variance=(
+                    float(row.displacement_variance)
+                    if row.displacement_variance is not None
+                    else None
+                ),
+                avg_opponent_distance_moved=(
+                    float(row.avg_opponent_dist_moved)
+                    if row.avg_opponent_dist_moved is not None
+                    else None
+                ),
+                max_opponent_distance_moved=(
+                    float(row.max_opponent_dist_moved)
+                    if row.max_opponent_dist_moved is not None
+                    else None
+                ),
+                opponent_distance_moved_variance=(
+                    float(row.opponent_dist_moved_variance)
+                    if row.opponent_dist_moved_variance is not None
+                    else None
+                ),
+                depth_dominance_pct=(
+                    float(row.depth_dominance_pct)
+                    if row.depth_dominance_pct is not None
+                    else None
+                ),
+                avg_depth_difference=(
+                    float(row.avg_depth_diff) if row.avg_depth_diff is not None else None
+                ),
+                min_depth_difference=(
+                    float(row.min_depth_diff) if row.min_depth_diff is not None else None
+                ),
+                max_depth_difference=(
+                    float(row.max_depth_diff) if row.max_depth_diff is not None else None
+                ),
+                straight_shot_quality_pct=(
+                    (float(row.quality_straights) / row.straight_shots * 100)
+                    if row.straight_shots > 0
+                    else None
+                ),
+                straight_shots_count=(
+                    int(row.straight_shots) if row.straight_shots else 0
+                ),
+                shots_close_to_wall=(
+                    int(row.quality_straights) if row.quality_straights else 0
+                ),
+            )
+
+        # Pivot data
+        rally_items_data = self._pivot_by_rally(results, build_shot_effectiveness)
+
+        # Create empty metrics for missing players
+        empty_shot_effectiveness = SingleShotEffectivenessMetrics(
+            avg_displacement_from_t=None,
+            max_displacement_from_t=None,
+            displacement_variance=None,
+            avg_opponent_distance_moved=None,
+            max_opponent_distance_moved=None,
+            opponent_distance_moved_variance=None,
+            depth_dominance_pct=None,
+            avg_depth_difference=None,
+            min_depth_difference=None,
+            max_depth_difference=None,
+            straight_shot_quality_pct=None,
+            straight_shots_count=0,
+            shots_close_to_wall=0,
+        )
+
+        # Convert to response items, filling in empty metrics for missing players
+        rally_items = []
+        for item in rally_items_data:
+            # Convert -1 point_winner to None (indicates unknown/not set)
+            point_winner = (
+                item["point_winner"] if item["point_winner"] not in [-1, None] else None
+            )
+
+            rally_items.append(
+                ShotEffectivenessPerRallyItem(
+                    rally_id=item["rally_id"],
+                    game_number=item["game_number"],
+                    rally_start_time=item["rally_start_time"],
+                    rally_duration=item["rally_duration"],
+                    shot_count=item["shot_count"],
+                    point_winner=point_winner,
+                    player_1=(
+                        item["player_1"]
+                        if item["player_1"] is not None
+                        else empty_shot_effectiveness
+                    ),
+                    player_2=(
+                        item["player_2"]
+                        if item["player_2"] is not None
+                        else empty_shot_effectiveness
+                    ),
+                )
+            )
+
+        return ShotEffectivenessPerRallyResponse(
+            video_id=video_id,
+            filters=filters,
+            data=rally_items,
+            total_rallies=len(rally_items),
+        )
+
+    # ============================================================================
+    # WINNING EFFICIENCY PER-GAME AND PER-RALLY
+    # ============================================================================
+
+    def get_winning_efficiency_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> WinningEfficiencyPerGameResponse:
+        """Get winning efficiency metrics per game with both players' data."""
+        logger.info(f"Computing winning efficiency per-game for video {video_id}")
+        self._check_processed(video_id)
+
+        # Get game metadata
+        games_metadata = self._get_games_metadata(video_id, filters)
+
+        if not games_metadata:
+            return WinningEfficiencyPerGameResponse(
+                video_id=video_id, filters=filters, data=[], total_games=0
+            )
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+        params["video_id"] = video_id
+
+        # Query per-game winning efficiency grouped by game and player
+        query = text(
+            f"""
+            WITH game_rally_stats AS (
+                SELECT
+                    g.game_number,
+                    f.rally_id,
+                    SUM(CASE WHEN f.is_racket_hit = TRUE AND f.racket_hit_player_id = 1 THEN 1 ELSE 0 END) as p1_shots,
+                    SUM(CASE WHEN f.is_racket_hit = TRUE AND f.racket_hit_player_id = 2 THEN 1 ELSE 0 END) as p2_shots,
+                    MAX(CASE WHEN f.point_winner = 1 THEN 1 ELSE 0 END) as p1_won,
+                    MAX(CASE WHEN f.point_winner = 2 THEN 1 ELSE 0 END) as p2_won
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.rally_id IS NOT NULL
+                GROUP BY g.game_number, f.rally_id
+            )
+            SELECT
+                game_number,
+                1 as racket_hit_player_id,
+                SUM(p1_shots) as total_shots,
+                SUM(p1_won) as points_won,
+                COUNT(*) as rallies_played,
+                SUM(CASE WHEN p1_won = 1 THEN p1_shots ELSE 0 END) as shots_in_won_rallies
+            FROM game_rally_stats
+            GROUP BY game_number
+            UNION ALL
+            SELECT
+                game_number,
+                2 as racket_hit_player_id,
+                SUM(p2_shots) as total_shots,
+                SUM(p2_won) as points_won,
+                COUNT(*) as rallies_played,
+                SUM(CASE WHEN p2_won = 1 THEN p2_shots ELSE 0 END) as shots_in_won_rallies
+            FROM game_rally_stats
+            GROUP BY game_number
+            ORDER BY game_number, racket_hit_player_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Define metric builder function
+        def build_winning_efficiency(row):
+            shots_per_point = (
+                (row.shots_in_won_rallies / row.points_won)
+                if row.points_won > 0
+                else 0.0
+            )
+            win_rate = (
+                (row.points_won / row.rallies_played * 100)
+                if row.rallies_played > 0
+                else 0.0
+            )
+
+            return WinningEfficiencyData(
+                shots_per_point_won=float(shots_per_point),
+                points_won=int(row.points_won) if row.points_won else 0,
+                total_shots=int(row.total_shots) if row.total_shots else 0,
+                win_rate=float(win_rate),
+                rallies_played=int(row.rallies_played) if row.rallies_played else 0,
+            )
+
+        # Pivot data
+        game_items_data = self._pivot_by_game(
+            results, games_metadata, build_winning_efficiency
+        )
+
+        # Create empty metrics for missing players
+        empty_winning_efficiency = WinningEfficiencyData(
+            shots_per_point_won=0.0,
+            points_won=0,
+            total_shots=0,
+            win_rate=0.0,
+            rallies_played=0,
+        )
+
+        # Convert to response items, filling in empty metrics for missing players
+        game_items = []
+        for item in game_items_data:
+            game_items.append(
+                WinningEfficiencyPerGameItem(
+                    game_number=item["game_number"],
+                    start_rally_id=item["start_rally_id"],
+                    end_rally_id=item["end_rally_id"],
+                    start_time=item["start_time"],
+                    end_time=item["end_time"],
+                    duration=item["duration"],
+                    rally_count=item["rally_count"],
+                    player_1=(
+                        item["player_1"]
+                        if item["player_1"] is not None
+                        else empty_winning_efficiency
+                    ),
+                    player_2=(
+                        item["player_2"]
+                        if item["player_2"] is not None
+                        else empty_winning_efficiency
+                    ),
+                )
+            )
+
+        return WinningEfficiencyPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=game_items,
+            total_games=len(game_items),
+        )
+
+    def get_winning_efficiency_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> WinningEfficiencyPerRallyResponse:
+        """Get winning efficiency metrics per rally with both players' data."""
+        logger.info(f"Computing winning efficiency per-rally for video {video_id}")
+        self._check_processed(video_id)
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+        params["video_id"] = video_id
+
+        # Query per-rally winning efficiency grouped by rally and player
+        query = text(
+            f"""
+            WITH rally_stats AS (
+                SELECT DISTINCT
+                    f.rally_id,
+                    MIN(f.timestamp) as rally_start_time,
+                    MAX(f.timestamp) - MIN(f.timestamp) as rally_duration,
+                    COUNT(CASE WHEN f.is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(f.point_winner) as point_winner,
+                    SUM(CASE WHEN f.is_racket_hit = TRUE AND f.racket_hit_player_id = 1 THEN 1 ELSE 0 END) as p1_shots,
+                    SUM(CASE WHEN f.is_racket_hit = TRUE AND f.racket_hit_player_id = 2 THEN 1 ELSE 0 END) as p2_shots,
+                    MAX(CASE WHEN f.point_winner = 1 THEN 1 ELSE 0 END) as p1_won,
+                    MAX(CASE WHEN f.point_winner = 2 THEN 1 ELSE 0 END) as p2_won
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                GROUP BY f.rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            )
+            SELECT
+                rs.rally_id,
+                rs.rally_start_time,
+                rs.rally_duration,
+                rs.shot_count,
+                rs.point_winner,
+                rgm.game_number,
+                1 as racket_hit_player_id,
+                rs.p1_shots as player_shots,
+                rs.p1_won as won_point
+            FROM rally_stats rs
+            LEFT JOIN rally_game_mapping rgm ON rs.rally_id = rgm.rally_id
+            UNION ALL
+            SELECT
+                rs.rally_id,
+                rs.rally_start_time,
+                rs.rally_duration,
+                rs.shot_count,
+                rs.point_winner,
+                rgm.game_number,
+                2 as racket_hit_player_id,
+                rs.p2_shots as player_shots,
+                rs.p2_won as won_point
+            FROM rally_stats rs
+            LEFT JOIN rally_game_mapping rgm ON rs.rally_id = rgm.rally_id
+            ORDER BY rally_id, racket_hit_player_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Define metric builder function
+        def build_winning_efficiency(row):
+            shots_per_point = float(row.player_shots) if row.won_point == 1 else 0.0
+            win_rate = 100.0 if row.won_point == 1 else 0.0
+
+            return WinningEfficiencyData(
+                shots_per_point_won=shots_per_point,
+                points_won=int(row.won_point) if row.won_point else 0,
+                total_shots=int(row.player_shots) if row.player_shots else 0,
+                win_rate=win_rate,
+                rallies_played=1,  # This is per-rally, so always 1
+            )
+
+        # Pivot data
+        rally_items_data = self._pivot_by_rally(results, build_winning_efficiency)
+
+        # Create empty metrics for missing players
+        empty_winning_efficiency = WinningEfficiencyData(
+            shots_per_point_won=0.0,
+            points_won=0,
+            total_shots=0,
+            win_rate=0.0,
+            rallies_played=0,
+        )
+
+        # Convert to response items, filling in empty metrics for missing players
+        rally_items = []
+        for item in rally_items_data:
+            # Convert -1 point_winner to None (indicates unknown/not set)
+            point_winner = (
+                item["point_winner"] if item["point_winner"] not in [-1, None] else None
+            )
+
+            rally_items.append(
+                WinningEfficiencyPerRallyItem(
+                    rally_id=item["rally_id"],
+                    game_number=item["game_number"],
+                    rally_start_time=item["rally_start_time"],
+                    rally_duration=item["rally_duration"],
+                    shot_count=item["shot_count"],
+                    point_winner=point_winner,
+                    player_1=(
+                        item["player_1"]
+                        if item["player_1"] is not None
+                        else empty_winning_efficiency
+                    ),
+                    player_2=(
+                        item["player_2"]
+                        if item["player_2"] is not None
+                        else empty_winning_efficiency
+                    ),
+                )
+            )
+
+        return WinningEfficiencyPerRallyResponse(
+            video_id=video_id,
+            filters=filters,
+            data=rally_items,
+            total_rallies=len(rally_items),
+        )
+
+    # ============================================================================
+    # RALLY INTENSITY PER-GAME AND PER-RALLY
+    # ============================================================================
+
+    def get_rally_intensity_per_game(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> RallyIntensityPerGameResponse:
+        """Get rally intensity metrics per game (not player-specific)."""
+        logger.info(f"Computing rally intensity per-game for video {video_id}")
+        self._check_processed(video_id)
+
+        # Get game metadata
+        games_metadata = self._get_games_metadata(video_id, filters)
+
+        if not games_metadata:
+            return RallyIntensityPerGameResponse(
+                video_id=video_id, filters=filters, data=[], total_games=0
+            )
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+
+        # Query per-game rally intensity
+        query = text(
+            f"""
+            WITH rally_intensity AS (
+                SELECT
+                    g.game_number,
+                    f.rally_id,
+                    (MAX(f.timestamp) - MIN(f.timestamp)) / NULLIF(COUNT(CASE WHEN f.is_racket_hit = TRUE THEN 1 END), 0) as seconds_per_shot
+                FROM games g
+                JOIN frame_data f ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE g.{where_sql}
+                  AND f.rally_id IS NOT NULL
+                GROUP BY g.game_number, f.rally_id
+            )
+            SELECT
+                game_number,
+                AVG(seconds_per_shot) as avg_seconds_per_shot,
+                MIN(seconds_per_shot) as min_seconds_per_shot,
+                MAX(seconds_per_shot) as max_seconds_per_shot,
+                STDDEV_POP(seconds_per_shot) as std_dev,
+                COUNT(*) as rally_count
+            FROM rally_intensity
+            WHERE seconds_per_shot IS NOT NULL
+            GROUP BY game_number
+            ORDER BY game_number
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build response items
+        game_items = []
+        for game in games_metadata:
+            game_number = game["game_number"]
+            game_row = next((r for r in results if r.game_number == game_number), None)
+
+            if game_row:
+                intensity_data = RallyIntensityData(
+                    avg_seconds_per_shot=(
+                        float(game_row.avg_seconds_per_shot)
+                        if game_row.avg_seconds_per_shot
+                        else 0.0
+                    ),
+                    min_seconds_per_shot=(
+                        float(game_row.min_seconds_per_shot)
+                        if game_row.min_seconds_per_shot
+                        else 0.0
+                    ),
+                    max_seconds_per_shot=(
+                        float(game_row.max_seconds_per_shot)
+                        if game_row.max_seconds_per_shot
+                        else 0.0
+                    ),
+                    std_dev=float(game_row.std_dev) if game_row.std_dev else 0.0,
+                    rally_count=(
+                        int(game_row.rally_count) if game_row.rally_count else 0
+                    ),
+                )
+            else:
+                intensity_data = RallyIntensityData(
+                    avg_seconds_per_shot=0.0,
+                    min_seconds_per_shot=0.0,
+                    max_seconds_per_shot=0.0,
+                    std_dev=0.0,
+                    rally_count=0,
+                )
+
+            game_items.append(
+                RallyIntensityPerGameItem(
+                    game_number=game_number,
+                    start_rally_id=game["start_rally_id"],
+                    end_rally_id=game["end_rally_id"],
+                    start_time=game["start_time"],
+                    end_time=game["end_time"],
+                    duration=game["duration"],
+                    rally_count=game["rally_count"],
+                    data=intensity_data,
+                )
+            )
+
+        return RallyIntensityPerGameResponse(
+            video_id=video_id,
+            filters=filters,
+            data=game_items,
+            total_games=len(game_items),
+        )
+
+    def get_rally_intensity_per_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> RallyIntensityPerRallyResponse:
+        """Get rally intensity metrics per rally (not player-specific)."""
+        logger.info(f"Computing rally intensity per-rally for video {video_id}")
+        self._check_processed(video_id)
+
+        # Build WHERE clause
+        where_sql, params = self._build_where_clause(
+            video_id, filters, include_player_id=False
+        )
+        params["video_id"] = video_id
+
+        # Query per-rally intensity
+        query = text(
+            f"""
+            WITH rally_intensity AS (
+                SELECT
+                    f.rally_id,
+                    MIN(f.timestamp) as rally_start_time,
+                    MAX(f.timestamp) - MIN(f.timestamp) as rally_duration,
+                    COUNT(CASE WHEN f.is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(f.point_winner) as point_winner,
+                    (MAX(f.timestamp) - MIN(f.timestamp)) / NULLIF(COUNT(CASE WHEN f.is_racket_hit = TRUE THEN 1 END), 0) as seconds_per_shot
+                FROM frame_data f
+                WHERE {where_sql}
+                  AND f.rally_id IS NOT NULL
+                GROUP BY f.rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            )
+            SELECT ri.*, rgm.game_number
+            FROM rally_intensity ri
+            LEFT JOIN rally_game_mapping rgm ON ri.rally_id = rgm.rally_id
+            ORDER BY ri.rally_id
+        """
+        )
+
+        results = self.db.execute(query, params).fetchall()
+
+        # Build response items
+        rally_items = []
+        for row in results:
+            # Convert -1 point_winner to None (indicates unknown/not set)
+            point_winner = (
+                row.point_winner if row.point_winner not in [-1, None] else None
+            )
+
+            rally_items.append(
+                RallyIntensityPerRallyItem(
+                    rally_id=row.rally_id,
+                    game_number=row.game_number,
+                    rally_start_time=row.rally_start_time,
+                    rally_duration=row.rally_duration,
+                    shot_count=row.shot_count,
+                    point_winner=point_winner,
+                    seconds_per_shot=(
+                        float(row.seconds_per_shot) if row.seconds_per_shot else None
+                    ),
+                )
+            )
+
+        return RallyIntensityPerRallyResponse(
+            video_id=video_id,
+            filters=filters,
+            data=rally_items,
+            total_rallies=len(rally_items),
+        )
+
+    # ============================================================================
+    # MATCH HIGHLIGHTS
+    # ============================================================================
+
+    def get_longest_rally(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> LongestRallyResponse:
+        """Get the longest rally in the match by duration and shot count."""
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH rally_stats AS (
+                SELECT
+                    rally_id,
+                    MIN(timestamp) as rally_start_time,
+                    MAX(timestamp) - MIN(timestamp) as rally_duration,
+                    COUNT(CASE WHEN is_racket_hit = TRUE THEN 1 END) as shot_count,
+                    MAX(point_winner) as point_winner
+                FROM frame_data
+                WHERE {where_sql} AND rally_id IS NOT NULL
+                GROUP BY rally_id
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            ),
+            longest_rally AS (
+                SELECT rally_id, rally_start_time, rally_duration, shot_count, point_winner
+                FROM rally_stats
+                ORDER BY rally_duration DESC, shot_count DESC
+                LIMIT 1
+            )
+            SELECT lr.*, rgm.game_number
+            FROM longest_rally lr
+            LEFT JOIN rally_game_mapping rgm ON lr.rally_id = rgm.rally_id
+        """
+        )
+
+        result = self.db.execute(query, params).fetchone()
+
+        if not result:
+            raise ValueError(f"No rallies found for video {video_id}")
+
+        # Convert -1 point_winner to None
+        point_winner = result.point_winner if result.point_winner not in [-1, None] else None
+
+        data = LongestRallyData(
+            rally_id=result.rally_id,
+            game_number=result.game_number,
+            rally_start_time=float(result.rally_start_time),
+            rally_duration=float(result.rally_duration),
+            shot_count=result.shot_count,
+            point_winner=point_winner,
+        )
+
+        return LongestRallyResponse(video_id=video_id, filters=filters, data=data)
+
+    def get_fastest_shot(
+        self, video_id: str, filters: AnalyticsFilters
+    ) -> FastestShotResponse:
+        """Get the fastest shot in the match."""
+        where_sql, params = self._build_where_clause(video_id, filters)
+        params["video_id"] = video_id
+
+        query = text(
+            f"""
+            WITH fastest_shot AS (
+                SELECT
+                    frame_number,
+                    timestamp,
+                    rally_id,
+                    racket_hit_player_id as player_id,
+                    ball_speed,
+                    stroke_type,
+                    shot_type
+                FROM frame_data
+                WHERE {where_sql}
+                  AND is_racket_hit = TRUE
+                  AND ball_speed IS NOT NULL
+                  AND racket_hit_player_id IN (1, 2)
+                ORDER BY ball_speed DESC
+                LIMIT 1
+            ),
+            rally_game_mapping AS (
+                SELECT f.rally_id, MIN(g.game_number) as game_number
+                FROM frame_data f
+                JOIN games g ON f.video_id = g.video_id
+                    AND f.rally_id BETWEEN g.start_rally_id AND g.end_rally_id
+                WHERE f.video_id = :video_id
+                GROUP BY f.rally_id
+            )
+            SELECT fs.*, rgm.game_number
+            FROM fastest_shot fs
+            LEFT JOIN rally_game_mapping rgm ON fs.rally_id = rgm.rally_id
+        """
+        )
+
+        result = self.db.execute(query, params).fetchone()
+
+        if not result:
+            raise ValueError(f"No shots with ball speed found for video {video_id}")
+
+        data = FastestShotData(
+            frame_number=result.frame_number,
+            timestamp=float(result.timestamp),
+            rally_id=result.rally_id,
+            game_number=result.game_number,
+            player_id=result.player_id,
+            ball_speed=float(result.ball_speed),
+            stroke_type=result.stroke_type,
+            shot_type=result.shot_type,
+        )
+
+        return FastestShotResponse(video_id=video_id, filters=filters, data=data)

@@ -137,6 +137,7 @@ class VideoService:
         annotated_video_path: str | None = None,
         csv_path: str | None = None,
         stats_path: str | None = None,
+        first_frame_path: str | None = None,
     ) -> Video:
         """Update video with processing output paths."""
         video = self.get_video(video_id)
@@ -147,10 +148,43 @@ class VideoService:
             video.csv_path = csv_path
         if stats_path:
             video.stats_path = stats_path
+        if first_frame_path:
+            video.first_frame_path = first_frame_path
 
         self.db.commit()
         self.db.refresh(video)
         return video
+
+    def update_player_names(
+        self,
+        video_id: str,
+        player_1_name: str | None = None,
+        player_2_name: str | None = None,
+    ) -> Video:
+        """Update player names for a video."""
+        video = self.get_video(video_id)
+
+        if player_1_name is not None:
+            video.player_1_name = player_1_name
+        if player_2_name is not None:
+            video.player_2_name = player_2_name
+
+        self.db.commit()
+        self.db.refresh(video)
+        return video
+
+    def get_first_frame_path(self, video_id: str) -> Path:
+        """Get the path to the first annotated frame."""
+        video = self.get_video(video_id)
+        if not video.first_frame_path:
+            raise HTTPException(status_code=404, detail="First frame not available")
+
+        path = Path(video.first_frame_path)
+        if not path.exists():
+            raise HTTPException(
+                status_code=404, detail="First frame file not found on disk"
+            )
+        return path
 
     def _extract_video_metadata(self, video_path: Path) -> dict:
         """Extract metadata from video file using OpenCV."""

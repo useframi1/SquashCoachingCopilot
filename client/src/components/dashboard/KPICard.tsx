@@ -1,5 +1,12 @@
 import { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 interface KPICardProps {
   title: string;
@@ -25,42 +32,38 @@ export function KPICard({
   className,
 }: KPICardProps) {
   return (
-    <div
-      className={cn(
-        'bg-white p-6 rounded-lg border border-gray-200 hover:shadow-md transition-all duration-200',
-        className
-      )}
+    <Card
+      className={cn('transition-all duration-200 hover:shadow-md', className)}
       role="article"
       aria-label={`${title}: ${value}`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-gray-600">{title}</h3>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+        <CardTitle className="text-base font-semibold">{title}</CardTitle>
         {Icon && (
-          <div className="p-2 bg-red-50 rounded-lg" aria-hidden="true">
-            <Icon className="w-5 h-5 text-red-700" />
+          <div className="p-3 bg-accent rounded-lg" aria-hidden="true">
+            <Icon className="w-6 h-6 text-accent-foreground" />
           </div>
         )}
-      </div>
-
-      <div className="space-y-1">
-        <p className="text-3xl font-bold text-gray-900">{value}</p>
-
-        {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
-
+      </CardHeader>
+      <CardContent className="pb-6">
+        <div className="text-3xl font-bold">{value}</div>
+        {subtitle && (
+          <CardDescription className="mt-2 text-sm">{subtitle}</CardDescription>
+        )}
         {trend && trendValue && (
-          <div
+          <p
             className={cn(
-              'text-sm font-medium',
+              'text-sm font-medium mt-3',
               trend === 'up' && 'text-green-600',
               trend === 'down' && 'text-red-600',
-              trend === 'neutral' && 'text-gray-600'
+              trend === 'neutral' && 'text-muted-foreground'
             )}
             aria-label={`Trend: ${trendValue}`}
           >
             {trendValue}
-          </div>
+          </p>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -12,6 +12,8 @@ from backend.schemas.video import (
     VideoMetadataResponse,
     VideoListResponse,
     VideoDeleteResponse,
+    PlayerNamesUpdate,
+    PlayerNamesResponse,
 )
 from backend.services.video_service import VideoService
 
@@ -58,6 +60,8 @@ async def list_videos(
                 duration_seconds=v.duration_seconds,
                 file_size_bytes=v.file_size_bytes,
                 has_annotated_video=v.annotated_video_path is not None,
+                player_1_name=v.player_1_name,
+                player_2_name=v.player_2_name,
                 uploaded_at=v.uploaded_at,
                 processed_at=v.processed_at,
             )
@@ -87,6 +91,8 @@ async def get_video(
         duration_seconds=video.duration_seconds,
         file_size_bytes=video.file_size_bytes,
         has_annotated_video=video.annotated_video_path is not None,
+        player_1_name=video.player_1_name,
+        player_2_name=video.player_2_name,
         uploaded_at=video.uploaded_at,
         processed_at=video.processed_at,
     )
@@ -128,3 +134,37 @@ async def delete_video(
     """Delete a video and all associated data."""
     service.delete_video(video_id)
     return VideoDeleteResponse(id=video_id, message="Video deleted successfully")
+
+
+@router.patch("/{video_id}/player-names", response_model=PlayerNamesResponse)
+async def update_player_names(
+    video_id: str,
+    player_names: PlayerNamesUpdate,
+    service: VideoService = Depends(get_video_service),
+):
+    """Update player names for a video."""
+    video = service.update_player_names(
+        video_id=video_id,
+        player_1_name=player_names.player_1_name,
+        player_2_name=player_names.player_2_name,
+    )
+    return PlayerNamesResponse(
+        id=video.id,
+        player_1_name=video.player_1_name,
+        player_2_name=video.player_2_name,
+        message="Player names updated successfully",
+    )
+
+
+@router.get("/{video_id}/first-frame")
+async def get_first_frame(
+    video_id: str,
+    service: VideoService = Depends(get_video_service),
+):
+    """Get the first annotated frame of the video."""
+    frame_path = service.get_first_frame_path(video_id)
+    return FileResponse(
+        path=frame_path,
+        media_type="image/jpeg",
+        filename=f"first_frame_{video_id}.jpg",
+    )

@@ -250,8 +250,8 @@ class LLMService:
         """
         messages = []
 
-        # Add system prompt
-        system_prompt = get_system_prompt(video_id, player_id)
+        # Add system prompt (pass db session to include player names)
+        system_prompt = get_system_prompt(video_id, player_id, self.db)
         messages.append({"role": "system", "content": system_prompt})
 
         # Add conversation history (excluding system messages)
@@ -305,14 +305,6 @@ class LLMService:
             result = self.analysis_service.get_wall_quadrant_distribution(
                 video_id, filters
             )
-        elif function_name == "get_shot_placement":
-            # Requires player_id in arguments
-            player_id = arguments.get("player_id")
-            if not player_id:
-                raise ValueError("get_shot_placement requires player_id")
-            result = self.analysis_service.get_shot_placement_effectiveness(
-                video_id, player_id, filters
-            )
         elif function_name == "get_shot_effectiveness":
             # Requires player_id in arguments
             player_id = arguments.get("player_id")
@@ -321,12 +313,12 @@ class LLMService:
             result = self.analysis_service.get_shot_effectiveness(
                 video_id, player_id, filters
             )
-        elif function_name == "get_winning_stats":
+        elif function_name == "get_winning_efficiency":
             # Requires player_id in arguments
             player_id = arguments.get("player_id")
             if not player_id:
-                raise ValueError("get_winning_stats requires player_id")
-            result = self.analysis_service.get_winning_stats(
+                raise ValueError("get_winning_efficiency requires player_id")
+            result = self.analysis_service.get_winning_efficiency(
                 video_id, player_id, filters
             )
         elif function_name == "get_movement_metrics":
@@ -335,6 +327,26 @@ class LLMService:
             result = self.analysis_service.get_t_zone_occupancy(video_id, filters)
         elif function_name == "get_rally_intensity":
             result = self.analysis_service.get_rally_intensity(video_id, filters)
+        elif function_name == "get_player_position_heatmap":
+            result = self.analysis_service.get_player_position_heatmap(
+                video_id, filters
+            )
+        elif function_name == "get_wall_hits_heatmap":
+            result = self.analysis_service.get_wall_hits_heatmap(video_id, filters)
+        elif function_name == "get_rally_timeline":
+            result = self.analysis_service.get_rally_timeline(video_id, filters)
+        elif function_name == "get_momentum_timeline":
+            result = self.analysis_service.get_momentum_timeline(video_id, filters)
+        elif function_name == "get_match_summary":
+            result = self.analysis_service.get_match_summary(video_id)
+        elif function_name == "get_let_stats":
+            result = self.analysis_service.get_let_stats(video_id, filters)
+        elif function_name == "get_break_time":
+            result = self.analysis_service.get_break_time(video_id, filters)
+        elif function_name == "get_longest_rally":
+            result = self.analysis_service.get_longest_rally(video_id, filters)
+        elif function_name == "get_fastest_shot":
+            result = self.analysis_service.get_fastest_shot(video_id, filters)
         else:
             raise ValueError(f"Unknown function: {function_name}")
 
