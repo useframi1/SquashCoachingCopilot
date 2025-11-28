@@ -1,0 +1,30 @@
+{
+  "video_info": {
+    "filename": "original_30fps",
+    "duration_seconds": 600.0,
+    "fps": 30.0,
+    "total_frames": 18000,
+    "resolution": [
+      1280,
+      720
+    ]
+  },
+  "rallies": {
+    "total_rallies": 24,
+    "total_play_time_seconds": 330.53333333333336
+  },
+  "hits": {
+    "wall_hits": 125,
+    "racket_hits": 125
+  },
+  "strokes": {
+    "backhand": 80,
+    "forehand": 45
+  },
+  "shots": {
+    "straight_drive": 57,
+    "cross_court_drive": 34,
+    "straight_drop": 7,
+    "cross_court_drop": 3
+  }
+}

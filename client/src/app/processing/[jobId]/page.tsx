@@ -50,7 +50,7 @@ export default function ProcessingPage() {
             {/* Header */}
             <header className="py-8 px-12 border-b border-gray-200">
                 <h1 className="text-3xl font-bold text-gray-900">
-                    Squash Coaching Copilot
+                    SquashSight
                 </h1>
             </header>
 

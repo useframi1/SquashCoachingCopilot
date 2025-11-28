@@ -428,3 +428,31 @@ export const getTZoneOccupancyPerRally = async (
   );
   return data;
 };
+
+/**
+ * Get movement metrics per rally with both players' data
+ */
+export const getMovementMetricsPerRally = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<any> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get(
+    `/api/analysis/${videoId}/analytics/movement-metrics/per-rally?${params}`
+  );
+  return data;
+};
+
+/**
+ * Get winning efficiency per rally with both players' data
+ */
+export const getWinningEfficiencyPerRally = async (
+  videoId: string,
+  filters: AnalyticsFilters = {}
+): Promise<any> => {
+  const params = buildQueryParams(filters);
+  const { data } = await apiClient.get(
+    `/api/analysis/${videoId}/analytics/winning-efficiency/per-rally?${params}`
+  );
+  return data;
+};

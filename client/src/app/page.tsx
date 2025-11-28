@@ -46,7 +46,7 @@ export default function Home() {
         <div className="h-screen bg-background flex flex-col">
             {/* Header */}
             <header className="py-4 px-8">
-                <h1 className="text-xl font-bold">Squash Coaching Copilot</h1>
+                <h1 className="text-xl font-bold">SquashSight</h1>
             </header>
 
             {/* Main Content */}

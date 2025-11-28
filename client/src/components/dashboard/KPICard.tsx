@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 
 interface KPICardProps {
   title: string;
@@ -16,6 +17,7 @@ interface KPICardProps {
   trend?: 'up' | 'down' | 'neutral';
   trendValue?: string;
   className?: string;
+  infoTooltip?: string;
 }
 
 /**
@@ -30,6 +32,7 @@ export function KPICard({
   trend,
   trendValue,
   className,
+  infoTooltip,
 }: KPICardProps) {
   return (
     <Card
@@ -38,7 +41,10 @@ export function KPICard({
       aria-label={`${title}: ${value}`}
     >
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-base font-semibold">{title}</CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-base font-semibold">{title}</CardTitle>
+          {infoTooltip && <InfoTooltip content={infoTooltip} />}
+        </div>
         {Icon && (
           <div className="p-3 bg-accent rounded-lg" aria-hidden="true">
             <Icon className="w-6 h-6 text-accent-foreground" />

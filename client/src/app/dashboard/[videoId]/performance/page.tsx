@@ -3,19 +3,21 @@
 import {useParams} from "next/navigation";
 import {Zap, TrendingUp, Target, Layers} from "lucide-react";
 import {DualPlayerKPICard} from "@/components/dashboard/DualPlayerKPICard";
+import {PlayerFilterCard} from "@/components/dashboard/PlayerFilterCard";
 import {usePlayerNames} from "@/lib/hooks/usePlayerNames";
 import {DistributionPieChart} from "@/components/charts/DistributionPieChart";
 import {DualPlayerBallSpeedChart} from "@/components/charts/DualPlayerBallSpeedChart";
 import {DualPlayerShotEffectivenessChart} from "@/components/charts/DualPlayerShotEffectivenessChart";
-import {DualPlayerTZoneOccupancyChart} from "@/components/charts/DualPlayerTZoneOccupancyChart";
+import {WinningEfficiencyBarChart} from "@/components/charts/WinningEfficiencyBarChart";
 import {ShotTypeRadarChart} from "@/components/charts/ShotTypeRadarChart";
 import {SquashWallVisualization} from "@/components/charts/SquashWallVisualization";
 import {
-    useStrokeDistribution,
-    useShotTypeDistribution,
-    useWallQuadrants,
-    useWallHitsHeatmap,
+    useStrokeDistributionWithPlayer,
+    useShotTypeDistributionWithPlayer,
+    useWallQuadrantsWithPlayer,
+    useWallHitsHeatmapWithPlayer,
     useShotEffectiveness,
+    useWinningEfficiencyPerRally,
 } from "@/lib/hooks/useAnalytics";
 import {useQuery} from "@tanstack/react-query";
 import {
@@ -23,7 +25,6 @@ import {
     getBallSpeed,
     getBallSpeedPerRally,
     getShotEffectivenessPerRally,
-    getTZoneOccupancyPerRally,
 } from "@/lib/api/analytics";
 import {useFilterStore} from "@/lib/stores/filterStore";
 import {
@@ -41,15 +42,6 @@ export default function PerformancePage() {
     const videoId = params.videoId as string;
     const {gameNumber, startTime, endTime} = useFilterStore();
     const {player1Name, player2Name} = usePlayerNames(videoId);
-
-    const {data: strokeDist, isLoading: strokeLoading} =
-        useStrokeDistribution(videoId);
-    const {data: shotTypeDist, isLoading: shotTypeLoading} =
-        useShotTypeDistribution(videoId);
-    const {data: wallQuad, isLoading: wallQuadLoading} =
-        useWallQuadrants(videoId);
-    const {data: wallHeatmap, isLoading: wallHeatmapLoading} =
-        useWallHitsHeatmap(videoId);
 
     // Per-rally ball speed for both players
     const {data: ballSpeedPerRally, isLoading: ballSpeedPerRallyLoading} =
@@ -90,23 +82,8 @@ export default function PerformancePage() {
         }
     );
 
-    // Per-rally T-zone occupancy for both players
-    const {data: tZonePerRally, isLoading: tZonePerRallyLoading} = useQuery({
-        queryKey: [
-            "t-zone-occupancy-per-rally",
-            videoId,
-            gameNumber,
-            startTime,
-            endTime,
-        ],
-        queryFn: () =>
-            getTZoneOccupancyPerRally(videoId, {
-                game_number: gameNumber ?? undefined,
-                start_time: startTime ?? undefined,
-                end_time: endTime ?? undefined,
-            }),
-        enabled: !!videoId,
-    });
+    // Per-rally winning efficiency for both players
+    const {data: winningEffPerRally, isLoading: winningEffPerRallyLoading} = useWinningEfficiencyPerRally(videoId);
 
     // Ball speed for both players
     const {data: ballSpeedP1, isLoading: ballSpeedP1Loading} = useQuery({
@@ -175,17 +152,13 @@ export default function PerformancePage() {
     });
 
     const isLoading =
-        strokeLoading ||
-        shotTypeLoading ||
         ballSpeedP1Loading ||
         ballSpeedP2Loading ||
         rhythmP1Loading ||
         rhythmP2Loading ||
-        wallQuadLoading ||
-        wallHeatmapLoading ||
         ballSpeedPerRallyLoading ||
         shotEffPerRallyLoading ||
-        tZonePerRallyLoading;
+        winningEffPerRallyLoading;
 
     if (isLoading) {
         return (
@@ -304,29 +277,57 @@ export default function PerformancePage() {
                 {/* Left Column - Stroke, Shot Types, and Wall Visualization */}
                 <div className="lg:col-span-1 space-y-6">
                     {/* Squash Wall Visualization */}
-                    <div className="bg-white p-6 rounded-lg border border-gray-200">
-                        <SquashWallVisualization
-                            heatmapData={wallHeatmap?.data.heatmap_grid}
-                            quadrantData={wallQuad?.data.distribution}
-                            quadrantBoundaries={wallQuad?.quadrant_boundaries}
-                        />
-                    </div>
+                    <PlayerFilterCard
+                        videoId={videoId}
+                        title="Wall Hits Heatmap"
+                    >
+                        {(playerId) => {
+                            const {data: wallHeatmap} = useWallHitsHeatmapWithPlayer(videoId, playerId);
+                            const {data: wallQuad} = useWallQuadrantsWithPlayer(videoId, playerId);
+
+                            return (
+                                <SquashWallVisualization
+                                    heatmapData={wallHeatmap?.data.heatmap_grid}
+                                    quadrantData={wallQuad?.data.distribution}
+                                    quadrantBoundaries={wallQuad?.quadrant_boundaries}
+                                />
+                            );
+                        }}
+                    </PlayerFilterCard>
 
                     {/* Stroke Distribution Pie Chart */}
-                    <div className="bg-white p-6 rounded-lg border border-gray-200">
-                        <DistributionPieChart
-                            data={strokeDist?.data.distribution || []}
-                            title="Stroke Distribution"
-                        />
-                    </div>
+                    <PlayerFilterCard
+                        videoId={videoId}
+                        title="Stroke Distribution"
+                    >
+                        {(playerId) => {
+                            const {data: strokeDist} = useStrokeDistributionWithPlayer(videoId, playerId);
+
+                            return (
+                                <DistributionPieChart
+                                    data={strokeDist?.data.distribution || []}
+                                    title=""
+                                />
+                            );
+                        }}
+                    </PlayerFilterCard>
 
                     {/* Shot Types Radar Chart */}
-                    <div className="bg-white p-6 rounded-lg border border-gray-200">
-                        <ShotTypeRadarChart
-                            data={shotTypeDist?.data.distribution || []}
-                            title="Shot Types"
-                        />
-                    </div>
+                    <PlayerFilterCard
+                        videoId={videoId}
+                        title="Shot Types"
+                    >
+                        {(playerId) => {
+                            const {data: shotTypeDist} = useShotTypeDistributionWithPlayer(videoId, playerId);
+
+                            return (
+                                <ShotTypeRadarChart
+                                    data={shotTypeDist?.data.distribution || []}
+                                    title=""
+                                />
+                            );
+                        }}
+                    </PlayerFilterCard>
                 </div>
 
                 {/* Right Column - Time Series Charts */}
@@ -341,11 +342,11 @@ export default function PerformancePage() {
                         />
                     </div>
 
-                    {/* T-Zone Occupancy Over Time - Both Players */}
+                    {/* Winning Efficiency Over Rallies - Both Players */}
                     <div className="bg-white p-6 rounded-lg border border-gray-200">
-                        <DualPlayerTZoneOccupancyChart
-                            data={tZonePerRally?.data || []}
-                            title="T-Zone Occupancy Over Rallies"
+                        <WinningEfficiencyBarChart
+                            data={winningEffPerRally?.data || []}
+                            title="Winning Efficiency Over Rallies"
                             player1Name={player1Name}
                             player2Name={player2Name}
                         />

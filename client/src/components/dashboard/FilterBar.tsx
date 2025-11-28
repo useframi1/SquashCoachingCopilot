@@ -15,7 +15,6 @@ import { useFilterStore } from '@/lib/stores/filterStore';
 import { useQuery } from '@tanstack/react-query';
 import { getMatchSummary } from '@/lib/api/analytics';
 import { getVideoMetadata } from '@/lib/api/videos';
-import { usePlayerNames } from '@/lib/hooks/usePlayerNames';
 
 interface FilterBarProps {
   videoId: string;
@@ -30,10 +29,8 @@ export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const {
     gameNumber,
-    playerId,
     setVideoId,
     setGameNumber,
-    setPlayerId,
     clearFilters,
   } = useFilterStore();
 
@@ -51,15 +48,12 @@ export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Get player names
-  const { player1Name, player2Name } = usePlayerNames(videoId);
-
   // Set videoId in store when component mounts
   useEffect(() => {
     setVideoId(videoId);
   }, [videoId, setVideoId]);
 
-  const hasActiveFilters = gameNumber !== null || playerId !== null;
+  const hasActiveFilters = gameNumber !== null;
 
   return (
     <>
@@ -106,28 +100,6 @@ export function FilterBar({ videoId, onMenuClick }: FilterBarProps) {
                       Game {game.game_number}
                     </SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Player Filter */}
-            <div className="flex items-center gap-2">
-              <label htmlFor="player-filter" className="text-sm text-muted-foreground">
-                Player:
-              </label>
-              <Select
-                value={playerId?.toString() ?? 'all'}
-                onValueChange={(value) =>
-                  setPlayerId(value === 'all' ? null : (parseInt(value) as 1 | 2))
-                }
-              >
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="All Players" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Players</SelectItem>
-                  <SelectItem value="1">{player1Name}</SelectItem>
-                  <SelectItem value="2">{player2Name}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

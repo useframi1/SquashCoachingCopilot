@@ -297,8 +297,6 @@ export interface RallyTimelineItem {
   rally_duration: number;
   shot_count: number;
   point_winner: 1 | 2 | null;
-  avg_ball_speed: number | null;
-  ball_speed_variance: number | null;
   wall_hit_count: number;
 }
 

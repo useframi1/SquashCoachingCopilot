@@ -23,6 +23,9 @@ import {
   getFastestShot,
   getLetStats,
   getBreakTime,
+  getMovementMetricsPerRally,
+  getTZoneOccupancyPerRally,
+  getWinningEfficiencyPerRally,
 } from '@/lib/api/analytics';
 
 /**
@@ -34,6 +37,20 @@ function useFilters(): AnalyticsFilters {
   return {
     game_number: gameNumber ?? undefined,
     player_id: playerId ?? undefined,
+    start_time: startTime ?? undefined,
+    end_time: endTime ?? undefined,
+  };
+}
+
+/**
+ * Build filters with optional player ID override (for card-level filtering)
+ */
+function useFiltersWithPlayer(playerIdOverride?: 1 | 2 | null): AnalyticsFilters {
+  const { gameNumber, startTime, endTime } = useFilterStore();
+
+  return {
+    game_number: gameNumber ?? undefined,
+    player_id: playerIdOverride ?? undefined,
     start_time: startTime ?? undefined,
     end_time: endTime ?? undefined,
   };
@@ -310,6 +327,178 @@ export function useWallHitsHeatmap(videoId: string) {
   return useQuery({
     queryKey: ['wall-hits-heatmap', videoId, filters],
     queryFn: () => getWallHitsHeatmap(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for movement metrics per rally
+ * Excludes player_id filter since charts show both players
+ */
+export function useMovementMetricsPerRally(videoId: string) {
+  const filters = useFilters();
+
+  // Exclude player_id since charts show both players
+  const { player_id, ...chartFilters } = filters;
+
+  return useQuery({
+    queryKey: ['movement-metrics-per-rally', videoId, chartFilters],
+    queryFn: () => getMovementMetricsPerRally(videoId, chartFilters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for T-zone occupancy per rally
+ * Excludes player_id filter since charts show both players
+ */
+export function useTZoneOccupancyPerRally(videoId: string) {
+  const filters = useFilters();
+
+  // Exclude player_id since charts show both players
+  const { player_id, ...chartFilters } = filters;
+
+  return useQuery({
+    queryKey: ['t-zone-occupancy-per-rally', videoId, chartFilters],
+    queryFn: () => getTZoneOccupancyPerRally(videoId, chartFilters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for winning efficiency per rally
+ * Excludes player_id filter since charts show both players
+ */
+export function useWinningEfficiencyPerRally(videoId: string) {
+  const filters = useFilters();
+
+  // Exclude player_id since charts show both players
+  const { player_id, ...chartFilters } = filters;
+
+  return useQuery({
+    queryKey: ['winning-efficiency-per-rally', videoId, chartFilters],
+    queryFn: () => getWinningEfficiencyPerRally(videoId, chartFilters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for movement metrics for a specific player (ignores global filter)
+ */
+export function useMovementMetricsForPlayer(videoId: string, playerId: 1 | 2) {
+  const filters = useFilters();
+
+  // Override player_id filter for this specific call
+  const playerFilters = { ...filters, player_id: playerId };
+
+  return useQuery({
+    queryKey: ['movement-metrics', videoId, playerFilters],
+    queryFn: () => getMovementMetrics(videoId, playerFilters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for T-zone occupancy for a specific player (ignores global filter)
+ */
+export function useTZoneOccupancyForPlayer(videoId: string, playerId: 1 | 2) {
+  const filters = useFilters();
+
+  // Override player_id filter for this specific call
+  const playerFilters = { ...filters, player_id: playerId };
+
+  return useQuery({
+    queryKey: ['t-zone-occupancy', videoId, playerFilters],
+    queryFn: () => getTZoneOccupancy(videoId, playerFilters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for player position heatmap for a specific player (ignores global filter)
+ */
+export function usePlayerPositionHeatmapForPlayer(videoId: string, playerId: 1 | 2) {
+  const filters = useFilters();
+
+  // Override player_id filter for this specific call
+  const playerFilters = { ...filters, player_id: playerId };
+
+  return useQuery({
+    queryKey: ['player-position-heatmap', videoId, playerFilters],
+    queryFn: () => getPlayerPositionHeatmap(videoId, playerFilters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for court quadrants for a specific player (ignores global filter)
+ */
+export function useCourtQuadrantsForPlayer(videoId: string, playerId: 1 | 2) {
+  const filters = useFilters();
+
+  // Override player_id filter for this specific call
+  const playerFilters = { ...filters, player_id: playerId };
+
+  return useQuery({
+    queryKey: ['court-quadrants', videoId, playerFilters],
+    queryFn: () => getCourtQuadrants(videoId, playerFilters),
+    enabled: !!videoId,
+  });
+}
+
+// ============================================================================
+// CARD-LEVEL PLAYER FILTERING HOOKS
+// These hooks accept an optional playerId parameter for card-level filtering
+// ============================================================================
+
+/**
+ * Hook for wall hits heatmap with optional player filter override
+ */
+export function useWallHitsHeatmapWithPlayer(videoId: string, playerId?: 1 | 2 | null) {
+  const filters = useFiltersWithPlayer(playerId);
+
+  return useQuery({
+    queryKey: ['wall-hits-heatmap', videoId, filters],
+    queryFn: () => getWallHitsHeatmap(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for stroke distribution with optional player filter override
+ */
+export function useStrokeDistributionWithPlayer(videoId: string, playerId?: 1 | 2 | null) {
+  const filters = useFiltersWithPlayer(playerId);
+
+  return useQuery({
+    queryKey: ['stroke-distribution', videoId, filters],
+    queryFn: () => getStrokeDistribution(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for shot type distribution with optional player filter override
+ */
+export function useShotTypeDistributionWithPlayer(videoId: string, playerId?: 1 | 2 | null) {
+  const filters = useFiltersWithPlayer(playerId);
+
+  return useQuery({
+    queryKey: ['shot-type-distribution', videoId, filters],
+    queryFn: () => getShotTypeDistribution(videoId, filters),
+    enabled: !!videoId,
+  });
+}
+
+/**
+ * Hook for wall quadrants with optional player filter override
+ */
+export function useWallQuadrantsWithPlayer(videoId: string, playerId?: 1 | 2 | null) {
+  const filters = useFiltersWithPlayer(playerId);
+
+  return useQuery({
+    queryKey: ['wall-quadrants', videoId, filters],
+    queryFn: () => getWallQuadrants(videoId, filters),
     enabled: !!videoId,
   });
 }

@@ -1,9 +1,8 @@
 'use client';
 
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { RallyTimelineItem } from '@/types/api';
 import { getPlayerColor } from '@/lib/utils/chart-utils';
-import { formatSpeed } from '@/lib/utils/formatters';
 
 interface RallyScatterChartProps {
   data: RallyTimelineItem[];
@@ -11,8 +10,28 @@ interface RallyScatterChartProps {
 }
 
 /**
- * Scatter chart for rally timeline
- * X: Rally number, Y: Rally duration, Size: Shot count, Color: Winner
+ * Custom dot component with variable size based on shot count
+ */
+const CustomDot = (props: any) => {
+  const { cx, cy, payload } = props;
+  const radius = Math.max(3, Math.min(12, payload.shot_count * 0.8)); // Scale radius based on shot count
+  const color = getPlayerColor(payload.point_winner);
+
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={radius}
+      fill={color}
+      stroke={color}
+      strokeWidth={1}
+    />
+  );
+};
+
+/**
+ * Line chart for rally timeline with variable-sized dots
+ * X: Rally number, Y: Rally duration, Dot size: Shot count, Color: Winner
  */
 export function RallyScatterChart({ data, title }: RallyScatterChartProps) {
   if (!data || data.length === 0) {
@@ -23,32 +42,28 @@ export function RallyScatterChart({ data, title }: RallyScatterChartProps) {
     );
   }
 
-  // Transform data for scatter chart
+  // Transform data for line chart
   const chartData = data.map(rally => ({
     ...rally,
-    x: rally.rally_id,
-    y: rally.rally_duration,
-    z: rally.shot_count * 3, // Size multiplier for visibility
+    rally_number: rally.rally_id,
+    duration: rally.rally_duration,
   }));
 
   return (
     <div className="space-y-4">
       {title && <h4 className="text-md font-semibold text-gray-900">{title}</h4>}
       <ResponsiveContainer width="100%" height={400}>
-        <ScatterChart margin={{ top: 20, right: 30, bottom: 20, left: 20 }}>
+        <LineChart data={chartData} margin={{ top: 20, right: 30, bottom: 20, left: 20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
 
           <XAxis
-            type="number"
-            dataKey="x"
+            dataKey="rally_number"
             name="Rally"
             label={{ value: 'Rally Number', position: 'insideBottom', offset: -10 }}
             stroke="#6b7280"
           />
 
           <YAxis
-            type="number"
-            dataKey="y"
             name="Duration"
             label={{ value: 'Rally Duration (s)', angle: -90, position: 'insideLeft' }}
             stroke="#6b7280"
@@ -83,23 +98,21 @@ export function RallyScatterChart({ data, title }: RallyScatterChartProps) {
                         </span>
                       </p>
                     )}
-                    {data.avg_ball_speed !== null && (
-                      <p className="text-gray-700">
-                        Avg Speed: <span className="font-semibold">{formatSpeed(data.avg_ball_speed)}</span>
-                      </p>
-                    )}
                   </div>
                 </div>
               );
             }}
           />
 
-          <Scatter data={chartData} shape="circle">
-            {chartData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={getPlayerColor(entry.point_winner)} />
-            ))}
-          </Scatter>
-        </ScatterChart>
+          <Line
+            type="monotone"
+            dataKey="duration"
+            stroke="#9ca3af"
+            strokeWidth={2}
+            dot={<CustomDot />}
+            activeDot={{ r: 8 }}
+          />
+        </LineChart>
       </ResponsiveContainer>
 
       {/* Legend */}

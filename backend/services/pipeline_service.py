@@ -166,7 +166,7 @@ class PipelineService:
             # Build pipeline config
             config = {
                 "video_path": str(video_path),
-                "max_seconds": 300,  # Process entire video when called from API
+                "max_seconds": 600,  # Process entire video when called from API
                 "output": {
                     "base_directory": str(output_dir),
                     "create_video_subdirectory": False,
